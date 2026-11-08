@@ -1,0 +1,41 @@
+<?php
+/**
+ * Plugin Name: TubeWriter
+ * Description: Pulls a YouTube video's transcript, writes the title, description, chapters, tags and hashtags with Gemini, and pushes them back to YouTube. Bring your own Google and Gemini credentials.
+ * Version: 1.0.0
+ * Author: Gregory S Johnson LLC
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
+ * License: GPL-2.0-or-later
+ * Text Domain: tubewriter
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+define( 'TW_VERSION', '1.0.0' );
+define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
+define( 'TW_URL', plugin_dir_url( __FILE__ ) );
+
+// Desktop OAuth clients accept any loopback redirect. Nothing listens here on purpose:
+// the browser shows a "can't connect" page and the user pastes that URL back into TubeWriter.
+define( 'TW_REDIRECT_URI', 'http://127.0.0.1:8765/' );
+define( 'TW_SCOPE', 'https://www.googleapis.com/auth/youtube.force-ssl' );
+define( 'TW_DEFAULT_MODEL', 'gemini-3.8-flash' );
+
+require_once TW_DIR . 'includes/class-tw-settings.php';
+require_once TW_DIR . 'includes/class-tw-oauth.php';
+require_once TW_DIR . 'includes/class-tw-youtube.php';
+require_once TW_DIR . 'includes/class-tw-transcript.php';
+require_once TW_DIR . 'includes/class-tw-validator.php';
+require_once TW_DIR . 'includes/class-tw-ai.php';
+require_once TW_DIR . 'includes/class-tw-admin.php';
+
+register_activation_hook( __FILE__, array( 'TW_Settings', 'activate' ) );
+
+add_action( 'plugins_loaded', function () {
+	if ( is_admin() ) {
+		new TW_Admin();
+	}
+} );
