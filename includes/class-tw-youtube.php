@@ -33,50 +33,32 @@ class TW_YouTube {
 		return $channel;
 	}
 
-	/** Latest uploads with status (playlistItems.list 1 unit + videos.list 1 unit). */
-	public static function list_videos( $page_token = '' ) {
-		$channel = self::channel();
-		if ( is_wp_error( $channel ) ) {
-			return $channel;
+	/**
+	 * videos.list for up to 50 ids per call, 1 unit per call.
+	 *
+	 * @return array<int, array>|WP_Error
+	 */
+	public static function videos_by_ids( array $ids ) {
+		$ids = array_values( array_filter( array_map( 'strval', $ids ) ) );
+		if ( ! $ids ) {
+			return array();
 		}
-		$args = array( 'part' => 'contentDetails', 'playlistId' => $channel['uploads'], 'maxResults' => 25 );
-		if ( $page_token ) {
-			$args['pageToken'] = $page_token;
-		}
-		$list = self::request( 'GET', 'playlistItems', $args );
-		if ( is_wp_error( $list ) ) {
-			return $list;
-		}
-		$ids = array();
-		foreach ( $list['items'] ?? array() as $item ) {
-			$ids[] = $item['contentDetails']['videoId'];
-		}
-		$videos = array();
-		if ( $ids ) {
-			$data = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,contentDetails', 'id' => implode( ',', $ids ) ) );
+		$out = array();
+		foreach ( array_chunk( $ids, 50 ) as $chunk ) {
+			$data = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,statistics,contentDetails', 'id' => implode( ',', $chunk ), 'maxResults' => 50 ) );
 			if ( is_wp_error( $data ) ) {
 				return $data;
 			}
-			$by_id = array();
-			foreach ( $data['items'] ?? array() as $v ) {
-				$by_id[ $v['id'] ] = $v;
-			}
-			foreach ( $ids as $id ) {
-				if ( isset( $by_id[ $id ] ) ) {
-					$videos[] = $by_id[ $id ];
-				}
+			foreach ( $data['items'] ?? array() as $video ) {
+				$out[] = $video;
 			}
 		}
-		return array(
-			'videos'    => $videos,
-			'next'      => $list['nextPageToken'] ?? '',
-			'prev'      => $list['prevPageToken'] ?? '',
-		);
+		return $out;
 	}
 
 	/** videos.list, 1 unit. */
 	public static function get_video( $video_id ) {
-		$data = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,contentDetails', 'id' => $video_id ) );
+		$data = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,statistics,contentDetails', 'id' => $video_id ) );
 		if ( is_wp_error( $data ) ) {
 			return $data;
 		}
@@ -135,45 +117,64 @@ class TW_YouTube {
 		return $score;
 	}
 
-	/**
-	 * Push title, description, tags and an optional schedule. videos.update, 50 units.
-	 *
-	 * videos.update wipes any writable field left out of a part you send, so we fetch the
-	 * live video first and send back every writable field with only ours changed.
-	 *
-	 * @param string      $video_id
-	 * @param array       $fields   title, description, tags (array)
-	 * @param string|null $publish_at ISO 8601 UTC or null to leave the schedule alone.
-	 */
-	public static function update_video( $video_id, array $fields, $publish_at = null ) {
-		$video = self::get_video( $video_id );
-		if ( is_wp_error( $video ) ) {
-			return $video;
-		}
-		$current = $video['snippet'];
-
-		$snippet = array(
-			'title'       => $fields['title'],
-			'description' => $fields['description'],
-			'tags'        => array_values( $fields['tags'] ),
-			'categoryId'  => $current['categoryId'] ?? '20',
+	/** The fields TubeWriter can change and back up, read from a live video. */
+	public static function snapshot( array $video ) {
+		$sn = $video['snippet'] ?? array();
+		$st = $video['status'] ?? array();
+		return array(
+			'title'                => (string) ( $sn['title'] ?? '' ),
+			'description'          => (string) ( $sn['description'] ?? '' ),
+			'tags'                 => array_values( (array) ( $sn['tags'] ?? array() ) ),
+			'categoryId'           => (string) ( $sn['categoryId'] ?? '20' ),
+			'defaultLanguage'      => (string) ( $sn['defaultLanguage'] ?? '' ),
+			'defaultAudioLanguage' => (string) ( $sn['defaultAudioLanguage'] ?? '' ),
+			'privacyStatus'        => (string) ( $st['privacyStatus'] ?? '' ),
+			'publishAt'            => (string) ( $st['publishAt'] ?? '' ),
 		);
-		if ( ! empty( $current['defaultLanguage'] ) ) {
-			$snippet['defaultLanguage'] = $current['defaultLanguage'];
+	}
+
+	/** Short hash of a snapshot, used to detect changes made on YouTube between Review and Publish. */
+	public static function fingerprint( array $snapshot ) {
+		return substr( md5( wp_json_encode( $snapshot ) ), 0, 12 );
+	}
+
+	/**
+	 * Write details and optionally the schedule. videos.update, 50 units.
+	 *
+	 * videos.update wipes any writable field left out of a part you send, so every writable
+	 * field is sent back: ours where we change it, the live value everywhere else.
+	 *
+	 * @param array  $video    Live video resource (snippet, status) fetched just before.
+	 * @param array  $details  title, description, tags, categoryId, defaultLanguage, defaultAudioLanguage.
+	 * @param string $schedule 'keep', 'set' (with $publish_at) or 'clear' (private, unscheduled).
+	 */
+	public static function write_video( array $video, array $details, $schedule = 'keep', $publish_at = '' ) {
+		$current = $video['snippet'] ?? array();
+		$snippet = array(
+			'title'       => $details['title'],
+			'description' => $details['description'],
+			'tags'        => array_values( $details['tags'] ),
+			'categoryId'  => (string) ( $details['categoryId'] ?: ( $current['categoryId'] ?? '20' ) ),
+		);
+		foreach ( array( 'defaultLanguage', 'defaultAudioLanguage' ) as $lang ) {
+			$value = $details[ $lang ] ?? ( $current[ $lang ] ?? '' );
+			if ( '' !== (string) $value ) {
+				$snippet[ $lang ] = $value;
+			}
 		}
 
-		$body  = array( 'id' => $video_id, 'snippet' => $snippet );
+		$body  = array( 'id' => $video['id'], 'snippet' => $snippet );
 		$parts = array( 'snippet' );
 
-		if ( $publish_at ) {
+		if ( 'keep' !== $schedule ) {
 			$status = $video['status'] ?? array();
 			if ( 'private' !== ( $status['privacyStatus'] ?? '' ) ) {
 				return new WP_Error( 'tw_schedule', 'Only private videos can be scheduled. This one is ' . ( $status['privacyStatus'] ?? 'unknown' ) . '.' );
 			}
-			$new_status = array(
-				'privacyStatus' => 'private',
-				'publishAt'     => $publish_at,
-			);
+			$new_status = array( 'privacyStatus' => 'private' );
+			if ( 'set' === $schedule ) {
+				$new_status['publishAt'] = $publish_at;
+			}
 			foreach ( array( 'embeddable', 'license', 'publicStatsViewable', 'selfDeclaredMadeForKids', 'containsSyntheticMedia' ) as $key ) {
 				if ( array_key_exists( $key, $status ) ) {
 					$new_status[ $key ] = $status[ $key ];
@@ -183,7 +184,288 @@ class TW_YouTube {
 			$parts[]        = 'status';
 		}
 
-		return self::request( 'PUT', 'videos', array( 'part' => implode( ',', $parts ) ), $body );
+		$result = self::request( 'PUT', 'videos', array( 'part' => implode( ',', $parts ) ), $body );
+		return $result;
+	}
+
+	/** The channel's playlists (playlists.list, 1 unit per 50). */
+	public static function playlists() {
+		$out   = array();
+		$token = '';
+		for ( $page = 0; $page < 4; $page++ ) {
+			$args = array( 'part' => 'snippet,status,contentDetails', 'mine' => 'true', 'maxResults' => 50 );
+			if ( $token ) {
+				$args['pageToken'] = $token;
+			}
+			$data = self::request( 'GET', 'playlists', $args );
+			if ( is_wp_error( $data ) ) {
+				return $data;
+			}
+			foreach ( $data['items'] ?? array() as $pl ) {
+				$out[] = array(
+					'id'      => $pl['id'],
+					'title'   => $pl['snippet']['title'] ?? '',
+					'privacy' => $pl['status']['privacyStatus'] ?? '',
+					'count'   => (int) ( $pl['contentDetails']['itemCount'] ?? 0 ),
+				);
+			}
+			$token = $data['nextPageToken'] ?? '';
+			if ( ! $token ) {
+				break;
+			}
+		}
+		usort(
+			$out,
+			function ( $a, $b ) {
+				return strcasecmp( $a['title'], $b['title'] );
+			}
+		);
+		return $out;
+	}
+
+	/** playlists.insert, 50 units. */
+	public static function create_playlist( $title, $description, $privacy = 'public' ) {
+		$data = self::request(
+			'POST',
+			'playlists',
+			array( 'part' => 'snippet,status' ),
+			array(
+				'snippet' => array( 'title' => $title, 'description' => $description ),
+				'status'  => array( 'privacyStatus' => in_array( $privacy, array( 'public', 'unlisted', 'private' ), true ) ? $privacy : 'public' ),
+			)
+		);
+		return is_wp_error( $data ) ? $data : array( 'id' => $data['id'], 'title' => $data['snippet']['title'] ?? $title );
+	}
+
+	/** Is the video already in the playlist? playlistItems.list, 1 unit. */
+	public static function in_playlist( $playlist_id, $video_id ) {
+		$data = self::request( 'GET', 'playlistItems', array( 'part' => 'id', 'playlistId' => $playlist_id, 'videoId' => $video_id ) );
+		if ( is_wp_error( $data ) ) {
+			return $data;
+		}
+		return ! empty( $data['items'] );
+	}
+
+	/** playlistItems.insert, 50 units. Skips silently if it's already there. */
+	public static function add_to_playlist( $playlist_id, $video_id ) {
+		$already = self::in_playlist( $playlist_id, $video_id );
+		if ( is_wp_error( $already ) ) {
+			return $already;
+		}
+		if ( $already ) {
+			return 'already';
+		}
+		$data = self::request(
+			'POST',
+			'playlistItems',
+			array( 'part' => 'snippet' ),
+			array( 'snippet' => array( 'playlistId' => $playlist_id, 'resourceId' => array( 'kind' => 'youtube#video', 'videoId' => $video_id ) ) )
+		);
+		return is_wp_error( $data ) ? $data : 'added';
+	}
+
+	/**
+	 * One page (50) of uploads with everything the index needs. 2 units.
+	 *
+	 * The uploads playlist leaves out scheduled videos and Studio drafts, so this
+	 * page alone is not the whole channel. See playlist_excluded_videos().
+	 *
+	 * @return array{videos: array, next: string, total: int}|WP_Error
+	 */
+	public static function uploads_page( $token = '' ) {
+		$channel = self::channel();
+		if ( is_wp_error( $channel ) ) {
+			return $channel;
+		}
+		$args = array( 'part' => 'contentDetails', 'playlistId' => $channel['uploads'], 'maxResults' => 50 );
+		if ( $token ) {
+			$args['pageToken'] = $token;
+		}
+		$list = self::request( 'GET', 'playlistItems', $args );
+		if ( is_wp_error( $list ) ) {
+			return $list;
+		}
+		$ids  = array();
+		$when = array();
+		foreach ( $list['items'] ?? array() as $item ) {
+			$id = (string) ( $item['contentDetails']['videoId'] ?? '' );
+			if ( '' === $id ) {
+				continue;
+			}
+			$ids[]       = $id;
+			$when[ $id ] = (string) ( $item['contentDetails']['videoPublishedAt'] ?? '' );
+		}
+		$videos = array();
+		if ( $ids ) {
+			$data = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,statistics,contentDetails', 'id' => implode( ',', $ids ), 'maxResults' => 50 ) );
+			if ( is_wp_error( $data ) ) {
+				return $data;
+			}
+			foreach ( $data['items'] ?? array() as $video ) {
+				$videos[] = self::apply_schedule_hint( $video, $when[ $video['id'] ] ?? '' );
+			}
+		}
+		return array(
+			'videos' => $videos,
+			'next'   => $list['nextPageToken'] ?? '',
+			'total'  => (int) ( $list['pageInfo']['totalResults'] ?? count( $videos ) ),
+		);
+	}
+
+	/**
+	 * Scheduled videos and Studio drafts that the uploads playlist leaves out.
+	 *
+	 * The Data API has no "draft" privacyStatus. Studio drafts still come back as
+	 * private, but YouTube often omits them from the uploads playlist the same way
+	 * it omits future scheduled videos. search.list with forMine finds them.
+	 * Each search call costs 1 unit in Google's separate search bucket (100 calls
+	 * a day), then videos.list is 1 unit per 50 on the main quota.
+	 *
+	 * Looks at videos created in the last 120 days, newest first, up to $pages
+	 * pages of 50. Older scheduled or draft uploads are not returned.
+	 *
+	 * @param int $pages How many search pages to read.
+	 * @return array{scheduled: array, drafts: array, error: string, complete: bool}
+	 */
+	public static function playlist_excluded_videos( $pages = 2 ) {
+		$pages     = max( 1, min( 12, (int) $pages ) );
+		$scheduled = array();
+		$drafts    = array();
+		$token     = '';
+		$error     = '';
+		$complete  = true;
+
+		for ( $page = 0; $page < $pages; $page++ ) {
+			$args = array(
+				'part'       => 'snippet',
+				'forMine'    => 'true',
+				'type'       => 'video',
+				'order'      => 'date',
+				'maxResults' => 50,
+			);
+			if ( $token ) {
+				$args['pageToken'] = $token;
+			}
+			$data = self::request( 'GET', 'search', $args );
+			if ( is_wp_error( $data ) ) {
+				$error    = $data->get_error_message();
+				$complete = false;
+				break;
+			}
+			$ids = array();
+			foreach ( $data['items'] ?? array() as $item ) {
+				$id = (string) ( $item['id']['videoId'] ?? '' );
+				if ( '' !== $id ) {
+					$ids[] = $id;
+				}
+			}
+			if ( $ids ) {
+				$videos = self::request( 'GET', 'videos', array( 'part' => 'snippet,status,statistics,contentDetails', 'id' => implode( ',', $ids ), 'maxResults' => 50 ) );
+				if ( is_wp_error( $videos ) ) {
+					$error    = $videos->get_error_message();
+					$complete = false;
+					break;
+				}
+				foreach ( $videos['items'] ?? array() as $video ) {
+					if ( self::is_scheduled( $video ) ) {
+						$scheduled[ $video['id'] ] = $video;
+					} elseif ( self::is_private_unscheduled( $video ) ) {
+						// Caller only indexes these when the uploads playlist missed them.
+						$drafts[ $video['id'] ] = $video;
+					}
+				}
+			}
+			$token = $data['nextPageToken'] ?? '';
+			if ( ! $token ) {
+				break;
+			}
+			if ( $page === $pages - 1 ) {
+				$complete = false;
+			}
+		}
+
+		return array(
+			'scheduled' => array_values( $scheduled ),
+			'drafts'    => array_values( $drafts ),
+			'error'     => $error,
+			'complete'  => $complete,
+		);
+	}
+
+	/** @deprecated Use playlist_excluded_videos(). */
+	public static function scheduled_videos( $pages = 2 ) {
+		$found = self::playlist_excluded_videos( $pages );
+		return array(
+			'videos'   => $found['scheduled'],
+			'error'    => $found['error'],
+			'complete' => $found['complete'],
+		);
+	}
+
+	/** Private, with a publish time still in the future. */
+	public static function is_scheduled( array $video ) {
+		$status = $video['status'] ?? array();
+		if ( 'private' !== ( $status['privacyStatus'] ?? '' ) ) {
+			return false;
+		}
+		$at = strtotime( (string) ( $status['publishAt'] ?? '' ) );
+		return $at && $at > time();
+	}
+
+	/** Private with no future go-live date (includes Studio drafts and finished private uploads). */
+	public static function is_private_unscheduled( array $video ) {
+		$status = $video['status'] ?? array();
+		if ( 'private' !== ( $status['privacyStatus'] ?? '' ) ) {
+			return false;
+		}
+		return ! self::is_scheduled( $video );
+	}
+
+	/**
+	 * If videos.list omitted publishAt, a future playlist publish time on a
+	 * private video is the schedule. Upload times in the past are ignored.
+	 */
+	private static function apply_schedule_hint( array $video, $published_at ) {
+		$status = $video['status'] ?? array();
+		if ( ! empty( $status['publishAt'] ) || 'private' !== ( $status['privacyStatus'] ?? '' ) ) {
+			return $video;
+		}
+		$at = strtotime( (string) $published_at );
+		if ( $at && $at > time() ) {
+			$video['status']['publishAt'] = gmdate( 'Y-m-d\TH:i:s\Z', $at );
+		}
+		return $video;
+	}
+
+	/** Calendar events come from the local index, so the calendar costs no API units. */
+	public static function calendar_events() {
+		return TW_Index::calendar_events();
+	}
+
+	/** Rough count of API units used today (Pacific day, like Google's reset). */
+	public static function quota_used() {
+		$q = get_option( 'tw_quota', array() );
+		return ( ( $q['day'] ?? '' ) === self::quota_day() ) ? (int) $q['used'] : 0;
+	}
+
+	private static function quota_day() {
+		return ( new DateTime( 'now', new DateTimeZone( 'America/Los_Angeles' ) ) )->format( 'Y-m-d' );
+	}
+
+	private static function track_quota( $method, $path ) {
+		if ( 'GET' === $method && 'captions' === $path ) {
+			$cost = 50;
+		} elseif ( 0 === strpos( $path, 'captions/' ) ) {
+			$cost = 200;
+		} elseif ( 'GET' !== $method ) {
+			$cost = 50;
+		} else {
+			$cost = 1;
+		}
+		$day = self::quota_day();
+		$q   = get_option( 'tw_quota', array() );
+		$used = ( ( $q['day'] ?? '' ) === $day ) ? (int) $q['used'] : 0;
+		update_option( 'tw_quota', array( 'day' => $day, 'used' => $used + $cost ), false );
 	}
 
 	/**
@@ -206,6 +488,7 @@ class TW_YouTube {
 		}
 
 		$response = wp_remote_request( $url, $args );
+		self::track_quota( $method, $path );
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}

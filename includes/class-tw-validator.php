@@ -117,7 +117,8 @@ class TW_Validator {
 
 	/** YouTube rejects < and > in titles and descriptions. */
 	public static function clean_text( $text ) {
-		return str_replace( array( '<', '>' ), array( '‹', '›' ), (string) $text );
+		// YouTube rejects < and >. Em dashes are swapped too, by request.
+		return str_replace( array( '<', '>', ' — ', '—' ), array( '‹', '›', ' - ', ' - ' ), (string) $text );
 	}
 
 	public static function clean_tags( array $tags ) {

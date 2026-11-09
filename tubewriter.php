@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TubeWriter
  * Description: Pulls a YouTube video's transcript, writes the title, description, chapters, tags and hashtags with Gemini, and pushes them back to YouTube. Bring your own Google and Gemini credentials.
- * Version: 1.0.0
+ * Version: 2.1.4
  * Author: Gregory S Johnson LLC
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'TW_VERSION', '1.0.0' );
+define( 'TW_VERSION', '2.1.4' );
 define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TW_URL', plugin_dir_url( __FILE__ ) );
 
@@ -30,12 +30,17 @@ require_once TW_DIR . 'includes/class-tw-youtube.php';
 require_once TW_DIR . 'includes/class-tw-transcript.php';
 require_once TW_DIR . 'includes/class-tw-validator.php';
 require_once TW_DIR . 'includes/class-tw-ai.php';
+require_once TW_DIR . 'includes/class-tw-history.php';
+require_once TW_DIR . 'includes/class-tw-plan.php';
+require_once TW_DIR . 'includes/class-tw-index.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 
 register_activation_hook( __FILE__, array( 'TW_Settings', 'activate' ) );
+register_activation_hook( __FILE__, array( 'TW_Index', 'maybe_install' ) );
 
 add_action( 'plugins_loaded', function () {
 	if ( is_admin() ) {
+		require_once TW_DIR . 'includes/class-tw-videos-table.php';
 		new TW_Admin();
 	}
 } );

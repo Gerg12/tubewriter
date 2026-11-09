@@ -21,7 +21,7 @@ Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
   "body": "every part of the description that comes BEFORE the chapter list, with blank lines between paragraphs. Do NOT put chapters or hashtags in here.",
   "chapters_heading": "the heading line that goes above the chapter list, or an empty string",
   "chapters": [{"time": "0:00", "label": "Chapter label"}],
-  "tags": ["12 to 15 tags, no # symbols"],
+  "tags": ["tags as the instructions above say, no # symbols"],
   "hashtags": ["#Five", "#Hashtags"]
 }
 Rules: the first chapter time MUST be "0:00". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return "chapters": [] and never invent times. No < or > characters anywhere.
@@ -54,13 +54,47 @@ TXT;
 		return self::call( $user );
 	}
 
-	private static function call( $user_text ) {
+	/**
+	 * Suggest an SEO-friendly playlist title and description.
+	 *
+	 * @return array{title: string, description: string}|WP_Error
+	 */
+	public static function playlist( $rough_name, array $input ) {
+		$channel = get_option( 'tw_channel' );
+		$system  = 'You write YouTube playlist titles and descriptions that rank in YouTube search for the channel "'
+			. ( $channel['title'] ?? 'this channel' ) . '". '
+			. 'Title: under 60 characters, game name first, then what the playlist is (mode, series, theme). No clickbait, no em dashes, no < or >. '
+			. 'Description: 2 to 3 natural sentences, under 600 characters, that say what viewers get and naturally include the game name and the main search terms. '
+			. 'Respond with ONLY JSON: {"title": "...", "description": "..."}';
+		$user    = "ROUGH PLAYLIST NAME FROM THE CREATOR: " . ( trim( $rough_name ) ?: '(none, infer from the video)' ) . "\n\n"
+			. "VIDEO THIS PLAYLIST STARTS WITH:\n"
+			. 'Title: ' . ( $input['title'] ?? '' ) . "\n"
+			. 'Description: ' . mb_substr( (string) ( $input['description'] ?? '' ), 0, 1500 );
+
+		$json = self::call( $user, $system, true );
+		if ( is_wp_error( $json ) ) {
+			return $json;
+		}
+		return array(
+			'title'       => TW_Validator::clean_text( mb_substr( (string) ( $json['title'] ?? '' ), 0, 150 ) ),
+			'description' => TW_Validator::clean_text( mb_substr( (string) ( $json['description'] ?? '' ), 0, 5000 ) ),
+		);
+	}
+
+	/**
+	 * @param string      $user_text
+	 * @param string|null $system  Override the channel voice prompt + contract.
+	 * @param bool        $raw     Return decoded JSON as-is instead of a parsed package.
+	 */
+	private static function call( $user_text, $system = null, $raw = false ) {
 		$key = TW_Settings::get( 'gemini_key' );
 		if ( ! $key ) {
 			return new WP_Error( 'tw_ai', 'Add your Gemini API key in TubeWriter > Settings.' );
 		}
 		$model  = TW_Settings::get( 'model' );
-		$system = TW_Settings::get( 'prompt' ) . "\n" . self::OUTPUT_CONTRACT;
+		if ( null === $system ) {
+			$system = TW_Settings::get( 'prompt' ) . "\n" . self::OUTPUT_CONTRACT;
+		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
@@ -123,6 +157,10 @@ TXT;
 			return new WP_Error( 'tw_ai', 'Gemini returned nothing (reason: ' . $reason . '). Try again.' );
 		}
 
+		if ( $raw ) {
+			$json = json_decode( preg_replace( '/^```(?:json)?\s*|\s*```$/', '', trim( $text ) ), true );
+			return is_array( $json ) ? $json : new WP_Error( 'tw_ai', 'The AI answer was not valid JSON. Try again.' );
+		}
 		return self::parse_package( $text );
 	}
 

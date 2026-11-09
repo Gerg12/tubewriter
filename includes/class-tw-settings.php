@@ -8,7 +8,36 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class TW_Settings {
 
-	const KEYS = array( 'client_id', 'client_secret', 'gemini_key', 'model', 'prompt' );
+	const KEYS = array( 'client_id', 'client_secret', 'gemini_key', 'model', 'prompt', 'default_time', 'default_language', 'default_category' );
+
+	const DEFAULTS = array(
+		'default_time'     => '18:00',
+		'default_language' => 'en',
+		'default_category' => '20',
+	);
+
+	/** Video language choices (YouTube language codes). */
+	const LANGUAGES = array(
+		'en'    => 'English',
+		'en-US' => 'English (United States)',
+		'en-GB' => 'English (United Kingdom)',
+		'es'    => 'Spanish',
+		'fr'    => 'French',
+		'de'    => 'German',
+		'pt-BR' => 'Portuguese (Brazil)',
+		'ja'    => 'Japanese',
+		'ko'    => 'Korean',
+	);
+
+	/** Common YouTube category ids (US region). */
+	const CATEGORIES = array(
+		'20' => 'Gaming',
+		'24' => 'Entertainment',
+		'23' => 'Comedy',
+		'22' => 'People & Blogs',
+		'28' => 'Science & Technology',
+		'27' => 'Education',
+	);
 
 	public static function activate() {
 		if ( false === get_option( 'tw_prompt', false ) ) {
@@ -30,6 +59,9 @@ class TW_Settings {
 		}
 		if ( 'prompt' === $key && '' === trim( (string) $value ) ) {
 			return self::default_prompt();
+		}
+		if ( isset( self::DEFAULTS[ $key ] ) && '' === (string) $value ) {
+			return self::DEFAULTS[ $key ];
 		}
 		return $value;
 	}
@@ -53,6 +85,13 @@ class TW_Settings {
 
 		$model = sanitize_text_field( wp_unslash( $post['tw_model'] ?? '' ) );
 		self::set( 'model', '' === $model ? TW_DEFAULT_MODEL : $model );
+
+		$time = sanitize_text_field( wp_unslash( $post['tw_default_time'] ?? '' ) );
+		self::set( 'default_time', preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : self::DEFAULTS['default_time'] );
+		$lang = sanitize_text_field( wp_unslash( $post['tw_default_language'] ?? '' ) );
+		self::set( 'default_language', isset( self::LANGUAGES[ $lang ] ) ? $lang : 'en' );
+		$cat = sanitize_text_field( wp_unslash( $post['tw_default_category'] ?? '' ) );
+		self::set( 'default_category', isset( self::CATEGORIES[ $cat ] ) ? $cat : '20' );
 
 		// Prompt is plain text sent to the AI, never rendered as HTML. Keep emoji and quotes intact.
 		$prompt = wp_unslash( $post['tw_prompt'] ?? '' );

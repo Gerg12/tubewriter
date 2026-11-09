@@ -22,7 +22,7 @@ Pulls a YouTube video's transcript, has Gemini write the title, description, cha
 5. **Data Access** page: **Add or remove scopes**, add `https://www.googleapis.com/auth/youtube.force-ssl`, save.
 6. **Clients** page: **Create client**, type **Desktop app**, name it `TubeWriter`, **Create**.
    Copy the **Client ID** and **Client Secret**. The secret is only shown once.
-7. Recommended: back on the **Audience** page click **Publish app** (switch Testing to Production).
+7. On the **Audience** page click **Publish app** (switch Testing to Production). No review is needed for this.
    In Testing mode Google logs you out of TubeWriter every 7 days. After publishing you will see a
    "Google hasn't verified this app" warning when you connect. It is your own app, so click
    **Advanced > Go to TubeWriter (unsafe)** and continue. You only do this once.
@@ -44,15 +44,38 @@ Free tier note: Google may use free-tier prompts and responses to improve its pr
 
 ## Using it
 
-1. **TubeWriter > Videos** lists your latest uploads, private ones included. Click **Write**.
-2. **Pull YouTube captions**, or paste a transcript. SRT, VTT and plain text with timestamps all work.
-   Captions appear a while after the upload finishes processing.
-3. Add **notes**: game, mode, who you played with, what actually happened. The AI trusts notes over the transcript.
-4. **Generate**. Pick a title, edit anything, use **Tweak it** for changes like "make title 3 meaner".
-5. Optional: tick **Schedule publish** (private, never-published videos only).
-6. **Push to YouTube**. It replaces the title, description and tags on the video.
+### Videos page
 
-Drafts are saved per video, so you can come back later.
+Your video list is stored on your WordPress site, so searching and filtering never touch your YouTube quota.
+
+- First time: click **Full sync**. It reads 50 videos per call (2 units per 50, so 1,000 videos is about 40 units) and shows progress. If it stops, everything synced so far is kept.
+- After uploading new videos: **Quick sync** grabs the newest 100 for about 4 units.
+- Tabs filter by visibility: All, Public, Unlisted, Private, Scheduled, Draft.
+- The filter bar has Title contains, visibility, a views range, TubeWriter status (not started, draft ready, published) and rows per page.
+- Studio drafts: YouTube's API has no Draft status, so TubeWriter treats private (unscheduled) videos as drafts. Use **Compare drafts** to move already-indexed private uploads into Draft and add only the ones still missing. It does not re-sync the whole channel.
+- The search box looks in titles and descriptions.
+- Click the Video, Date, Views or Length headings to sort. Page controls are at the top and bottom.
+- View counts update when you sync.
+
+### Editor
+
+Open **TubeWriter > Videos** and click **Edit** on a video. The editor walks you through 6 steps, each with its own instructions at the top. **Nothing on YouTube changes until step 6.** **Save draft** is in the bar at the bottom, and drafts also save every time you change steps.
+
+1. **Source.** Pull captions or paste a transcript, check the starting title and description, add notes. Click **Generate with AI**, or **Fill in by hand** to edit what is on YouTube now.
+2. **Details.** Title, description, chapters, hashtags, tags, category and language. Use **Tweak it with AI** for changes.
+3. **Playlist.** Don't add, add to an existing playlist, or create a new one (**Polish for SEO** writes the title and description).
+4. **Schedule.** Click a day on the calendar. Orange is already scheduled, green is already published, empty days are open. Private videos only.
+5. **Review.** What is on YouTube now next to what it will be after publishing. Red errors block publishing.
+6. **Publish.** Read the list of changes, tick the box, click **Publish changes**, confirm the pop-up. Then do the game title and end screen in Studio (YouTube's API can't set those).
+
+## Safety
+
+- A backup of the current title, description, tags, category, language and schedule is saved before every publish.
+- **Version history** in step 6 lists every backup. **Restore this version** puts it back, and backs up the current version first so you can undo the undo.
+- If the video changed in Studio after your review, publishing stops and asks you to review again.
+- Editing anything after the review locks step 6 until you review again.
+- TubeWriter never deletes videos, playlists or playlist entries.
+- **TubeWriter > History** lists every change across all videos.
 
 ## Rules TubeWriter enforces before pushing
 
@@ -66,9 +89,14 @@ YouTube gives each Google Cloud project 10,000 units a day, reset at midnight Pa
 
 | Action | Units |
 |---|---|
-| Open the video list or a video | 1 to 2 |
+| Open a video in the editor | 1 |
 | Pull captions | 250 |
-| Push | 51 |
+| Review | 1 |
+| Publish | 51, plus 51 to add to a playlist, plus 50 to create one |
+| Full sync | 2 per 50 videos |
+| Quick sync | about 8 (newest 100, plus scheduled videos) |
+| Full sync scheduled check | up to about 16 more, on top of the per-page cost |
+| Videos page, search, filters, calendar | 0 |
 
 That's roughly 30 videos a day if you pull captions for each. Pasting transcripts instead costs almost nothing.
 
