@@ -126,6 +126,7 @@ class TW_Settings {
 			false !== strpos( $brief, 'Prefer none if the image already sells the moment' )
 			|| false !== strpos( $brief, 'A plain gameplay still, a cinematic painting' )
 			|| false !== strpos( $brief, 'The plugin adds the avatar, the GG logo, the bottom-right game logo' )
+			|| false !== strpos( $brief, 'Lower left: the bald brown commander already in the screenshot' )
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
 		}
@@ -136,6 +137,7 @@ class TW_Settings {
 			|| false !== strpos( $render, 'This corner is the inset, never the game logo' )
 			|| false !== strpos( $render, 'Never square. Never portrait. Never 3:2.' )
 			|| false !== strpos( $render, 'The working canvas is taller than 16:9' )
+			|| false !== strpos( $render, 'The recurring avatar is a bald brown-skinned man' )
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}

@@ -164,7 +164,7 @@
 		published: false,
 		shots: [],           // up to 2 pasted screenshots {mime, data, url}
 		refs: [],            // pasted thumbs saved in the Media Library
-		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } }
+		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } },
 		undoPkg: null        // draft from before the last Generate, for Undo
 	};
 
@@ -496,11 +496,37 @@
 	}
 	el.transcript.addEventListener('input', toggleGuide);
 
+	function setPullStatus(text, state) {
+		var status = $('tw-pull-status');
+		if (!status) {
+			return;
+		}
+		status.className = 'tw-pull-status' + (state ? ' is-' + state : '');
+		if (!text) {
+			status.textContent = '';
+			status.hidden = true;
+			return;
+		}
+		status.hidden = false;
+		status.innerHTML = (state === 'working' ? '<span class="tw-spin" aria-hidden="true"></span>' : '') + esc(text);
+	}
+
 	wire($('tw-pull'), 'Pulling...', function () {
+		setPullStatus('Pulling captions from YouTube…', 'working');
 		return call('captions').then(function (d) {
 			el.transcript.value = d.transcript;
 			toggleGuide();
+			var n = (d.transcript || '').trim() ? (d.transcript.trim().split(/\n+/).length) : 0;
+			if (!n) {
+				setPullStatus('No caption text came back. Paste a transcript instead.', 'error');
+				say('No caption text came back. Paste a transcript instead.', 'error');
+				return;
+			}
+			setPullStatus('Pulled ' + n + ' line' + (n === 1 ? '' : 's') + '.', 'success');
 			say('Captions pulled. Add notes, then Generate with AI.', 'success');
+		}).catch(function (e) {
+			setPullStatus(e.message || 'Caption pull failed.', 'error');
+			throw e;
 		});
 	});
 
@@ -1157,12 +1183,87 @@
 		}
 	}
 
+	function guessGameName() {
+		var title = (el.title && el.title.value) || (el.seedTitle && el.seedTitle.value) || '';
+		title = String(title).replace(/\s+/g, ' ').trim();
+		if (!title) {
+			return '';
+		}
+		var cut = title.split(/[:|\-–—]/);
+		return (cut[0] || title).trim();
+	}
+
 	function saveLogos() {
 		return call('thumb_logos_save', {
 			game_logo_id: S.logos.game.id || 0,
 			game_logo_pos: S.logos.game.pos,
 			channel_logo_id: S.logos.channel.id || 0,
-			channel_logo_pos: S.logos.channel.pos
+			channel_logo_pos: S.logos.channel.pos,
+			game_name: guessGameName()
+		}).catch(function (err) { say(err.message, 'error'); });
+	}
+
+	function setGameLogo(item) {
+		if (!item || !item.id) {
+			return;
+		}
+		S.logos.game.id = item.id;
+		S.logos.game.url = item.url;
+		renderLogo('game');
+		renderLogoSuggestions(S.logoSuggestions || []);
+		saveLogos();
+		say('Game logo set. Create thumbnail will send this PNG with the screenshot.', 'success');
+	}
+
+	function renderLogoSuggestions(items) {
+		var box = $('tw-game-logo-suggestions');
+		if (!box) {
+			return;
+		}
+		S.logoSuggestions = items || [];
+		box.innerHTML = '';
+		if (!S.logoSuggestions.length) {
+			var empty = document.createElement('p');
+			empty.className = 'description';
+			empty.textContent = 'No matching logos yet. Upload a transparent PNG to the Media Library, then Find or Choose.';
+			box.appendChild(empty);
+			return;
+		}
+		S.logoSuggestions.forEach(function (item) {
+			var btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'tw-logo-suggestion' + (item.id === S.logos.game.id ? ' is-active' : '');
+			btn.title = item.title || 'Game logo';
+			var img = document.createElement('img');
+			img.src = item.thumb || item.url;
+			img.alt = item.title || 'Game logo';
+			var label = document.createElement('span');
+			label.textContent = item.title || 'Logo';
+			btn.appendChild(img);
+			btn.appendChild(label);
+			btn.addEventListener('click', function () { setGameLogo(item); });
+			box.appendChild(btn);
+		});
+	}
+
+	function findGameLogos(q) {
+		var query = (q || '').trim();
+		if (!query && $('tw-game-logo-search')) {
+			query = $('tw-game-logo-search').value.trim();
+		}
+		if (!query) {
+			query = guessGameName();
+			if ($('tw-game-logo-search') && query) {
+				$('tw-game-logo-search').value = query;
+			}
+		}
+		return call('thumb_logo_search', { q: query, game_name: query }).then(function (d) {
+			renderLogoSuggestions(d.items || []);
+			if ((d.items || []).length === 1 && !S.logos.game.id) {
+				setGameLogo(d.items[0]);
+			} else if (!(d.items || []).length) {
+				say('No logo found for that name. Upload the PNG to the Media Library, then search again.', 'info');
+			}
 		}).catch(function (err) { say(err.message, 'error'); });
 	}
 
@@ -1171,11 +1272,21 @@
 			say('The Media Library did not load. Refresh the page and try again.', 'error');
 			return;
 		}
+		var search = which === 'game' ? (($('tw-game-logo-search') && $('tw-game-logo-search').value.trim()) || guessGameName()) : '';
 		var frame = wp.media({
 			title: which === 'game' ? 'Game logo' : 'Channel logo',
 			button: { text: 'Use this logo' },
-			library: { type: 'image' },
+			library: { type: 'image', search: search },
 			multiple: false
+		});
+		frame.on('open', function () {
+			if (!search || !frame.library) {
+				return;
+			}
+			var lib = frame.state().get('library');
+			if (lib && lib.props) {
+				lib.props.set({ search: search });
+			}
 		});
 		frame.on('select', function () {
 			var att = frame.state().get('selection').first().toJSON();
@@ -1183,6 +1294,9 @@
 			S.logos[which].url = att.url;
 			renderLogo(which);
 			saveLogos();
+			if (which === 'game') {
+				findGameLogos(search || guessGameName());
+			}
 		});
 		frame.open();
 	}
@@ -1222,10 +1336,28 @@
 					S.logos[which].url = '';
 					renderLogo(which);
 					saveLogos();
+					if (which === 'game') {
+						renderLogoSuggestions(S.logoSuggestions || []);
+					}
 				});
 			}
 		});
 		syncLogoForShots();
+		if ($('tw-game-logo-find')) {
+			$('tw-game-logo-find').addEventListener('click', function () { findGameLogos(); });
+		}
+		if ($('tw-game-logo-search')) {
+			$('tw-game-logo-search').addEventListener('keydown', function (e) {
+				if (e.key === 'Enter') {
+					e.preventDefault();
+					findGameLogos();
+				}
+			});
+			if (!$('tw-game-logo-search').value) {
+				$('tw-game-logo-search').value = guessGameName();
+			}
+			findGameLogos($('tw-game-logo-search').value || guessGameName());
+		}
 	}
 
 	if ($('tw-thumb-ref-list')) {

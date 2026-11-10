@@ -20,7 +20,7 @@ class TW_Admin {
 		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
 		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_ref_save', 'thumb_refs', 'thumb_logos_save' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_ref_save', 'thumb_refs', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -466,7 +466,10 @@ class TW_Admin {
 				?>
 				<div class="tw-row">
 					<label for="tw-transcript">Transcript</label>
-					<button type="button" class="button" id="tw-pull">Pull YouTube captions</button>
+					<span class="tw-pull-wrap">
+						<span id="tw-pull-status" class="tw-pull-status" aria-live="polite"></span>
+						<button type="button" class="button" id="tw-pull">Pull YouTube captions</button>
+					</span>
 				</div>
 				<textarea id="tw-transcript" rows="12" class="large-text code" placeholder="Pull captions, or paste a transcript (plain text with timestamps, SRT or VTT all work)."></textarea>
 				<p class="description">Pulling captions costs 250 of your 10,000 daily YouTube API units.</p>
@@ -641,6 +644,11 @@ class TW_Admin {
 						</select>
 						<p class="description" id="tw-game-logo-note">Headline stays top left. With one screenshot the game logo sits top right, or top left if you pick that.</p>
 						<p class="tw-inline">
+							<input type="search" id="tw-game-logo-search" class="regular-text" placeholder="Search logos, e.g. Gates of Hell">
+							<button type="button" class="button" id="tw-game-logo-find">Find</button>
+						</p>
+						<div id="tw-game-logo-suggestions" class="tw-logo-suggestions"></div>
+						<p class="tw-inline">
 							<button type="button" class="button" id="tw-game-logo-pick">Choose from Media Library</button>
 							<button type="button" class="button-link" id="tw-game-logo-clear" hidden>Remove</button>
 						</p>
@@ -662,7 +670,7 @@ class TW_Admin {
 						<img id="tw-channel-logo-preview" class="tw-logo-preview" alt="" hidden>
 					</div>
 				</div>
-				<p class="description">Headline is always top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. A second screenshot becomes a picture-in-picture in the top right, and the game logo moves to the bottom right.</p>
+				<p class="description">Headline is always top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. A second screenshot becomes a picture-in-picture in the top right, and the game logo moves to the bottom right. The lower-left character comes from the screenshot for that video. Search for a real game logo PNG in the Media Library, or upload one and pick it.</p>
 
 				<p class="tw-actions-left">
 					<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
@@ -908,8 +916,19 @@ class TW_Admin {
 		$game_id     = absint( $this->post( 'game_logo_id' ) );
 		$channel_pos = $this->logo_pos( $this->post( 'channel_logo_pos' ), 'lower-left' );
 		$game_pos    = $this->logo_pos( $this->post( 'game_logo_pos' ), 'upper-right' );
+		$game_name   = sanitize_text_field( $this->post( 'game_name' ) );
 		update_option( 'tw_channel_logo_id', $channel_id, false );
 		update_option( 'tw_channel_logo_pos', $channel_pos, false );
+		if ( $game_id && '' !== $game_name ) {
+			update_post_meta( $game_id, '_tw_game_logo', '1' );
+			update_post_meta( $game_id, '_tw_game_logo_name', $game_name );
+			$map = get_option( 'tw_game_logos', array() );
+			if ( ! is_array( $map ) ) {
+				$map = array();
+			}
+			$map[ $this->game_logo_key( $game_name ) ] = $game_id;
+			update_option( 'tw_game_logos', $map, false );
+		}
 		$this->save_state(
 			$this->post( 'video' ),
 			array(
@@ -918,6 +937,153 @@ class TW_Admin {
 			)
 		);
 		wp_send_json_success();
+	}
+
+	public function ajax_thumb_logo_search() {
+		$this->ajax_guard();
+		$query = sanitize_text_field( $this->post( 'q' ) );
+		if ( '' === $query ) {
+			$query = sanitize_text_field( $this->post( 'game_name' ) );
+		}
+		$items = $this->search_game_logos( $query );
+		wp_send_json_success( array( 'items' => $items, 'q' => $query ) );
+	}
+
+	/** Remembered logo for the current draft title, if any. */
+	private function remembered_game_logo_id() {
+		$pkg   = $this->pkg_from_post();
+		$title = trim( (string) ( $pkg['title'] ?? '' ) );
+		if ( '' === $title ) {
+			$title = $this->post( 'current_title' );
+		}
+		$cut = preg_split( '/[:|\-–—]/u', $title );
+		$name = trim( (string) ( $cut[0] ?? $title ) );
+		if ( '' === $name ) {
+			return 0;
+		}
+		$map = get_option( 'tw_game_logos', array() );
+		if ( ! is_array( $map ) ) {
+			return 0;
+		}
+		$key = $this->game_logo_key( $name );
+		return absint( $map[ $key ] ?? 0 );
+	}
+
+	/** @return string */
+	private function game_logo_key( $name ) {
+		$key = strtolower( trim( (string) $name ) );
+		$key = preg_replace( '/[^a-z0-9]+/', '-', $key );
+		return trim( (string) $key, '-' );
+	}
+
+	/**
+	 * Find official logo PNGs already in the Media Library.
+	 *
+	 * @param string $query
+	 * @return array<int, array{id: int, url: string, thumb: string, title: string}>
+	 */
+	private function search_game_logos( $query ) {
+		$query = trim( (string) $query );
+		$items = array();
+		$seen  = array();
+
+		$map = get_option( 'tw_game_logos', array() );
+		if ( is_array( $map ) && '' !== $query ) {
+			$key = $this->game_logo_key( $query );
+			if ( ! empty( $map[ $key ] ) ) {
+				$payload = $this->logo_search_payload( (int) $map[ $key ] );
+				if ( $payload ) {
+					$items[]           = $payload;
+					$seen[ $payload['id'] ] = true;
+				}
+			}
+		}
+
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => 12,
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'post_mime_type' => 'image',
+		);
+		if ( '' !== $query ) {
+			$args['s'] = $query;
+		} else {
+			$args['meta_key']   = '_tw_game_logo';
+			$args['meta_value'] = '1';
+		}
+		$found = new WP_Query( $args );
+		foreach ( $found->posts as $post ) {
+			if ( isset( $seen[ $post->ID ] ) ) {
+				continue;
+			}
+			$payload = $this->logo_search_payload( $post->ID );
+			if ( ! $payload ) {
+				continue;
+			}
+			$items[] = $payload;
+			$seen[ $post->ID ] = true;
+		}
+
+		if ( '' !== $query && count( $items ) < 4 ) {
+			$extra = new WP_Query(
+				array(
+					'post_type'      => 'attachment',
+					'post_status'    => 'inherit',
+					'posts_per_page' => 8,
+					'orderby'        => 'date',
+					'order'          => 'DESC',
+					'post_mime_type' => 'image',
+					'meta_key'       => '_tw_game_logo',
+					'meta_value'     => '1',
+				)
+			);
+			foreach ( $extra->posts as $post ) {
+				if ( isset( $seen[ $post->ID ] ) ) {
+					continue;
+				}
+				$name = (string) get_post_meta( $post->ID, '_tw_game_logo_name', true );
+				if ( '' !== $name && false === stripos( $name, $query ) && false === stripos( $query, $name ) ) {
+					continue;
+				}
+				$payload = $this->logo_search_payload( $post->ID );
+				if ( ! $payload ) {
+					continue;
+				}
+				$items[] = $payload;
+				$seen[ $post->ID ] = true;
+			}
+		}
+
+		return array_slice( $items, 0, 12 );
+	}
+
+	/**
+	 * @param int $id
+	 * @return array{id: int, url: string, thumb: string, title: string}|null
+	 */
+	private function logo_search_payload( $id ) {
+		$id = absint( $id );
+		if ( ! $id ) {
+			return null;
+		}
+		$url = (string) wp_get_attachment_url( $id );
+		if ( '' === $url ) {
+			return null;
+		}
+		$thumb = (string) wp_get_attachment_image_url( $id, 'medium' );
+		$title = get_the_title( $id );
+		$name  = (string) get_post_meta( $id, '_tw_game_logo_name', true );
+		if ( '' !== $name ) {
+			$title = $name;
+		}
+		return array(
+			'id'    => $id,
+			'url'   => $url,
+			'thumb' => '' !== $thumb ? $thumb : $url,
+			'title' => $title,
+		);
 	}
 
 	public function ajax_thumb_ref_save() {
@@ -1381,6 +1547,9 @@ class TW_Admin {
 		foreach ( $specs as $spec ) {
 			$id  = absint( $this->post( $spec[0] ) );
 			$pos = $this->logo_pos( $this->post( $spec[1] ), $spec[3] );
+			if ( 'official game logo' === $spec[2] && ! $id ) {
+				$id = $this->remembered_game_logo_id();
+			}
 			if ( 'official game logo' === $spec[2] && (int) $shot_count > 1 && 'upper-right' === $pos ) {
 				$pos = 'lower-right';
 			}

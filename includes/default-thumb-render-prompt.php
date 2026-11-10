@@ -18,30 +18,23 @@ LAYOUT
 Match this arrangement:
 - The gameplay screenshot fills the whole frame. Grade it. Do not repaint the battlefield, the vehicles, or the soldiers.
 - Upper left: two huge lines from the brief. Line 1 is larger. Line 1 is white distressed heavy block lettering with a thick black shadow and a fiery orange stroke. Line 2 is amber-orange with the same heavy black shadow. Military stencil, chipped, not a thin font. Spell the brief's lines exactly.
-- Upper right: the official game logo, fully inside the frame, smaller than the headline.
-- Lower left: the commander and the GG Gregatron Games logo, grouped, about 100px from the left and bottom edges.
-- Lower right: empty. YouTube covers that corner with a duration badge. Do not put the logo, the face, or text there.
-- Add a picture-in-picture card only when the brief describes one. If it says no inset, do not add a frame. A thick gold frame that shoves the headline off the left edge is a failed thumbnail. An inset, when used, is smaller than the hero, with a thin dark military border.
+- Upper right: the official game logo when there is no inset, fully inside the frame, smaller than the headline.
+- Lower left: the character already in the screenshot, plus the GG Gregatron Games logo, grouped, about 100px from the left and bottom edges.
+- Lower right: empty unless the game logo moved here because of a picture-in-picture. YouTube covers that corner with a duration badge.
+- Add a picture-in-picture card only when the brief describes one. If it says no inset, do not add a frame. A thick gold frame that shoves the headline off the left edge is a failed thumbnail. An inset, when used, is smaller than the hero, with a thin dark military border. When an inset is used, move the game logo to the bottom right, raised above the duration badge.
 
-COMMANDER
-The recurring avatar is a bald brown-skinned man:
-- smooth bald head
-- thick dark eyebrows
-- a simple dark mustache
-- a clean-shaven jaw
-- no goatee, no chin beard, no soul patch
-- a red forehead scar
-- a stern anime expression
-- a small calico cat on his shoulder when the reference shows the cat
-- military clothes that fit this battle
-
-If a supplied screenshot already shows this commander in the lower left, keep that exact drawing. Do not invent a second bald man. Do not redraw his face, mustache, scar, cat, or uniform.
+LOWER-LEFT CHARACTER
+Look at the lower left of the gameplay screenshot. That character changes from video to video.
+- If a character, avatar, or reaction face is already there, keep that exact drawing. Face, outfit, colors, mascot, and pose stay as drawn.
+- Do not invent a different person. Do not swap in a generic bald commander when the screenshot already has someone else.
+- Do not redraw him into a new costume. This video's look is whatever is already in the shot.
+- If the lower left is empty, leave that corner for the GG logo only. Do not invent a face.
 
 GG LOGO
-Stacked mark beside the avatar: large orange GG with a heavy black outline, and GREGATRON GAMES in smaller white block letters underneath. Use this same mark every time. Keep it fully inside the frame and smaller than the headline.
+Stacked mark beside the lower-left character: large orange GG with a heavy black outline, and GREGATRON GAMES in smaller white block letters underneath. If a channel logo file is attached, use that exact file. Keep it fully inside the frame and smaller than the headline.
 
 GAME LOGO
-Use the real logo of the game named in the brief. Do not invent a fake wordmark. Upper right, fully visible, secondary to the hook.
+If an official game logo file is attached, place that exact artwork. Do not invent a fake wordmark. Do not redraw the letters. Prefer the attached PNG over memory.
 
 POLISH
 Deeper shadows, clearer hero subject, brighter muzzle flashes, smoke, and fire that already belong in the shot. The image must still read as the actual game. Do not add a new army, a new tank, or a new building.

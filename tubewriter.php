@@ -2,7 +2,7 @@
 /**
  * Plugin Name: TubeWriter
  * Description: Pulls a YouTube video's transcript, writes the title, description, chapters, tags and hashtags with Gemini, and pushes them back to YouTube. Bring your own Google and Gemini credentials.
- * Version: 2.5.0
+ * Version: 2.5.2
  * Author: Gregory S Johnson LLC
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'TW_VERSION', '2.5.0' );
+define( 'TW_VERSION', '2.5.2' );
 define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TW_URL', plugin_dir_url( __FILE__ ) );
 

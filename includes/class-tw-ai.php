@@ -142,8 +142,8 @@ TXT;
 		$title = trim( (string) ( $pkg['title'] ?? '' ) );
 		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
 		$shots = count( $images ) > 1
-			? 'Image 1 is the hero background. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". If the bald brown commander is already in either shot, say to keep that exact drawing.'
-			: 'Only one screenshot is attached. It is the full-bleed hero. Set inset to "No inset". If the bald brown commander is already in the shot, say to keep that exact drawing.';
+			? 'Image 1 is the hero background. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". Look at the lower left of the screenshots. If a character is already there, say to keep that exact drawing for this video.'
+			: 'Only one screenshot is attached. It is the full-bleed hero. Set inset to "No inset". Look at the lower left. If a character is already there, say to keep that exact drawing for this video.';
 		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
 			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
 			. self::context( $input ) . "\n\n"
@@ -219,13 +219,11 @@ TXT;
 			. "\n"
 			. 'Tactical Inset (Image 2): ' . $inset . "\n"
 			. "\n"
-			. "Commander Avatar (Bottom-Left):\n"
+			. "Lower-Left Character:\n"
 			. "\n"
-			. "If this bald brown commander is already in a supplied screenshot, keep that exact drawing. Do not invent a second face.\n"
+			. "Look at the lower left of the screenshot. That character changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. Do not invent a different person. Do not replace him with a generic commander.\n"
 			. "\n"
-			. "Identity: bald brown-skinned man, smooth bald head, thick dark eyebrows, simple dark mustache, clean-shaven jaw, no goatee, no chin beard, no soul patch, red forehead scar, stern anime expression, small calico cat on his shoulder. Chest-up in the lower left, about 100px from the left and bottom edges, grouped with the GG logo.\n"
-			. "\n"
-			. "The channel logo sits in the bottom left, grouped with the avatar: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the frame, smaller than the headline.\n"
+			. "The channel logo sits in the bottom left beside that character: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the frame, smaller than the headline.\n"
 			. "\n"
 			. "Official Game Logo:\n"
 			. "\n"
@@ -389,8 +387,8 @@ TXT;
 	private static function render_prompt( $description, $shot_count, array $logos = array() ) {
 		$standing = trim( (string) TW_Settings::get( 'thumb_render_prompt' ) );
 		$shots    = (int) $shot_count > 1
-			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Image 2 is a picture-in-picture card in the top right. The headline stays top left. The channel logo stays bottom left. The game logo moves to the bottom right so it does not cover the inset. If the commander is already drawn in a screenshot, keep that exact drawing.'
-			: 'One screenshot is attached. It fills the 16:9 frame. No picture-in-picture. The headline is top left. The channel logo is bottom left. The game logo is top right, or top left if the logo instruction says top left. If the commander is already drawn in the screenshot, keep that exact drawing.';
+			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Image 2 is a picture-in-picture card in the top right. The headline stays top left. The channel logo stays bottom left. The game logo moves to the bottom right so it does not cover the inset. Keep the lower-left character exactly as drawn in the screenshot for this video.'
+			: 'One screenshot is attached. It fills the 16:9 frame. No picture-in-picture. The headline is top left. The channel logo is bottom left. The game logo is top right, or top left if the logo instruction says top left. Keep the lower-left character exactly as drawn in the screenshot for this video.';
 		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
 		$frame = ( '1536x1024' === $size )
 			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep the headline, the game logo, the commander, and the GG logo at least 160px from the top and bottom so that trim does not cut them.'
