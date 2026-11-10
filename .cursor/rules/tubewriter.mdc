@@ -7,12 +7,12 @@ Read CLAUDE.md in the plugin root before changing anything. It is the full archi
 
 Non-negotiable safety rules for this codebase:
 
-- Nothing writes to YouTube except TW_Plan::publish() and TW_Plan::restore(), and both save a TW_History backup first.
+- Nothing writes to YouTube except TW_Plan::publish(), TW_Plan::restore(), and TW_YouTube::set_thumbnail(). Publish and restore save a TW_History backup first. Thumbnail upload is a separate step-3 action with its own confirm(), not part of metadata publish.
 - Never add calls to videos.delete, playlists.delete or playlistItems.delete.
 - videos.update clears any writable field you leave out of a part you send. Always go through TW_YouTube::write_video(), which sends every writable field.
 - Only send the status part when changing the schedule, and copy every writable status field from the live video.
-- Publish must keep the review fingerprint check, the step 6 checkbox and the confirm() pop-up.
-- Any new editor field must call staleReview() on change so step 6 re-locks until a fresh review.
+- Publish must keep the review fingerprint check, the step 7 checkbox and the confirm() pop-up.
+- Any new editor field that affects the YouTube write plan must call staleReview() on change so step 7 re-locks until a fresh review. Thumbnail-only fields are exempt.
 - Game title and end screens have no API. Keep them as manual Studio steps.
 
 Style: plain PHP and vanilla JS, no build step, WordPress APIs, escape all output, check capability and nonce on every handler. UI copy uses no em dashes and no semicolons.

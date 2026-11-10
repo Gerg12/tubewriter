@@ -128,9 +128,10 @@ class TW_OAuth {
 		$data = self::decode( $response );
 		if ( is_wp_error( $data ) ) {
 			if ( false !== strpos( $data->get_error_message(), 'invalid_grant' ) ) {
+				update_option( 'tw_oauth_needs_reconnect', 1, false );
 				return new WP_Error(
 					'tw_expired',
-					'Your YouTube connection expired. If your Google Cloud project is still in Testing mode this happens every 7 days. Reconnect in Settings, or publish the project to Production.'
+					'Your YouTube connection expired. Google is asking you to approve TubeWriter again. Sign in again from TubeWriter > Settings. A project left in Testing mode does this about every 7 days.'
 				);
 			}
 			return $data;
@@ -144,6 +145,11 @@ class TW_OAuth {
 		return ! empty( $tokens['refresh_token'] );
 	}
 
+	/** True after Google rejects the saved login (usually the 7-day Testing-mode cutoff). */
+	public static function needs_reconnect() {
+		return (bool) get_option( 'tw_oauth_needs_reconnect' );
+	}
+
 	public static function disconnect() {
 		$tokens = get_option( 'tw_tokens', array() );
 		if ( ! empty( $tokens['refresh_token'] ) ) {
@@ -151,6 +157,7 @@ class TW_OAuth {
 		}
 		delete_option( 'tw_tokens' );
 		delete_option( 'tw_channel' );
+		delete_option( 'tw_oauth_needs_reconnect' );
 	}
 
 	private static function store_tokens( array $data, $existing_refresh = '' ) {
@@ -163,6 +170,7 @@ class TW_OAuth {
 			),
 			false
 		);
+		delete_option( 'tw_oauth_needs_reconnect' );
 	}
 
 	private static function decode( $response ) {

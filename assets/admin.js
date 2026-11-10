@@ -132,12 +132,13 @@
 	});
 })();
 
-/* TubeWriter editor: a 6 step wizard. Vanilla JS, no build step.
+/* TubeWriter editor: a 7 step wizard. Vanilla JS, no build step.
  *
  * Safety rules enforced here (and again on the server):
- * - Steps 2 to 6 unlock only once there are details to work with.
- * - Step 6 needs a fresh Review. Any edit after Review throws the review away.
+ * - Steps 2 to 7 unlock only once there are details to work with.
+ * - Step 7 needs a fresh Review. Any edit after Review throws the review away.
  * - Publish needs a ticked checkbox plus a confirm pop-up.
+ * - Thumbnail (step 3) never writes to YouTube.
  */
 (function () {
 	'use strict';
@@ -160,7 +161,11 @@
 		playlists: null,
 		events: null,
 		calMonth: null,      // Date at the 1st of the shown month
-		published: false
+		published: false,
+		shots: [],           // up to 2 pasted screenshots {mime, data, url}
+		refs: [],            // pasted thumbs saved in the Media Library
+		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } }
+		undoPkg: null        // draft from before the last Generate, for Undo
 	};
 
 	var el = {
@@ -170,8 +175,14 @@
 		titles: $('tw-titles'), title: $('tw-title'), body: $('tw-body'),
 		heading: $('tw-chapters-heading'), chapters: $('tw-chapters'),
 		tags: $('tw-tags'), hashtags: $('tw-hashtags'),
+		tagCount: $('tw-tag-count'), hashtagCount: $('tw-hashtag-count'),
 		category: $('tw-category'), language: $('tw-language'),
-		preview: $('tw-preview'), descCount: $('tw-desc-count'), tweak: $('tw-tweak'),
+		preview: $('tw-preview'), descCount: $('tw-desc-count'),
+		searchPreview: $('tw-search-preview'), tweak: $('tw-tweak'),
+		thumbZone: $('tw-thumb-zone'), thumbShots: $('tw-thumb-shots'),
+		thumbDesc: $('tw-thumb-desc'), thumbResult: $('tw-thumb-result'),
+		thumbPreview: $('tw-thumb-preview'), thumbDownload: $('tw-thumb-download'),
+		thumbFile: $('tw-thumb-file'), thumbClear: $('tw-thumb-clear'),
 		plSelect: $('tw-pl-select'), plRough: $('tw-pl-rough'), plTitle: $('tw-pl-title'),
 		plDesc: $('tw-pl-desc'), plPrivacy: $('tw-pl-privacy'),
 		schedDate: $('tw-sched-date'), schedTime: $('tw-sched-time'),
@@ -200,14 +211,19 @@
 		}
 	}
 
-	function say(text, type, list) {
+	function say(text, type, list, stay, working) {
 		el.msg.hidden = false;
 		el.msg.className = 'tw-msg tw-msg-' + (type || 'info');
-		el.msg.innerHTML = esc(text);
+		el.msg.innerHTML = (working ? '<span class="tw-spin" aria-hidden="true"></span>' : '') + esc(text);
 		if (list && list.length) {
 			el.msg.innerHTML += '<ul>' + list.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>';
 		}
-		el.msg.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		if ((type || 'info') === 'error' && TW.settingsUrl && /connection expired|not connected|sign in again/i.test(text)) {
+			el.msg.innerHTML += '<p><a class="button" href="' + esc(TW.settingsUrl) + '">Sign in to YouTube again</a></p>';
+		}
+		if (!stay) {
+			el.msg.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		}
 	}
 
 	function clearMsg() {
@@ -215,13 +231,27 @@
 	}
 
 	function busy(button, on, label) {
+		var spinner = button.nextElementSibling;
+		var hasSpinner = spinner && spinner.classList.contains('tw-busy-spinner');
 		if (on) {
 			button.dataset.label = button.textContent;
 			button.textContent = label;
 			button.disabled = true;
+			button.setAttribute('aria-busy', 'true');
+			if (!hasSpinner) {
+				spinner = document.createElement('span');
+				spinner.className = 'tw-spin tw-busy-spinner';
+				spinner.setAttribute('aria-hidden', 'true');
+				button.insertAdjacentElement('afterend', spinner);
+			}
+			spinner.classList.add('is-active');
 		} else {
 			button.textContent = button.dataset.label || button.textContent;
 			button.disabled = false;
+			button.removeAttribute('aria-busy');
+			if (hasSpinner) {
+				spinner.classList.remove('is-active');
+			}
 		}
 	}
 
@@ -342,7 +372,11 @@
 	}
 
 	function saveDraft(quiet) {
-		return call('save', { pkg: JSON.stringify(pkgFromForm()), opts: JSON.stringify(optsFromForm()) }).then(function (d) {
+		return call('save', {
+			pkg: JSON.stringify(pkgFromForm()),
+			opts: JSON.stringify(optsFromForm()),
+			thumb_description: el.thumbDesc ? el.thumbDesc.value : ''
+		}).then(function (d) {
 			el.savedAt.textContent = 'Draft saved ' + d.saved;
 			if (!quiet) {
 				say('Draft saved. Nothing on YouTube changed.', 'success');
@@ -353,34 +387,35 @@
 	/* ================================================================ steps */
 
 	function canGo(n) {
-		if (n === 1) { return true; }
+		if (n === 1 || n === 2) { return true; }
 		if (!S.hasDetails) { return false; }
-		if (n === 6) { return !!(S.plan && !S.plan.errors.length && S.plan.actions.length); }
+		if (n === 7) { return !!(S.plan && !S.plan.errors.length && S.plan.actions.length); }
 		return true;
 	}
 
 	function updateNav() {
+		var onSource = S.step <= 2;
 		document.querySelectorAll('#tw-stepper button').forEach(function (b) {
 			var n = parseInt(b.getAttribute('data-go'), 10);
 			b.classList.toggle('is-current', n === S.step);
-			b.classList.toggle('is-done', n < S.step);
+			b.classList.toggle('is-done', n < S.step && !(onSource && n <= 2));
 			b.disabled = !canGo(n) && n !== S.step;
 		});
 		el.back.disabled = S.step === 1;
-		el.next.hidden = S.step === 6 || (S.step === 1 && !S.hasDetails);
-		if (S.step === 5) {
+		el.next.hidden = S.step === 7 || (S.step === 1 && !S.hasDetails);
+		if (S.step === 6) {
 			el.next.textContent = 'Continue to publish →';
-			el.next.disabled = !canGo(6);
+			el.next.disabled = !canGo(7);
 		} else {
 			el.next.textContent = 'Next →';
-			el.next.disabled = !canGo(S.step + 1);
+			el.next.disabled = S.step === 1 ? false : !canGo(S.step + 1);
 		}
 	}
 
 	function go(n) {
 		if (!canGo(n)) {
-			if (n === 6) {
-				say('Run the Review in step 5 first, and fix any red errors.', 'error');
+			if (n === 7) {
+				say('Run the Review in step 6 first, and fix any red errors.', 'error');
 			} else {
 				say('Generate with AI or click Fill in by hand in step 1 first.', 'error');
 			}
@@ -392,14 +427,27 @@
 		clearMsg();
 		S.step = n;
 		document.querySelectorAll('.tw-step').forEach(function (sec) {
-			sec.hidden = parseInt(sec.getAttribute('data-step'), 10) !== n;
+			var s = parseInt(sec.getAttribute('data-step'), 10);
+			if (n <= 2) {
+				sec.hidden = s > 2;
+			} else {
+				sec.hidden = s !== n;
+			}
 		});
-		if (n === 3) { loadPlaylists(false); }
-		if (n === 4) { loadCalendar(false); }
-		if (n === 5) { runReview(); }
-		if (n === 6) { renderConfirm(); }
+		if (n === 3 && el.thumbZone) { el.thumbZone.focus(); }
+		if (n === 4) { loadPlaylists(false); }
+		if (n === 5) { loadCalendar(false); }
+		if (n === 6) { runReview(); }
+		if (n === 7) { renderConfirm(); }
 		updateNav();
-		root.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		if (n === 2) {
+			var draft = document.querySelector('.tw-step[data-step="2"]');
+			if (draft) {
+				draft.scrollIntoView({ block: 'start', behavior: 'smooth' });
+			}
+		} else {
+			root.scrollIntoView({ block: 'start', behavior: 'smooth' });
+		}
 	}
 
 	document.querySelectorAll('#tw-stepper button').forEach(function (b) {
@@ -409,7 +457,8 @@
 	el.next.addEventListener('click', function () { go(S.step + 1); });
 	wire($('tw-save'), 'Saving...', function () { return saveDraft(false); });
 
-	/* Any edit after a review makes it stale, so step 6 needs a fresh one. */
+	/* Any edit after a review makes it stale, so step 7 needs a fresh one.
+	 * Source (1) and Thumbnail (3) edits do not touch the YouTube write plan. */
 	function staleReview() {
 		if (S.plan) {
 			S.plan = null;
@@ -419,19 +468,22 @@
 		el.publish.disabled = true;
 		updateNav();
 	}
+	function ignoresStale(target) {
+		return !target || target === el.ack ||
+			!!target.closest('.tw-step[data-step="1"]') ||
+			!!target.closest('.tw-step[data-step="3"]');
+	}
 	root.addEventListener('input', function (e) {
-		if (e.target.closest('.tw-step[data-step="1"]') || e.target === el.ack) {
+		if (ignoresStale(e.target)) {
 			return;
 		}
 		staleReview();
 	});
 	root.addEventListener('change', function (e) {
-		if (e.target === el.ack) {
+		if (ignoresStale(e.target)) {
 			return;
 		}
-		if (!e.target.closest('.tw-step[data-step="1"]')) {
-			staleReview();
-		}
+		staleReview();
 	});
 
 	/* ================================================================ step 1 */
@@ -452,37 +504,123 @@
 		});
 	});
 
-	wire($('tw-generate'), 'Writing...', function () {
-		if (!el.transcript.value.trim()) {
-			var info = (isJunkTitle(el.seedTitle.value) ? '' : el.seedTitle.value) + ' ' + el.seedDesc.value + ' ' + el.notes.value;
-			if (info.trim().length < 60) {
-				$('tw-guide').hidden = false;
-				throw new Error('No transcript, so the AI needs more to go on. Skim the video and fill in the starting title, a 2 or 3 sentence description and a few key moments, using the checklist.');
-			}
-		}
-		say('The AI is writing. This can take 20 to 60 seconds.', 'info');
-		return call('generate').then(function (d) {
-			fillDetails(d.pkg);
-			go(2);
-			say('Done. Read everything before moving on.', 'success', d.warnings);
-		});
-	});
-
-	$('tw-manual').addEventListener('click', function () {
-		if (S.hasDetails && !window.confirm('Replace the details in your draft with what is on YouTube right now?')) {
-			return;
-		}
-		fillDetails({
+	function youtubePkg() {
+		return {
 			titles: [],
-			title: cur.title,
-			body: cur.description,
+			title: cur.title || '',
+			body: cur.description || '',
 			chapters_heading: '',
 			chapters: '',
 			tags: cur.tags || [],
 			hashtags: ''
+		};
+	}
+
+	function textProvider() {
+		var sel = $('tw-text-provider');
+		return sel && sel.value === 'openai' ? 'openai' : 'gemini';
+	}
+	function textProviderLabel() {
+		return textProvider() === 'openai' ? 'ChatGPT' : 'Gemini';
+	}
+
+	function descriptionAtRisk() {
+		return !!((el.body.value || '').trim() || (el.title.value || '').trim() || (el.seedDesc.value || '').trim() || (cur.description || '').trim());
+	}
+
+	function showUndo(on) {
+		var note = $('tw-draft-undo');
+		if (note) {
+			note.hidden = !on;
+		}
+	}
+
+	function draftMatchesYoutube() {
+		var tags = Array.isArray(cur.tags) ? cur.tags.join(', ') : (cur.tags || '');
+		return el.title.value === (cur.title || '') && el.body.value === (cur.description || '') && el.tags.value === tags && !el.chapters.value.trim() && !el.hashtags.value.trim();
+	}
+
+	function showReplaceWarn(on) {
+		var note = $('tw-replace-warn');
+		if (note) {
+			note.hidden = !on;
+			if (on) {
+				note.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			}
+		}
+	}
+
+	function startGenerate() {
+		showReplaceWarn(false);
+		var button = $('tw-generate');
+		var previousUndo = S.undoPkg;
+		var undoPkg = S.hasDetails ? pkgFromForm() : youtubePkg();
+		var who = textProviderLabel();
+		busy(button, true, 'Writing...');
+		say(who + ' is writing. This can take 20 to 60 seconds. Nothing is saved to YouTube.', 'info', null, true, true);
+		call('generate', { provider: textProvider() }).then(function (d) {
+			S.undoPkg = undoPkg;
+			fillDetails(d.pkg);
+			showUndo(true);
+			if (S.step === 2) {
+				saveDraft(true).catch(function () {});
+			}
+			go(2);
+			say('Done with ' + who + '. The draft below was replaced. Your starting title, description and notes are still above. Nothing was saved to YouTube.', 'success', d.warnings, true);
+		}).catch(function (e) {
+			S.undoPkg = previousUndo;
+			showUndo(!!previousUndo);
+			say(e.message, 'error');
+		}).finally(function () {
+			busy(button, false);
 		});
+	}
+
+	$('tw-generate').addEventListener('click', function () {
+		if (!el.transcript.value.trim()) {
+			var info = (isJunkTitle(el.seedTitle.value) ? '' : el.seedTitle.value) + ' ' + el.seedDesc.value + ' ' + el.notes.value;
+			if (info.trim().length < 60) {
+				$('tw-guide').hidden = false;
+				say('No transcript, so the AI needs more to go on. Skim the video and fill in the starting title, a 2 or 3 sentence description and a few key moments, using the checklist.', 'error', null, true);
+				return;
+			}
+		}
+		if (descriptionAtRisk()) {
+			showReplaceWarn(true);
+			return;
+		}
+		startGenerate();
+	});
+	if ($('tw-replace-go')) {
+		$('tw-replace-go').addEventListener('click', startGenerate);
+	}
+	if ($('tw-replace-cancel')) {
+		$('tw-replace-cancel').addEventListener('click', function () {
+			showReplaceWarn(false);
+			say('Kept the current description.', 'info', null, true);
+		});
+	}
+
+	$('tw-undo-generate').addEventListener('click', function () {
+		if (!S.undoPkg) {
+			return;
+		}
+		fillDetails(S.undoPkg);
+		S.undoPkg = null;
+		showUndo(false);
+		say('Restored the description from before Generate. Nothing was saved to YouTube.', 'info', null, true);
+		saveDraft(true).catch(function () {});
+	});
+
+	$('tw-manual').addEventListener('click', function () {
+		if (S.hasDetails && !draftMatchesYoutube() && !window.confirm('Replace the details in your draft with what is on YouTube right now?')) {
+			return;
+		}
+		S.undoPkg = null;
+		showUndo(false);
+		fillDetails(youtubePkg());
 		go(2);
-		say('Loaded what is on YouTube now. Edit anything, nothing changes until step 6.', 'info');
+		say('Loaded what is on YouTube now, under your starting notes. Edit anything. Nothing changes until step 7.', 'info', null, true);
 	});
 
 	/* ================================================================ step 2 */
@@ -514,28 +652,73 @@
 		return parts.join('\n\n');
 	}
 
-	function tagCost(str) {
+	function parseTags(str) {
 		var seen = {};
 		return str.split(',').map(function (t) { return t.trim(); }).filter(function (t) {
 			var k = t.toLowerCase();
 			if (!t || seen[k]) { return false; }
 			seen[k] = true;
 			return true;
-		}).reduce(function (sum, t, i) {
+		});
+	}
+
+	function tagCost(list) {
+		return list.reduce(function (sum, t, i) {
 			return sum + t.length + (t.indexOf(' ') > -1 ? 2 : 0) + (i ? 1 : 0);
 		}, 0);
 	}
 
+	function parseHashtags(str) {
+		var seen = {};
+		return str.trim().split(/\s+/).filter(function (t) {
+			if (!t) { return false; }
+			var k = t.toLowerCase();
+			if (seen[k]) { return false; }
+			seen[k] = true;
+			return true;
+		});
+	}
+
 	function refreshCounts() {
 		var desc = assemble();
-		el.preview.textContent = desc;
+		if (el.preview) {
+			el.preview.textContent = desc;
+		}
 		var b = new TextEncoder().encode(desc).length;
-		el.descCount.textContent = b + ' / 5000 bytes';
-		el.descCount.classList.toggle('tw-over', b > 5000);
+		if (el.descCount) {
+			el.descCount.textContent = b + ' / 5000';
+			el.descCount.classList.toggle('tw-warn', b > 4500 && b <= 5000);
+			el.descCount.classList.toggle('tw-over', b > 5000);
+		}
+
+		if (el.searchPreview) {
+			var snippet = desc.replace(/\s+/g, ' ').trim().slice(0, 100);
+			el.searchPreview.textContent = snippet
+				? 'Search preview: ' + snippet + (desc.replace(/\s+/g, ' ').trim().length > 100 ? '...' : '')
+				: 'Search preview: (empty)';
+		}
+
+		var tags = parseTags(el.tags.value);
+		var tagChars = tagCost(tags);
+		var tagN = tags.length;
+		if (el.tagCount) {
+			el.tagCount.textContent = tagN + ' tag' + (tagN === 1 ? '' : 's') + ', ' + tagChars + ' / 500 characters (aim for 4 to 6)';
+			el.tagCount.classList.toggle('tw-warn', tagN > 6 && tagN <= 8);
+			el.tagCount.classList.toggle('tw-over', tagN > 8 || tagChars > 500);
+		}
+
+		var hashes = parseHashtags(el.hashtags.value);
+		var hashN = hashes.length;
+		if (el.hashtagCount) {
+			el.hashtagCount.textContent = hashN + ' hashtag' + (hashN === 1 ? '' : 's') + ' (only 3 show above the title)';
+			el.hashtagCount.classList.toggle('tw-warn', hashN > 3);
+			el.hashtagCount.classList.toggle('tw-over', false);
+		}
+
 		document.querySelectorAll('.tw-count[data-for]').forEach(function (p) {
 			var field = $(p.getAttribute('data-for'));
 			var max = parseInt(p.getAttribute('data-max'), 10);
-			var n = p.getAttribute('data-for') === 'tw-tags' ? tagCost(field.value) : field.value.length;
+			var n = field.value.length;
 			p.textContent = n + ' / ' + max;
 			p.classList.toggle('tw-over', n > max);
 		});
@@ -550,14 +733,628 @@
 		if (!el.tweak.value.trim()) {
 			throw new Error('Type what you want changed.');
 		}
-		return call('revise', { instruction: el.tweak.value, pkg: JSON.stringify(pkgFromForm()) }).then(function (d) {
+		return call('revise', { instruction: el.tweak.value, pkg: JSON.stringify(pkgFromForm()), provider: textProvider() }).then(function (d) {
 			fillDetails(d.pkg);
 			el.tweak.value = '';
 			say('Change applied to your draft.', 'success', d.warnings);
 		});
 	});
 
-	/* ================================================================ step 3 */
+	/* ================================================================ step 3: thumbnail */
+
+	function shotPayload() {
+		return S.shots.map(function (s) {
+			return { mime: s.mime, data: s.data };
+		});
+	}
+
+	function renderShots() {
+		if (!el.thumbShots) {
+			return;
+		}
+		el.thumbShots.innerHTML = '';
+		S.shots.forEach(function (shot, i) {
+			var card = document.createElement('div');
+			card.className = 'tw-thumb-shot';
+			var img = document.createElement('img');
+			img.src = shot.url;
+			img.alt = 'Screenshot ' + (i + 1);
+			var rm = document.createElement('button');
+			rm.type = 'button';
+			rm.className = 'button-link tw-thumb-remove';
+			rm.textContent = 'Remove';
+			rm.addEventListener('click', function (e) {
+				e.stopPropagation();
+				S.shots.splice(i, 1);
+				renderShots();
+			});
+			card.appendChild(img);
+			card.appendChild(rm);
+			el.thumbShots.appendChild(card);
+		});
+		if (el.thumbClear) {
+			el.thumbClear.hidden = !S.shots.length;
+		}
+		if (el.thumbZone) {
+			el.thumbZone.classList.toggle('has-shots', S.shots.length > 0);
+		}
+		syncLogoForShots();
+	}
+
+	function syncLogoForShots() {
+		var note = $('tw-game-logo-note');
+		var game = S.logos.game;
+		if (!game) {
+			return;
+		}
+		if (S.shots.length > 1 && game.pos === 'upper-right') {
+			game.pos = 'lower-right';
+			game.autoPip = true;
+			renderLogo('game');
+			saveLogos();
+		} else if (S.shots.length < 2 && game.autoPip && game.pos === 'lower-right') {
+			game.pos = 'upper-right';
+			game.autoPip = false;
+			renderLogo('game');
+			saveLogos();
+		}
+		if (note) {
+			if (S.shots.length > 1 && game.pos === 'upper-left') {
+				note.textContent = 'The second screenshot is the picture-in-picture in the top right. The game logo stays top left.';
+			} else if (S.shots.length > 1) {
+				note.textContent = 'The second screenshot is the picture-in-picture in the top right, so the game logo moves to the bottom right.';
+			} else {
+				note.textContent = 'Headline stays top left. With one screenshot the game logo sits top right, or top left if you pick that.';
+			}
+		}
+	}
+
+	function readImageFile(file) {
+		return new Promise(function (resolve, reject) {
+			if (!file || !/^image\/(png|jpeg|jpg|webp|gif)$/i.test(file.type)) {
+				reject(new Error('Use a PNG, JPEG, WebP or GIF screenshot.'));
+				return;
+			}
+			var reader = new FileReader();
+			reader.onerror = function () { reject(new Error('Could not read that image.')); };
+			reader.onload = function () {
+				var dataUrl = String(reader.result || '');
+				var img = new Image();
+				img.onload = function () {
+					var max = 1600;
+					var w = img.width;
+					var h = img.height;
+					if (w > max || h > max) {
+						var scale = Math.min(max / w, max / h);
+						w = Math.round(w * scale);
+						h = Math.round(h * scale);
+					}
+					var canvas = document.createElement('canvas');
+					canvas.width = w;
+					canvas.height = h;
+					var ctx = canvas.getContext('2d');
+					ctx.drawImage(img, 0, 0, w, h);
+					var mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+					var out = canvas.toDataURL(mime, 0.88);
+					var comma = out.indexOf(',');
+					resolve({
+						mime: mime,
+						data: out.slice(comma + 1),
+						url: out
+					});
+				};
+				img.onerror = function () { reject(new Error('Could not decode that image.')); };
+				img.src = dataUrl;
+			};
+			reader.readAsDataURL(file);
+		});
+	}
+
+	function addShotFromFile(file) {
+		if (S.shots.length >= 2) {
+			say('Two screenshots max. Remove one first.', 'error');
+			return Promise.resolve();
+		}
+		return readImageFile(file).then(function (shot) {
+			S.shots.push(shot);
+			renderShots();
+			say(S.shots.length === 1 ? 'Screenshot 1 ready. Paste another or write the description.' : 'Both screenshots ready.', 'success');
+		});
+	}
+
+	function takeClipboardImages(e) {
+		var items = e.clipboardData && e.clipboardData.items;
+		if (!items) {
+			return false;
+		}
+		var files = [];
+		for (var i = 0; i < items.length; i++) {
+			if (items[i].type && items[i].type.indexOf('image/') === 0) {
+				var f = items[i].getAsFile();
+				if (f) {
+					files.push(f);
+				}
+			}
+		}
+		if (!files.length) {
+			return false;
+		}
+		e.preventDefault();
+		var chain = Promise.resolve();
+		files.slice(0, 2 - S.shots.length).forEach(function (file) {
+			chain = chain.then(function () { return addShotFromFile(file); });
+			saveReference(file);
+		});
+		chain.catch(function (err) { say(err.message, 'error'); });
+		return true;
+	}
+
+	if (el.thumbZone) {
+		el.thumbZone.addEventListener('click', function (e) {
+			if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) {
+				return;
+			}
+			el.thumbZone.focus();
+		});
+		el.thumbZone.addEventListener('paste', function (e) {
+			if (takeClipboardImages(e)) {
+				e.stopPropagation();
+			}
+		});
+		el.thumbZone.addEventListener('dragover', function (e) {
+			e.preventDefault();
+			el.thumbZone.classList.add('is-drag');
+		});
+		el.thumbZone.addEventListener('dragleave', function () {
+			el.thumbZone.classList.remove('is-drag');
+		});
+		el.thumbZone.addEventListener('drop', function (e) {
+			e.preventDefault();
+			el.thumbZone.classList.remove('is-drag');
+			var files = e.dataTransfer && e.dataTransfer.files;
+			if (!files || !files.length) {
+				return;
+			}
+			var chain = Promise.resolve();
+			Array.prototype.slice.call(files, 0, 2 - S.shots.length).forEach(function (file) {
+				chain = chain.then(function () { return addShotFromFile(file); });
+				saveReference(file);
+			});
+			chain.catch(function (err) { say(err.message, 'error'); });
+		});
+		document.addEventListener('paste', function (e) {
+			if (S.step !== 3) {
+				return;
+			}
+			var t = e.target;
+			if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') && t !== el.thumbZone) {
+				return;
+			}
+			takeClipboardImages(e);
+		});
+	}
+	function addShotFromAttachment(attachment) {
+		var data = attachment.toJSON ? attachment.toJSON() : attachment;
+		var url = data.url || '';
+		var mime = data.mime || 'image/jpeg';
+		if (!url) {
+			return Promise.reject(new Error('That library image has no file URL.'));
+		}
+		return fetch(url, { credentials: 'same-origin' }).then(function (res) {
+			if (!res.ok) {
+				throw new Error('Could not load that image from the Media Library.');
+			}
+			return res.blob();
+		}).then(function (blob) {
+			var type = blob.type && /^image\//.test(blob.type) ? blob.type : mime;
+			var file = new File([blob], data.filename || 'screenshot', { type: type });
+			return addShotFromFile(file);
+		});
+	}
+
+	function openMediaLibrary() {
+		if (S.shots.length >= 2) {
+			say('Two screenshots max. Remove one first.', 'error');
+			return;
+		}
+		if (!window.wp || !wp.media) {
+			if (el.thumbFile) {
+				el.thumbFile.click();
+			}
+			return;
+		}
+		var remaining = 2 - S.shots.length;
+		var frame = wp.media({
+			title: remaining > 1 ? 'Add screenshots' : 'Add a screenshot',
+			button: { text: 'Use image' },
+			library: { type: 'image' },
+			multiple: remaining > 1
+		});
+		frame.on('select', function () {
+			var picked = frame.state().get('selection').toArray().slice(0, 2 - S.shots.length);
+			var chain = Promise.resolve();
+			picked.forEach(function (attachment) {
+				chain = chain.then(function () { return addShotFromAttachment(attachment); });
+			});
+			chain.catch(function (err) { say(err.message, 'error'); });
+		});
+		frame.open();
+	}
+
+	if ($('tw-thumb-add')) {
+		$('tw-thumb-add').addEventListener('click', function (e) {
+			e.preventDefault();
+			e.stopPropagation();
+			openMediaLibrary();
+		});
+	}
+	if (el.thumbFile) {
+		el.thumbFile.addEventListener('change', function () {
+			var file = el.thumbFile.files && el.thumbFile.files[0];
+			el.thumbFile.value = '';
+			if (!file) {
+				return;
+			}
+			saveReference(file);
+			addShotFromFile(file).catch(function (err) { say(err.message, 'error'); });
+		});
+	}
+
+	function saveReference(file) {
+		if (!file) {
+			return;
+		}
+		var data = new FormData();
+		data.append('action', 'tw_thumb_ref_save');
+		data.append('nonce', TW.nonce);
+		data.append('video', boot.videoId || '');
+		data.append('image', file, file.name || 'tw-ref.png');
+		fetch(TW.ajax, { method: 'POST', body: data, credentials: 'same-origin' })
+			.then(function (r) { return r.json(); })
+			.then(function (json) {
+				if (!json.success) {
+					throw new Error(typeof json.data === 'string' ? json.data : 'Could not save that image.');
+				}
+				S.refs = [json.data].concat(S.refs.filter(function (item) { return item.id !== json.data.id; })).slice(0, 24);
+				renderRefs();
+				say('Saved in the Media Library. Click it below to look or copy.', 'success');
+			})
+			.catch(function (err) { say(err.message, 'error'); });
+	}
+
+	function renderRefs() {
+		var list = $('tw-thumb-ref-list');
+		if (!list) {
+			return;
+		}
+		list.innerHTML = '';
+		if (!S.refs.length) {
+			var empty = document.createElement('p');
+			empty.className = 'description';
+			empty.textContent = 'Nothing saved yet. Paste a thumbnail and it stays here.';
+			list.appendChild(empty);
+			return;
+		}
+		S.refs.forEach(function (item) {
+			var card = document.createElement('div');
+			card.className = 'tw-thumb-ref';
+			var img = document.createElement('img');
+			img.src = item.thumb || item.url;
+			img.alt = item.title || 'Saved thumbnail';
+			img.addEventListener('click', function () { openRef(item); });
+			var row = document.createElement('p');
+			row.className = 'tw-inline';
+			var look = document.createElement('button');
+			look.type = 'button';
+			look.className = 'button';
+			look.textContent = 'Look';
+			look.addEventListener('click', function () { openRef(item); });
+			var copy = document.createElement('button');
+			copy.type = 'button';
+			copy.className = 'button';
+			copy.textContent = 'Copy';
+			copy.addEventListener('click', function () { copyRef(item, copy); });
+			row.appendChild(look);
+			row.appendChild(copy);
+			card.appendChild(img);
+			card.appendChild(row);
+			list.appendChild(card);
+		});
+	}
+
+	function openRef(item) {
+		var box = $('tw-thumb-lightbox');
+		var img = $('tw-thumb-lightbox-img');
+		var edit = $('tw-thumb-lightbox-edit');
+		if (!box || !img) {
+			return;
+		}
+		img.src = item.url;
+		img.alt = item.title || 'Saved thumbnail';
+		if (edit) {
+			edit.href = item.edit || item.url;
+		}
+		box.hidden = false;
+		box.dataset.id = String(item.id);
+	}
+
+	function closeRef() {
+		var box = $('tw-thumb-lightbox');
+		if (box) {
+			box.hidden = true;
+		}
+	}
+
+	function copyRef(item, button) {
+		var label = button ? button.textContent : '';
+		fetch(item.url, { credentials: 'same-origin' })
+			.then(function (r) {
+				if (!r.ok) {
+					throw new Error('Could not read that image.');
+				}
+				return r.blob();
+			})
+			.then(function (blob) {
+				if (blob.type === 'image/png') {
+					return blob;
+				}
+				return new Promise(function (resolve, reject) {
+					var img = new Image();
+					img.onload = function () {
+						var canvas = document.createElement('canvas');
+						canvas.width = img.naturalWidth;
+						canvas.height = img.naturalHeight;
+						canvas.getContext('2d').drawImage(img, 0, 0);
+						canvas.toBlob(function (png) {
+							if (png) {
+								resolve(png);
+							} else {
+								reject(new Error('Could not copy that image.'));
+							}
+						}, 'image/png');
+					};
+					img.onerror = function () { reject(new Error('Could not copy that image.')); };
+					img.src = URL.createObjectURL(blob);
+				});
+			})
+			.then(function (png) {
+				if (!navigator.clipboard || !window.ClipboardItem) {
+					throw new Error('This browser cannot copy images. Use Open in Media Library.');
+				}
+				return navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+			})
+			.then(function () {
+				if (button) {
+					button.textContent = 'Copied';
+					setTimeout(function () { button.textContent = label || 'Copy'; }, 1200);
+				}
+				say('Image copied. Paste it wherever you need it.', 'success');
+			})
+			.catch(function (err) { say(err.message, 'error'); });
+	}
+
+	function renderLogo(which) {
+		var logo = S.logos[which];
+		var img = $('tw-' + which + '-logo-preview');
+		var pos = $('tw-' + which + '-logo-pos');
+		var clear = $('tw-' + which + '-logo-clear');
+		if (pos && logo) {
+			pos.value = logo.pos || (which === 'game' ? 'upper-right' : 'lower-left');
+			logo.pos = pos.value;
+		}
+		if (img) {
+			if (logo && logo.url && logo.pos !== 'none') {
+				img.src = logo.url;
+				img.hidden = false;
+				img.alt = which === 'game' ? 'Game logo' : 'Channel logo';
+			} else {
+				img.removeAttribute('src');
+				img.hidden = true;
+			}
+		}
+		if (clear) {
+			clear.hidden = !(logo && logo.id);
+		}
+	}
+
+	function saveLogos() {
+		return call('thumb_logos_save', {
+			game_logo_id: S.logos.game.id || 0,
+			game_logo_pos: S.logos.game.pos,
+			channel_logo_id: S.logos.channel.id || 0,
+			channel_logo_pos: S.logos.channel.pos
+		}).catch(function (err) { say(err.message, 'error'); });
+	}
+
+	function pickLogo(which) {
+		if (!window.wp || !wp.media) {
+			say('The Media Library did not load. Refresh the page and try again.', 'error');
+			return;
+		}
+		var frame = wp.media({
+			title: which === 'game' ? 'Game logo' : 'Channel logo',
+			button: { text: 'Use this logo' },
+			library: { type: 'image' },
+			multiple: false
+		});
+		frame.on('select', function () {
+			var att = frame.state().get('selection').first().toJSON();
+			S.logos[which].id = att.id;
+			S.logos[which].url = att.url;
+			renderLogo(which);
+			saveLogos();
+		});
+		frame.open();
+	}
+
+	if (boot.logos) {
+		['game', 'channel'].forEach(function (which) {
+			var saved = boot.logos[which] || {};
+			S.logos[which] = {
+				id: saved.id || 0,
+				url: saved.url || '',
+				pos: saved.pos || S.logos[which].pos
+			};
+			renderLogo(which);
+			var pos = $('tw-' + which + '-logo-pos');
+			var pick = $('tw-' + which + '-logo-pick');
+			var clear = $('tw-' + which + '-logo-clear');
+			if (pos) {
+				pos.addEventListener('change', function () {
+					S.logos[which].pos = pos.value;
+					if (which === 'game') {
+						S.logos.game.autoPip = false;
+					}
+					var before = S.logos[which].pos;
+					syncLogoForShots();
+					if (S.logos[which].pos === before) {
+						renderLogo(which);
+						saveLogos();
+					}
+				});
+			}
+			if (pick) {
+				pick.addEventListener('click', function () { pickLogo(which); });
+			}
+			if (clear) {
+				clear.addEventListener('click', function () {
+					S.logos[which].id = 0;
+					S.logos[which].url = '';
+					renderLogo(which);
+					saveLogos();
+				});
+			}
+		});
+		syncLogoForShots();
+	}
+
+	if ($('tw-thumb-ref-list')) {
+		call('thumb_refs').then(function (d) {
+			S.refs = d.items || [];
+			renderRefs();
+		}).catch(function () {
+			renderRefs();
+		});
+	}
+	if ($('tw-thumb-lightbox')) {
+		$('tw-thumb-lightbox').addEventListener('click', function (e) {
+			if (e.target === $('tw-thumb-lightbox')) {
+				closeRef();
+			}
+		});
+	}
+	if ($('tw-thumb-lightbox-close')) {
+		$('tw-thumb-lightbox-close').addEventListener('click', closeRef);
+	}
+	if ($('tw-thumb-lightbox-copy')) {
+		$('tw-thumb-lightbox-copy').addEventListener('click', function () {
+			var id = parseInt($('tw-thumb-lightbox').dataset.id, 10);
+			var item = null;
+			S.refs.forEach(function (ref) {
+				if (ref.id === id) {
+					item = ref;
+				}
+			});
+			if (item) {
+				copyRef(item, $('tw-thumb-lightbox-copy'));
+			}
+		});
+	}
+	document.addEventListener('keydown', function (e) {
+		if (e.key === 'Escape') {
+			closeRef();
+		}
+	});
+	if (el.thumbClear) {
+		el.thumbClear.addEventListener('click', function () {
+			S.shots = [];
+			renderShots();
+		});
+	}
+
+	function showThumbResult(url) {
+		if (!el.thumbResult || !url) {
+			return;
+		}
+		el.thumbResult.hidden = false;
+		el.thumbPreview.src = url;
+		if (el.thumbDownload) {
+			el.thumbDownload.href = url;
+			var stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+			el.thumbDownload.setAttribute('download', 'tw-thumb-' + (boot.videoId || 'video') + '-' + stamp + '.png');
+		}
+		if ($('tw-thumb-upload')) {
+			$('tw-thumb-upload').disabled = false;
+		}
+	}
+
+	if ($('tw-thumb-describe')) {
+		wire($('tw-thumb-describe'), 'Writing brief...', function () {
+			if (!S.shots.length) {
+				throw new Error('Paste at least one screenshot first.');
+			}
+			say('Reading the screenshots and drafting a thumbnail brief…', 'info');
+			return call('thumb_describe', {
+				images: JSON.stringify(shotPayload()),
+				pkg: JSON.stringify(pkgFromForm())
+			}).then(function (d) {
+				el.thumbDesc.value = d.description || '';
+				say('Brief ready. Edit it if you want, then create the thumbnail.', 'success');
+			});
+		});
+	}
+
+	if ($('tw-thumb-create')) {
+		wire($('tw-thumb-create'), 'Creating thumbnail...', function () {
+			if (!S.shots.length) {
+				throw new Error('Paste at least one screenshot first.');
+			}
+			if (!el.thumbDesc.value.trim()) {
+				throw new Error('Write or generate a thumbnail description first.');
+			}
+			if (!window.confirm('Create a thumbnail from this description and your pasted screenshots?\n\nThis only generates the image. It does not upload to YouTube yet.')) {
+				return null;
+			}
+			var who = (TW.imageProviderLabel || 'the image model');
+			say('Creating the thumbnail with ' + who + '. This can take a minute.', 'info');
+			return call('thumb_generate', {
+				images: JSON.stringify(shotPayload()),
+				thumb_description: el.thumbDesc.value,
+				pkg: JSON.stringify(pkgFromForm()),
+				game_logo_id: S.logos.game.id || 0,
+				game_logo_pos: S.logos.game.pos,
+				channel_logo_id: S.logos.channel.id || 0,
+				channel_logo_pos: S.logos.channel.pos
+			}).then(function (d) {
+				showThumbResult(d.url);
+				say('Thumbnail ready. Upload to YouTube when you like it, or download a copy.', 'success');
+			});
+		});
+	}
+
+	if ($('tw-thumb-upload')) {
+		wire($('tw-thumb-upload'), 'Uploading...', function () {
+			if (!el.thumbPreview || !el.thumbPreview.src) {
+				throw new Error('Create a thumbnail first, then upload it.');
+			}
+			if (!window.confirm('Upload this thumbnail to YouTube for this video?\n\nThis changes the live thumbnail now (about 50 API units). Metadata publish is separate.')) {
+				return null;
+			}
+			say('Uploading thumbnail to YouTube…', 'info');
+			return call('thumb_upload').then(function (d) {
+				if (d.url) {
+					el.thumbPreview.src = d.url + (d.url.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
+					var head = document.querySelector('.tw-head-thumb img');
+					if (head) {
+						head.src = el.thumbPreview.src;
+					}
+				}
+				say(d.message || 'Thumbnail uploaded to YouTube.', 'success');
+			});
+		});
+	}
+
+	/* ================================================================ step 4 */
 
 	function togglePlaylist() {
 		var m = radio('tw-pl-mode');
@@ -597,7 +1394,7 @@
 		});
 	});
 
-	/* ================================================================ step 4 */
+	/* ================================================================ step 5 */
 
 	var canSchedule = cur.privacyStatus === 'private';
 
@@ -708,7 +1505,7 @@
 	});
 	wire($('tw-cal-refresh'), 'Refreshing...', function () { return loadCalendar(true); });
 
-	/* ================================================================ step 5 */
+	/* ================================================================ step 6 */
 
 	function runReview() {
 		el.review.innerHTML = '<p class="description">Checking against what is on YouTube right now...</p>';
@@ -737,7 +1534,7 @@
 	}
 	wire($('tw-review-reload'), 'Checking...', runReview);
 
-	/* ================================================================ step 6 */
+	/* ================================================================ step 7 */
 
 	function renderConfirm() {
 		$('tw-confirm').hidden = false;
@@ -821,12 +1618,39 @@
 	el.notes.value = saved.notes || '';
 	el.seedTitle.value = typeof saved.seed_title === 'string' ? saved.seed_title : (cur.title || '');
 	el.seedDesc.value = typeof saved.seed_desc === 'string' ? saved.seed_desc : (cur.description || '');
+	if (el.thumbDesc) {
+		el.thumbDesc.value = saved.thumb_description || '';
+	}
+	if (saved.thumb_url) {
+		showThumbResult(saved.thumb_url);
+	}
 	toggleGuide();
 	fillOpts(saved.opts);
 	if (saved.pkg && (saved.pkg.title || saved.pkg.body)) {
 		fillDetails(saved.pkg);
 		S.plan = null;
+	} else if ((cur.title || '').trim() || (cur.description || '').trim()) {
+		fillDetails(youtubePkg());
+		S.plan = null;
 	}
+	renderShots();
 	renderHistory(boot.history);
 	updateNav();
+	(function () {
+		var sel = $('tw-text-provider');
+		if (!sel) {
+			return;
+		}
+		try {
+			var savedProvider = localStorage.getItem('twTextProvider');
+			if (savedProvider === 'openai' || savedProvider === 'gemini') {
+				sel.value = savedProvider;
+			}
+		} catch (e) {}
+		sel.addEventListener('change', function () {
+			try {
+				localStorage.setItem('twTextProvider', sel.value);
+			} catch (err) {}
+		});
+	})();
 })();

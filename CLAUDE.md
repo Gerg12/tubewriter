@@ -8,7 +8,7 @@ Runs on a LocalWP site (or a private hosted WP). Each install connects ONE YouTu
 
 The owner is nervous about overwriting or deleting YouTube data. Every change must keep these guarantees:
 
-1. **Nothing touches YouTube until step 6** of the editor, after a ticked checkbox plus a `confirm()` pop-up.
+1. **Metadata does not touch YouTube until step 7** of the editor, after a ticked checkbox plus a `confirm()` pop-up. The only other YouTube write is optional step-3 thumbnail upload (`TW_YouTube::set_thumbnail()`), which has its own confirm.
 2. **Backup before write.** `TW_Plan::publish()` saves a `TW_History` entry with a snapshot of the live video BEFORE any API write. If the backup fails, it stops.
 3. **Stale review guard.** Review returns a fingerprint of the live video. Publish re-fetches and refuses if the fingerprint changed (someone edited in Studio in between).
 4. **Never delete.** No calls to `videos.delete`, `playlists.delete` or `playlistItems.delete`. Only update and insert. Do not add delete features without the owner asking.
@@ -24,14 +24,16 @@ includes/
   class-tw-oauth.php            Desktop OAuth + PKCE, paste-the-URL connect flow, token refresh
   class-tw-youtube.php          YouTube Data API client: videos, captions, playlists, calendar, quota counter
   class-tw-transcript.php       SRT/VTT to "m:ss text" lines, ISO duration parsing
-  class-tw-validator.php        YouTube limits: chapters (0:00 first, 3+, 10s apart), title 100, description 5000 bytes, tags 500, no < >, em dash swap
-  class-tw-ai.php               Gemini calls: generate, revise, playlist SEO suggestion; fixed JSON output contract
+  class-tw-validator.php        YouTube limits: chapters (0:00 first, 3+, 10s apart), title 100, description 5000 bytes, tags 500 chars / max 8 (aim 4 to 6, drop generics and near-dupes), hashtags max 3, description body warnings, no < >, em dash swap
+  class-tw-ai.php               Gemini calls: generate, revise, playlist SEO, thumbnail describe + image gen; fixed JSON contracts
   class-tw-plan.php             review (diff + action list + fingerprint), publish, restore
   class-tw-history.php          per-video backups (25) and global change log (300)
   class-tw-index.php            local index of all uploads (custom table wp_tw_videos), batched sync, list queries, calendar data
   class-tw-videos-table.php     WP_List_Table for the Videos page: visibility tabs, search, filters, sorting, pagination
   class-tw-admin.php            admin pages (Videos, editor wizard, History, Settings) and all AJAX handlers
   default-prompt.php            default channel voice prompt (editable in Settings)
+  default-thumb-prompt.php      default thumbnail brief prompt (editable in Settings)
+  default-thumb-render-prompt.php  standing image-model instructions (editable in Settings)
 assets/admin.js                 editor wizard, vanilla JS, no build step
 assets/admin.css
 README.md                       end user setup guide
@@ -54,36 +56,37 @@ Do not add per-row API calls to the list page.
 
 1. Source: transcript (pull captions or paste), starting title/description (prefilled from YouTube), notes. Generate with AI, or Fill in by hand.
 2. Details: title options, description body, chapters, hashtags, tags, category, language (sets both defaultLanguage and defaultAudioLanguage).
-3. Playlist: none, existing, or new (AI "Polish for SEO"). Created only at publish.
-4. Schedule: month calendar of scheduled (orange) and published (green) uploads, click a day, default time from Settings. Private videos only.
-5. Review: server builds the plan against the live video, field-by-field diff, errors block publishing.
-6. Publish: action list, checkbox, confirm pop-up, results, Undo, manual Studio checklist, version history.
+3. Thumbnail (optional): paste up to 2 screenshots (Ctrl+V), Gemini writes a brief, user approves, OpenAI or Gemini creates a 16:9 PNG. Standing style rules live in `thumb_render_prompt`. Optional **Upload to YouTube** (`thumbnails.set`, ~50 units, confirm required). Skippable.
+4. Playlist: none, existing, or new (AI "Polish for SEO"). Created only at publish.
+5. Schedule: month calendar of scheduled (orange) and published (green) uploads, click a day, default time from Settings. Private videos only.
+6. Review: server builds the plan against the live video, field-by-field diff, errors block publishing.
+7. Publish: action list, checkbox, confirm pop-up, results, Undo, manual Studio checklist, version history.
 
-Any edit after Review makes the review stale (`staleReview()`), which re-locks step 6.
+Any edit after Review makes the review stale (`staleReview()`), which re-locks step 7. Source and Thumbnail edits do not stale the review.
 
 ## Things the API cannot do (keep them manual)
 
 - Game title (no API field)
 - End screens and cards (no API)
 
-Step 6 links to Studio with instructions for these.
+Custom thumbnails can be uploaded from step 3 via `thumbnails.set` (channel must be verified). Step 7 still links to Studio for game title and end screens.
 
 ## Data storage (wp_options, all autoload off)
 
-- `tw_client_id`, `tw_client_secret`, `tw_gemini_key`, `tw_model`, `tw_prompt`, `tw_default_time`, `tw_default_language`, `tw_default_category`
+- `tw_client_id`, `tw_client_secret`, `tw_gemini_key`, `tw_openai_key`, `tw_model`, `tw_image_provider`, `tw_image_model`, `tw_openai_image_model`, `tw_openai_image_quality`, `tw_prompt`, `tw_thumb_prompt`, `tw_thumb_render_prompt`, `tw_default_time`, `tw_default_language`, `tw_default_category`
 - `tw_tokens` (access, refresh, expiry), `tw_channel` (id, title, uploads playlist)
-- `tw_state_{videoId}`: draft (transcript, notes, seed title/desc, pkg, opts)
+- `tw_state_{videoId}`: draft (transcript, notes, seed title/desc, pkg, opts, thumb_description, thumb_url)
 - `tw_history_{videoId}`: backups; `tw_log`: global change log
 - `tw_quota`: rough daily API unit count
 - Table `{prefix}tw_videos` (version in `tw_db_version`), `tw_index_synced`, `tw_index_full` timestamps
 
 ## Quota costs (10,000 units/day/project, resets midnight Pacific)
 
-list/get 1, search.list 1 per call in a separate bucket of 100 calls a day, captions.list 50, captions.download 200, videos.update 50, playlists.insert 50, playlistItems.insert 50.
+list/get 1, search.list 1 per call in a separate bucket of 100 calls a day, captions.list 50, captions.download 200, videos.update 50, thumbnails.set 50, playlists.insert 50, playlistItems.insert 50.
 
 ## AI contract
 
-`TW_AI::OUTPUT_CONTRACT` is appended to the user's voice prompt and forces JSON with keys: titles, suggested_title, body, chapters_heading, chapters[{time,label}], tags, hashtags. Hashtags and chapters are kept OUT of body; `TW_Validator::assemble_description()` joins body + heading + chapters + hashtags. Don't change the contract keys without updating `TW_AI::parse_package()` and admin.js `fillDetails()`.
+`TW_AI::OUTPUT_CONTRACT` is appended to the user's voice prompt and forces JSON with keys: titles, suggested_title, body, chapters_heading, chapters[{time,label}], tags (4 to 6, max 8, no #), hashtags (exactly 3: game, topic, brand). Hashtags and chapters are kept OUT of body; `TW_Validator::assemble_description()` joins body + heading + chapters + hashtags. Don't change the contract keys without updating `TW_AI::parse_package()` and admin.js `fillDetails()`.
 
 ## Conventions
 

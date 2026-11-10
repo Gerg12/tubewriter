@@ -5,11 +5,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Gemini calls. The editable voice prompt goes first, then a fixed output contract
- * so the plugin always gets JSON it can parse.
+ * so the plugin always gets JSON it can parse. Thumbnail methods use vision and
+ * a separate image model. They never write to YouTube.
  */
 class TW_AI {
 
 	const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent';
+
+	/** Tried in order when the chosen text model is busy or never answers. */
+	const TEXT_FALLBACKS = array(
+		'gemini-3.5-flash-lite',
+		'gemini-flash-lite-latest',
+	);
 
 	const OUTPUT_CONTRACT = <<<'TXT'
 
@@ -18,16 +25,44 @@ Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
 {
   "titles": ["5 title options"],
   "suggested_title": "the best of the five",
-  "body": "every part of the description that comes BEFORE the chapter list, with blank lines between paragraphs. Do NOT put chapters or hashtags in here.",
+  "body": "the full opening walkthrough plus the complete GG Algorithm Warning, with a blank line between them. Write the whole video, not a short summary. Include the warning through the exact closing line 'The slop will continue until morale improves.' Do NOT put chapters or hashtags in here. The assembled description (body + chapters + hashtags) may use up to 5000 characters. Do not cut the walkthrough short to save space.",
   "chapters_heading": "the heading line that goes above the chapter list, or an empty string",
   "chapters": [{"time": "0:00", "label": "Chapter label"}],
-  "tags": ["tags as the instructions above say, no # symbols"],
-  "hashtags": ["#Five", "#Hashtags"]
+  "tags": ["4 to 6 tags, max 8, no # symbols"],
+  "hashtags": ["#Game", "#Topic", "#Brand"]
 }
 Rules: the first chapter time MUST be "0:00". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return "chapters": [] and never invent times. No < or > characters anywhere.
 The STARTING TITLE and STARTING DESCRIPTION are the creator's starting point. If the starting title is just a date or filename (like "2026 10 01 19 19 26"), ignore it. When there is no transcript, build the package from the starting title, starting description and notes, and stay close to what they say.
 The STARTING DESCRIPTION is also context. Keep any links, social handles, sponsor or affiliate lines, credits and "watch next" lines from it in the new body (near the end of the body) unless the creator notes say to drop them. Use its facts about the match when there is no transcript.
 TXT;
+
+	const THUMB_DESCRIBE_CONTRACT = <<<'TXT'
+
+=== OUTPUT FORMAT (required, do not ignore) ===
+Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
+{
+  "composition": "Picture-in-Picture composite layout pairing Image 1 as the [hero role] with Image 2 as a [inset role] in the upper right.",
+  "base_imagery": "Two or three sentences. Start with The main background features. First screenshot only.",
+  "inset": "No inset, or a short phrase for a second screenshot that shows a different moment. No border sentence.",
+  "game_name": "Full official game name only, no word logo",
+  "line_1": "2 to 4 word hook, not copied from the title",
+  "line_2": "2 to 4 word stake"
+}
+No markdown. No < or > characters. Do not write the concept document. Do not return one paragraph.
+TXT;
+
+	const THUMB_DESCRIBE_SCHEMA = array(
+		'type'       => 'OBJECT',
+		'properties' => array(
+			'composition'  => array( 'type' => 'STRING' ),
+			'base_imagery' => array( 'type' => 'STRING' ),
+			'inset'        => array( 'type' => 'STRING' ),
+			'game_name'    => array( 'type' => 'STRING' ),
+			'line_1'       => array( 'type' => 'STRING' ),
+			'line_2'       => array( 'type' => 'STRING' ),
+		),
+		'required'   => array( 'composition', 'base_imagery', 'inset', 'game_name', 'line_1', 'line_2' ),
+	);
 
 	/** Shared context block: what's on YouTube now, the notes, and the transcript. */
 	private static function context( array $input ) {
@@ -40,18 +75,24 @@ TXT;
 	}
 
 	/** First draft from transcript, notes and what's already on YouTube. */
-	public static function generate( array $input ) {
-		return self::call( self::context( $input ) );
+	public static function generate( array $input, $provider = 'gemini' ) {
+		return self::call( self::context( $input ), null, false, $provider );
 	}
 
 	/** Apply a tweak request to the current package. Returns a full new package. */
-	public static function revise( array $input, array $current, $instruction ) {
+	public static function revise( array $input, array $current, $instruction, $provider = 'gemini' ) {
 		$user = self::context( $input ) . "\n\n"
 			. "CURRENT PACKAGE (JSON):\n" . wp_json_encode( $current, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT ) . "\n\n"
 			. "CHANGE REQUEST FROM THE CREATOR:\n" . trim( $instruction ) . "\n\n"
 			. 'Apply only that change. Keep everything else the same unless the change requires otherwise. Return the full package in the required JSON format.';
 
-		return self::call( $user );
+		return self::call( $user, null, false, $provider );
+	}
+
+	/** gemini or openai. Anything else stays on Gemini. */
+	public static function text_provider( $provider ) {
+		$provider = sanitize_key( (string) $provider );
+		return in_array( $provider, array( 'gemini', 'openai' ), true ) ? $provider : 'gemini';
 	}
 
 	/**
@@ -82,52 +123,389 @@ TXT;
 	}
 
 	/**
-	 * @param string      $user_text
-	 * @param string|null $system  Override the channel voice prompt + contract.
-	 * @param bool        $raw     Return decoded JSON as-is instead of a parsed package.
+	 * Write a thumbnail brief from screenshots plus title, description and transcript.
+	 *
+	 * @param array $input  Same shape as generate().
+	 * @param array $images List of {mime: string, data: string} (base64, no data: prefix).
+	 * @param array $pkg    Optional current draft package for title/body context.
+	 * @return array{description: string}|WP_Error
 	 */
-	private static function call( $user_text, $system = null, $raw = false ) {
-		$key = TW_Settings::get( 'gemini_key' );
+	public static function describe_thumbnail( array $input, array $images, array $pkg = array() ) {
+		$images = self::normalize_images( $images );
+		if ( is_wp_error( $images ) ) {
+			return $images;
+		}
+		if ( ! $images ) {
+			return new WP_Error( 'tw_ai', 'Paste at least one screenshot first.' );
+		}
+
+		$title = trim( (string) ( $pkg['title'] ?? '' ) );
+		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
+		$shots = count( $images ) > 1
+			? 'Image 1 is the hero background. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". If the bald brown commander is already in either shot, say to keep that exact drawing.'
+			: 'Only one screenshot is attached. It is the full-bleed hero. Set inset to "No inset". If the bald brown commander is already in the shot, say to keep that exact drawing.';
+		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
+			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
+			. self::context( $input ) . "\n\n"
+			. $shots . "\n\n"
+			. 'Fill the six JSON fields for this video.';
+
+		$system = TW_Settings::get( 'thumb_prompt' ) . "\n" . self::THUMB_DESCRIBE_CONTRACT;
+		$parts  = array_merge( array( array( 'text' => $user ) ), self::image_parts( $images ) );
+		$json   = self::request(
+			TW_Settings::get( 'model' ),
+			$system,
+			$parts,
+			array(
+				'responseMimeType' => 'application/json',
+				'responseSchema'   => self::THUMB_DESCRIBE_SCHEMA,
+				'temperature'      => 0.7,
+			),
+			true
+		);
+		if ( is_wp_error( $json ) ) {
+			return $json;
+		}
+		$desc = self::format_thumb_concept( $json );
+		if ( is_wp_error( $desc ) ) {
+			return $desc;
+		}
+		return array( 'description' => $desc );
+	}
+
+	/**
+	 * Print the description box in the fixed Gregatron concept shape.
+	 * The model only supplies the per-video facts.
+	 *
+	 * @param array $json Decoded model object.
+	 * @return string|WP_Error
+	 */
+	private static function format_thumb_concept( array $json ) {
+		$composition = self::thumb_prose( $json, 'composition', '/^composition style:\s*/i' );
+		$base        = self::thumb_prose( $json, 'base_imagery', '/^base imagery\s*\(image 1\):\s*/i' );
+		$inset       = self::thumb_prose( $json, 'inset', '/^tactical inset\s*\(image 2\):\s*/i' );
+		$game        = self::thumb_prose( $json, 'game_name', '/^(the\s+authentic\s+official\s+|authentic\s+official\s+)/i' );
+		$line1       = self::thumb_line( $json, 'line_1' );
+		$line2       = self::thumb_line( $json, 'line_2' );
+
+		$game = preg_replace( '/\s+(transparent\s+png\s+)?logo$/i', '', $game );
+		$game = trim( (string) $game, " ." );
+
+		if ( '' === $composition || '' === $base || '' === $inset || '' === $game || '' === $line1 || '' === $line2 ) {
+			return new WP_Error( 'tw_ai', 'The thumbnail concept came back incomplete. Try Write thumbnail description again.' );
+		}
+
+		if ( preg_match( '/^no inset\b/i', $inset ) ) {
+			$inset = 'No inset. The game logo can sit in the top right.';
+		} else {
+			if ( false === stripos( $inset, 'Positioned in the upper right' ) ) {
+				$subject = $inset;
+				if ( 0 === stripos( $subject, 'showcasing ' ) ) {
+					$subject = substr( $subject, strlen( 'showcasing ' ) );
+				}
+				$inset = 'Positioned in the upper right as a small action card, showcasing ' . $subject;
+			}
+			if ( false === stripos( $inset, 'thin dark military border' ) ) {
+				$inset = rtrim( $inset, " ." ) . '. Thin dark military border. Keep it small enough that every letter of the headline stays fully on the canvas.';
+			}
+		}
+
+		return "7. Custom 16:9 Thumbnail Concept\n"
+			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. Every letter of the headline is fully visible, at least 100px from the left, top, and right edges. Never crop a word.\n"
+			. "\n"
+			. 'Composition Style: ' . $composition . "\n"
+			. "\n"
+			. 'Base Imagery (Image 1): ' . $base . "\n"
+			. "\n"
+			. 'Tactical Inset (Image 2): ' . $inset . "\n"
+			. "\n"
+			. "Commander Avatar (Bottom-Left):\n"
+			. "\n"
+			. "If this bald brown commander is already in a supplied screenshot, keep that exact drawing. Do not invent a second face.\n"
+			. "\n"
+			. "Identity: bald brown-skinned man, smooth bald head, thick dark eyebrows, simple dark mustache, clean-shaven jaw, no goatee, no chin beard, no soul patch, red forehead scar, stern anime expression, small calico cat on his shoulder. Chest-up in the lower left, about 100px from the left and bottom edges, grouped with the GG logo.\n"
+			. "\n"
+			. "The channel logo sits in the bottom left, grouped with the avatar: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the frame, smaller than the headline.\n"
+			. "\n"
+			. "Official Game Logo:\n"
+			. "\n"
+			. 'The authentic official ' . $game . " logo is top right when there is no inset. If Image 2 is a picture-in-picture in the top right, move this logo to the bottom right, raised above the YouTube duration badge. If the creator set the game logo to top left, leave it there. Fully inside the frame, smaller than the headline.\n"
+			. "\n"
+			. "Headline Typography (Top-Left):\n"
+			. "\n"
+			. "Line 1 is larger than Line 2. Both lines sit in the upper left with a wide margin. No letter is cut off.\n"
+			. "\n"
+			. 'Line 1: ' . $line1 . "\n"
+			. "\n"
+			. 'Line 2: ' . $line2 . "\n"
+			. "\n"
+			. 'Line 1 is white distressed heavy block lettering with a thick black shadow and a fiery orange stroke. Line 2 is amber-orange with the same heavy black shadow.';
+	}
+
+	/** One prose field, labels and extra whitespace removed. */
+	private static function thumb_prose( array $json, $key, $label_pattern ) {
+		$text = TW_Validator::clean_text( trim( (string) ( $json[ $key ] ?? '' ) ) );
+		$text = preg_replace( '/\s+/', ' ', $text );
+		$text = preg_replace( $label_pattern, '', (string) $text );
+		return trim( (string) $text );
+	}
+
+	/** A headline line: words only, forced to caps. */
+	private static function thumb_line( array $json, $key ) {
+		$text = self::thumb_prose( $json, $key, '/^line\s*[12]\s*:\s*/i' );
+		$text = trim( $text, " \t." );
+		if ( function_exists( 'mb_strtoupper' ) ) {
+			$text = mb_strtoupper( $text, 'UTF-8' );
+		} else {
+			$text = strtoupper( $text );
+		}
+		return trim( $text );
+	}
+
+	/**
+	 * Create a 16:9 thumbnail image from the approved brief and source screenshots.
+	 * Uses OpenAI or Gemini based on Settings > image provider.
+	 *
+	 * @param string $description Approved brief.
+	 * @param array  $images      List of {mime, data}.
+	 * @return array{mime: string, data: string}|WP_Error
+	 */
+	public static function generate_thumbnail( $description, array $images, array $logos = array() ) {
+		$description = trim( (string) $description );
+		if ( '' === $description ) {
+			return new WP_Error( 'tw_ai', 'Approve or write a thumbnail description first.' );
+		}
+		$images = self::normalize_images( $images );
+		if ( is_wp_error( $images ) ) {
+			return $images;
+		}
+		if ( ! $images ) {
+			return new WP_Error( 'tw_ai', 'Paste at least one screenshot first.' );
+		}
+
+		$prompt = self::render_prompt( $description, count( $images ), $logos );
+		$send   = $images;
+		foreach ( $logos as $logo ) {
+			if ( empty( $logo['data'] ) || empty( $logo['mime'] ) ) {
+				continue;
+			}
+			$send[] = array(
+				'mime' => $logo['mime'],
+				'data' => $logo['data'],
+			);
+		}
+		$image  = ( 'openai' === TW_Settings::get( 'image_provider' ) )
+			? self::openai_edit( $prompt, $send )
+			: self::gemini_image( $prompt, $send );
+		if ( is_wp_error( $image ) ) {
+			return $image;
+		}
+		$fitted = self::fit_16x9( $image['data'] );
+		if ( is_string( $fitted ) && '' !== $fitted ) {
+			$image['data'] = $fitted;
+			$image['mime'] = 'image/png';
+		}
+		return $image;
+	}
+
+	/**
+	 * Force a generated thumbnail to 1920x1080. A near-16:9 frame is scaled.
+	 * A 3:2 or square frame is center-cropped to 16:9 first.
+	 *
+	 * @param string $b64 Raw base64, no data: prefix.
+	 * @return string Base64 PNG, or the original string when GD cannot run.
+	 */
+	private static function fit_16x9( $b64 ) {
+		if ( ! function_exists( 'imagecreatefromstring' ) || ! function_exists( 'imagepng' ) ) {
+			return $b64;
+		}
+		$bin = base64_decode( (string) $b64, true );
+		if ( false === $bin || '' === $bin ) {
+			return $b64;
+		}
+		$src = imagecreatefromstring( $bin );
+		if ( ! $src ) {
+			return $b64;
+		}
+		$w = imagesx( $src );
+		$h = imagesy( $src );
+		if ( $w < 2 || $h < 2 ) {
+			imagedestroy( $src );
+			return $b64;
+		}
+
+		$target = 16 / 9;
+		$ratio  = $w / $h;
+		$crop_x = 0;
+		$crop_y = 0;
+		$crop_w = $w;
+		$crop_h = $h;
+		if ( $ratio > $target * 1.01 ) {
+			$crop_w = (int) round( $h * $target );
+			$crop_x = (int) floor( ( $w - $crop_w ) / 2 );
+		} elseif ( $ratio < $target * 0.99 ) {
+			$crop_h = (int) round( $w / $target );
+			$crop_y = (int) floor( ( $h - $crop_h ) / 2 );
+		}
+
+		$dst = imagecreatetruecolor( 1920, 1080 );
+		if ( ! $dst ) {
+			imagedestroy( $src );
+			return $b64;
+		}
+		imagecopyresampled( $dst, $src, 0, 0, $crop_x, $crop_y, 1920, 1080, $crop_w, $crop_h );
+		ob_start();
+		imagepng( $dst );
+		$out = ob_get_clean();
+		imagedestroy( $src );
+		imagedestroy( $dst );
+		if ( ! is_string( $out ) || '' === $out ) {
+			return $b64;
+		}
+		return base64_encode( $out );
+	}
+
+	/**
+	 * Landscape size this OpenAI image model will accept.
+	 * chatgpt-image-latest only allows three fixed sizes, and 1536x1024 is 3:2.
+	 * gpt-image-2 and newer accept a real 16:9 frame. 1920x1080 itself is rejected
+	 * because 1080 is not divisible by 16, so we ask for 2048x1152 and scale down.
+	 *
+	 * @param string $model
+	 * @return string
+	 */
+	private static function openai_image_size( $model ) {
+		$model = strtolower( (string) $model );
+		$fixed = array( 'chatgpt-image-latest', 'gpt-image-1', 'gpt-image-1.5', 'dall-e-2', 'dall-e-3' );
+		foreach ( $fixed as $name ) {
+			if ( $model === $name ) {
+				return '1536x1024';
+			}
+		}
+		return '2048x1152';
+	}
+
+	/** Standing render instructions + the approved per-video brief. */
+	private static function render_prompt( $description, $shot_count, array $logos = array() ) {
+		$standing = trim( (string) TW_Settings::get( 'thumb_render_prompt' ) );
+		$shots    = (int) $shot_count > 1
+			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Image 2 is a picture-in-picture card in the top right. The headline stays top left. The channel logo stays bottom left. The game logo moves to the bottom right so it does not cover the inset. If the commander is already drawn in a screenshot, keep that exact drawing.'
+			: 'One screenshot is attached. It fills the 16:9 frame. No picture-in-picture. The headline is top left. The channel logo is bottom left. The game logo is top right, or top left if the logo instruction says top left. If the commander is already drawn in the screenshot, keep that exact drawing.';
+		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
+		$frame = ( '1536x1024' === $size )
+			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep the headline, the game logo, the commander, and the GG logo at least 160px from the top and bottom so that trim does not cut them.'
+			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep the headline, the game logo, the commander, and the GG logo at least 100px from every edge.';
+		$logo_block = self::logo_block( (int) $shot_count, $logos );
+		return $standing . "\n\n"
+			. $frame . " Keep every letter fully inside the frame. Do not clip a letter.\n\n"
+			. $shots . "\n\n"
+			. "APPROVED THUMBNAIL BRIEF:\n" . trim( (string) $description )
+			. ( '' !== $logo_block ? "\n\n" . $logo_block : '' );
+	}
+
+	/**
+	 * Last instruction the image model sees. Attached logo files override the brief.
+	 *
+	 * @param int   $shot_count
+	 * @param array $logos
+	 * @return string
+	 */
+	private static function logo_block( $shot_count, array $logos ) {
+		$lines = array();
+		$n     = (int) $shot_count;
+		foreach ( $logos as $logo ) {
+			if ( empty( $logo['data'] ) ) {
+				continue;
+			}
+			$n++;
+			$where = trim( (string) ( $logo['pos'] ?? '' ) );
+			$label = trim( (string) ( $logo['label'] ?? 'logo' ) );
+			$lines[] = 'Attached image ' . $n . ' is the exact ' . $label . ' file. Place that artwork unchanged in the ' . $where . ' corner. Do not redraw it, recolor it, or typeset a new logo.';
+		}
+		if ( ! $lines ) {
+			return '';
+		}
+		return "LOGO FILES (these override the brief)\n" . implode( "\n", $lines ) . "\nKeep each logo fully inside the frame, smaller than the headline, and clear of the other logo.";
+	}
+
+	/** Gemini native image generation with reference screenshots. */
+	private static function gemini_image( $prompt, array $images ) {
+		$parts = array_merge( array( array( 'text' => $prompt ) ), self::image_parts( $images ) );
+		return self::request(
+			TW_Settings::get( 'image_model' ),
+			null,
+			$parts,
+			array(
+				'responseModalities' => array( 'TEXT', 'IMAGE' ),
+				'imageConfig'        => array( 'aspectRatio' => '16:9' ),
+			),
+			'image'
+		);
+	}
+
+	/**
+	 * OpenAI Images edits endpoint with reference screenshots (ChatGPT-style image).
+	 *
+	 * @return array{mime: string, data: string}|WP_Error
+	 */
+	private static function openai_edit( $prompt, array $images ) {
+		$key = TW_Settings::get( 'openai_key' );
 		if ( ! $key ) {
-			return new WP_Error( 'tw_ai', 'Add your Gemini API key in TubeWriter > Settings.' );
+			return new WP_Error( 'tw_ai', 'Add your OpenAI API key in TubeWriter > Settings, or switch the image provider to Gemini.' );
 		}
-		$model  = TW_Settings::get( 'model' );
-		if ( null === $system ) {
-			$system = TW_Settings::get( 'prompt' ) . "\n" . self::OUTPUT_CONTRACT;
+
+		$model   = TW_Settings::get( 'openai_image_model' );
+		$quality = TW_Settings::get( 'openai_image_quality' );
+		$boundary = 'tw' . wp_generate_password( 24, false, false );
+		$body     = '';
+
+		$fields = array(
+			'model'         => $model,
+			'prompt'        => $prompt,
+			'size'          => self::openai_image_size( $model ),
+			'quality'       => $quality,
+			'output_format' => 'png',
+		);
+		foreach ( $fields as $name => $value ) {
+			$body .= '--' . $boundary . "\r\n";
+			$body .= 'Content-Disposition: form-data; name="' . $name . "\"\r\n\r\n";
+			$body .= $value . "\r\n";
 		}
+
+		$i = 0;
+		foreach ( $images as $img ) {
+			$i++;
+			$bin  = base64_decode( $img['data'], true );
+			$mime = $img['mime'];
+			$ext  = ( false !== strpos( $mime, 'jpeg' ) || false !== strpos( $mime, 'jpg' ) ) ? 'jpg' : ( false !== strpos( $mime, 'webp' ) ? 'webp' : 'png' );
+			if ( false === $bin ) {
+				return new WP_Error( 'tw_ai', 'Could not decode a pasted screenshot.' );
+			}
+			$body .= '--' . $boundary . "\r\n";
+			$body .= 'Content-Disposition: form-data; name="image[]"; filename="shot' . $i . '.' . $ext . "\"\r\n";
+			$body .= 'Content-Type: ' . $mime . "\r\n\r\n";
+			$body .= $bin . "\r\n";
+		}
+		$body .= '--' . $boundary . "--\r\n";
 
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
 
 		$response = wp_remote_post(
-			sprintf( self::ENDPOINT, rawurlencode( $model ) ),
+			'https://api.openai.com/v1/images/edits',
 			array(
 				'timeout' => 150,
 				'headers' => array(
-					'Content-Type'   => 'application/json',
-					'x-goog-api-key' => $key,
+					'Authorization' => 'Bearer ' . $key,
+					'Content-Type'  => 'multipart/form-data; boundary=' . $boundary,
 				),
-				'body'    => wp_json_encode(
-					array(
-						'systemInstruction' => array( 'parts' => array( array( 'text' => $system ) ) ),
-						'contents'          => array(
-							array(
-								'role'  => 'user',
-								'parts' => array( array( 'text' => $user_text ) ),
-							),
-						),
-						'generationConfig'  => array(
-							'responseMimeType' => 'application/json',
-							'temperature'      => 0.9,
-						),
-					)
-				),
+				'body'    => $body,
 			)
 		);
 
 		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'tw_ai', 'Could not reach Gemini: ' . $response->get_error_message() );
+			return new WP_Error( 'tw_ai', 'Could not reach OpenAI: ' . $response->get_error_message() );
 		}
 
 		$code = wp_remote_retrieve_response_code( $response );
@@ -135,33 +513,403 @@ TXT;
 
 		if ( $code >= 400 ) {
 			$msg = $data['error']['message'] ?? ( 'HTTP ' . $code );
-			if ( 429 === $code ) {
-				$msg = 'Gemini rate limit hit (free tier). Wait a minute and try again. ' . $msg;
+			if ( 401 === $code || 403 === $code ) {
+				$msg = 'OpenAI rejected the API key. Check it in Settings. ' . $msg;
+			} elseif ( 429 === $code ) {
+				$msg = 'OpenAI rate limit or quota hit. Wait and try again. ' . $msg;
 			} elseif ( 404 === $code ) {
-				$msg = 'Gemini model "' . $model . '" not found. Check the model name in Settings. ' . $msg;
-			} elseif ( 400 === $code || 403 === $code ) {
-				$msg = 'Gemini rejected the request. Check your API key in Settings. ' . $msg;
+				$msg = 'OpenAI image model "' . $model . '" not found. Try chatgpt-image-latest or gpt-image-2.5-sunburst in Settings. ' . $msg;
 			}
 			return new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) );
 		}
 
+		$b64 = $data['data'][0]['b64_json'] ?? '';
+		if ( '' === $b64 ) {
+			$url = $data['data'][0]['url'] ?? '';
+			if ( $url ) {
+				$fetched = wp_remote_get( $url, array( 'timeout' => 60 ) );
+				if ( ! is_wp_error( $fetched ) && 200 === wp_remote_retrieve_response_code( $fetched ) ) {
+					$bin = wp_remote_retrieve_body( $fetched );
+					if ( $bin ) {
+						return array(
+							'mime' => 'image/png',
+							'data' => base64_encode( $bin ),
+						);
+					}
+				}
+			}
+			return new WP_Error( 'tw_ai', 'OpenAI returned no image. Try again or switch quality/model in Settings.' );
+		}
+
+		return array(
+			'mime' => 'image/png',
+			'data' => $b64,
+		);
+	}
+
+	/**
+	 * ChatGPT text completion. Returns package text, decoded JSON when $raw, or WP_Error.
+	 *
+	 * @param string $model
+	 * @param string $system
+	 * @param string $user_text
+	 * @param bool   $raw
+	 * @return mixed|WP_Error
+	 */
+	private static function openai_chat( $model, $system, $user_text, $raw ) {
+		$key = TW_Settings::get( 'openai_key' );
+		if ( ! $key ) {
+			return new WP_Error( 'tw_ai', 'ChatGPT needs an OpenAI API key. Add it in TubeWriter > Settings, then pick ChatGPT again.' );
+		}
+		$model = trim( (string) $model );
+		if ( '' === $model ) {
+			$model = TW_DEFAULT_OPENAI_MODEL;
+		}
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		}
+
+		$response = wp_remote_post(
+			'https://api.openai.com/v1/chat/completions',
+			array(
+				'timeout' => 150,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $key,
+					'Content-Type'  => 'application/json',
+				),
+				'body'    => wp_json_encode(
+					array(
+						'model'           => $model,
+						'temperature'     => 0.9,
+						'response_format' => array( 'type' => 'json_object' ),
+						'messages'        => array(
+							array( 'role' => 'system', 'content' => (string) $system ),
+							array( 'role' => 'user', 'content' => (string) $user_text ),
+						),
+					)
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			$err = $response->get_error_message();
+			if ( false !== stripos( $err, 'timed out' ) || false !== stripos( $err, 'cURL error 28' ) ) {
+				return new WP_Error( 'tw_ai', 'ChatGPT did not answer (the request timed out). Nothing was changed. Try Gemini, or try again in a minute.' );
+			}
+			return new WP_Error( 'tw_ai', 'Could not reach ChatGPT: ' . $err . ' Nothing was changed.' );
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$data = json_decode( wp_remote_retrieve_body( $response ), true );
+		if ( $code >= 400 ) {
+			$raw_msg = is_array( $data ) ? ( $data['error']['message'] ?? ( 'HTTP ' . $code ) ) : ( 'HTTP ' . $code );
+			if ( 401 === $code || 403 === $code ) {
+				$msg = 'ChatGPT rejected the API key. Check the OpenAI key in Settings. ' . $raw_msg;
+			} elseif ( 404 === $code || false !== stripos( $raw_msg, 'does not exist' ) || false !== stripos( $raw_msg, 'not found' ) ) {
+				$msg = 'ChatGPT model "' . $model . '" was not found. Change the OpenAI text model in Settings. ' . $raw_msg;
+			} elseif ( 429 === $code ) {
+				$msg = 'ChatGPT rate limit or quota hit. Nothing was changed. Wait a minute and try again. ' . $raw_msg;
+			} else {
+				$msg = 'ChatGPT: ' . $raw_msg;
+			}
+			return new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) );
+		}
+
+		$text = (string) ( $data['choices'][0]['message']['content'] ?? '' );
+		if ( '' === trim( $text ) ) {
+			return new WP_Error( 'tw_ai', 'ChatGPT returned nothing. Nothing was changed. Try again.' );
+		}
+		if ( $raw ) {
+			$json = json_decode( trim( $text ), true );
+			return is_array( $json ) ? $json : new WP_Error( 'tw_ai', 'ChatGPT answer was not valid JSON. Try again.' );
+		}
+		return $text;
+	}
+
+	/**
+	 * @param string      $user_text
+	 * @param string|null $system  Override the channel voice prompt + contract.
+	 * @param bool        $raw     Return decoded JSON as-is instead of a parsed package.
+	 */
+	private static function call( $user_text, $system = null, $raw = false, $provider = 'gemini' ) {
+		if ( null === $system ) {
+			$system = TW_Settings::get( 'prompt' ) . "\n" . self::OUTPUT_CONTRACT;
+		}
+		if ( 'openai' === self::text_provider( $provider ) ) {
+			$result = self::openai_chat( TW_Settings::get( 'openai_model' ), $system, $user_text, $raw );
+		} else {
+			$result = self::request(
+				TW_Settings::get( 'model' ),
+				$system,
+				array( array( 'text' => $user_text ) ),
+				array(
+					'responseMimeType' => 'application/json',
+					'temperature'      => 0.9,
+					'maxOutputTokens'  => 8192,
+				),
+				$raw ? true : false
+			);
+		}
+		if ( is_wp_error( $result ) || $raw ) {
+			return $result;
+		}
+		return self::parse_package( is_string( $result ) ? $result : wp_json_encode( $result ) );
+	}
+
+	/** True when Gemini is overloaded or asking the caller to retry shortly. */
+	private static function demand_message( $msg ) {
+		$msg = strtolower( (string) $msg );
+		foreach ( array( 'high demand', 'unavailable', 'overloaded', 'resource exhausted', 'try again later' ) as $bit ) {
+			if ( false !== strpos( $msg, $bit ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Low-level Gemini generateContent call.
+	 *
+	 * @param string      $model
+	 * @param string|null $system
+	 * @param array       $parts
+	 * @param array       $gen_config
+	 * @param bool|string $mode true = decoded JSON, false = package text for parse_package path via call(), 'image' = first image part, 'text' = raw text.
+	 * @param bool        $allow_fallback When a text model is busy or times out, try TEXT_FALLBACKS.
+	 * @return mixed|WP_Error
+	 */
+	private static function request( $model, $system, array $parts, array $gen_config, $mode = false, $allow_fallback = true ) {
+		$key = TW_Settings::get( 'gemini_key' );
+		if ( ! $key ) {
+			return new WP_Error( 'tw_ai', 'Add your Gemini API key in TubeWriter > Settings.' );
+		}
+		if ( ! $parts ) {
+			return new WP_Error( 'tw_ai', 'Nothing to send to Gemini.' );
+		}
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		}
+
+		$image     = ( 'image' === $mode );
+		$timeout   = $image ? 150 : 45;
+		$max_tries = $image ? 3 : 1;
+
+		$body = array(
+			'contents'         => array(
+				array(
+					'role'  => 'user',
+					'parts' => $parts,
+				),
+			),
+			'generationConfig' => $gen_config,
+		);
+		if ( null !== $system && '' !== trim( (string) $system ) ) {
+			$body['systemInstruction'] = array( 'parts' => array( array( 'text' => $system ) ) );
+		}
+
+		$url     = sprintf( self::ENDPOINT, rawurlencode( $model ) );
+		$payload = wp_json_encode( $body );
+		$data    = null;
+		$code    = 0;
+
+		for ( $try = 1; $try <= $max_tries; $try++ ) {
+			$response = wp_remote_post(
+				$url,
+				array(
+					'timeout' => $timeout,
+					'headers' => array(
+						'Content-Type'   => 'application/json',
+						'x-goog-api-key' => $key,
+					),
+					'body'    => $payload,
+				)
+			);
+
+			if ( is_wp_error( $response ) ) {
+				$err = $response->get_error_message();
+				if ( false !== stripos( $err, 'timed out' ) || false !== stripos( $err, 'cURL error 28' ) ) {
+					return self::failover(
+						$model,
+						$system,
+						$parts,
+						$gen_config,
+						$mode,
+						$allow_fallback,
+						new WP_Error( 'tw_ai', 'Gemini did not answer (the request timed out). Nothing was changed. Pick ChatGPT next to Generate and try that.' )
+					);
+				}
+				return self::failover(
+					$model,
+					$system,
+					$parts,
+					$gen_config,
+					$mode,
+					$allow_fallback,
+					new WP_Error( 'tw_ai', 'Could not reach Gemini: ' . $err )
+				);
+			}
+
+			$code = (int) wp_remote_retrieve_response_code( $response );
+			$data = json_decode( wp_remote_retrieve_body( $response ), true );
+
+			if ( $code < 400 ) {
+				break;
+			}
+
+			$raw   = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			$busy  = in_array( $code, array( 429, 500, 503 ), true ) || self::demand_message( $raw );
+			if ( $busy && $try < $max_tries ) {
+				sleep( 2 * $try );
+				continue;
+			}
+
+			if ( $busy && ( self::demand_message( $raw ) || in_array( $code, array( 500, 503 ), true ) ) ) {
+				$msg = 'This model is busy right now. Spikes in demand are usually temporary. Nothing was changed. Wait a minute and try again.';
+			} elseif ( 429 === $code ) {
+				$msg = 'Gemini rate limit hit (free tier). Nothing was changed. Wait a minute and try again. ' . $raw;
+			} elseif ( 404 === $code ) {
+				$msg = 'Gemini model "' . $model . '" not found. Check the model name in Settings. ' . $raw;
+			} elseif ( 400 === $code || 403 === $code ) {
+				$msg = 'Gemini rejected the request. Check your API key and model in Settings. ' . $raw;
+			} else {
+				$msg = $raw;
+			}
+			return self::failover(
+				$model,
+				$system,
+				$parts,
+				$gen_config,
+				$mode,
+				$allow_fallback && ! in_array( $code, array( 400, 403 ), true ),
+				new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) )
+			);
+		}
+
+		$parts_out = $data['candidates'][0]['content']['parts'] ?? array();
+		if ( 'image' === $mode ) {
+			foreach ( $parts_out as $part ) {
+				$blob = $part['inlineData'] ?? $part['inline_data'] ?? null;
+				if ( ! is_array( $blob ) || empty( $blob['data'] ) ) {
+					continue;
+				}
+				$mime = (string) ( $blob['mimeType'] ?? $blob['mime_type'] ?? 'image/png' );
+				return array(
+					'mime' => $mime,
+					'data' => (string) $blob['data'],
+				);
+			}
+			$text = '';
+			foreach ( $parts_out as $part ) {
+				if ( empty( $part['thought'] ) ) {
+					$text .= $part['text'] ?? '';
+				}
+			}
+			$reason = $data['candidates'][0]['finishReason'] ?? ( $data['promptFeedback']['blockReason'] ?? 'unknown' );
+			$extra  = trim( $text ) !== '' ? ' Gemini said: ' . wp_strip_all_tags( mb_substr( $text, 0, 300 ) ) : '';
+			return new WP_Error( 'tw_ai', 'Gemini returned no image (reason: ' . $reason . ').' . $extra );
+		}
+
 		$text = '';
-		foreach ( $data['candidates'][0]['content']['parts'] ?? array() as $part ) {
+		foreach ( $parts_out as $part ) {
 			if ( ! empty( $part['thought'] ) ) {
 				continue;
 			}
 			$text .= $part['text'] ?? '';
 		}
+		$reason = (string) ( $data['candidates'][0]['finishReason'] ?? ( $data['promptFeedback']['blockReason'] ?? '' ) );
 		if ( '' === trim( $text ) ) {
-			$reason = $data['candidates'][0]['finishReason'] ?? ( $data['promptFeedback']['blockReason'] ?? 'unknown' );
+			$reason = $reason !== '' ? $reason : 'unknown';
 			return new WP_Error( 'tw_ai', 'Gemini returned nothing (reason: ' . $reason . '). Try again.' );
 		}
+		if ( 'MAX_TOKENS' === $reason ) {
+			return new WP_Error( 'tw_ai', 'Gemini ran out of output room and cut the answer short. Nothing was changed. Click Generate again.' );
+		}
 
-		if ( $raw ) {
+		if ( true === $mode ) {
 			$json = json_decode( preg_replace( '/^```(?:json)?\s*|\s*```$/', '', trim( $text ) ), true );
 			return is_array( $json ) ? $json : new WP_Error( 'tw_ai', 'The AI answer was not valid JSON. Try again.' );
 		}
-		return self::parse_package( $text );
+
+		return $text;
+	}
+
+	/**
+	 * One retry on a model that is answering, when the chosen text model is busy or silent.
+	 *
+	 * @param string      $model
+	 * @param string|null $system
+	 * @param array       $parts
+	 * @param array       $gen_config
+	 * @param bool|string $mode
+	 * @param bool        $allow
+	 * @param WP_Error    $error
+	 * @return mixed|WP_Error
+	 */
+	private static function failover( $model, $system, array $parts, array $gen_config, $mode, $allow, WP_Error $error ) {
+		if ( ! $allow || 'image' === $mode ) {
+			return $error;
+		}
+		$tried = array( $model . ': ' . $error->get_error_message() );
+		foreach ( self::TEXT_FALLBACKS as $next_model ) {
+			if ( $next_model === $model ) {
+				continue;
+			}
+			$next = self::request( $next_model, $system, $parts, $gen_config, $mode, false );
+			if ( ! is_wp_error( $next ) ) {
+				return $next;
+			}
+			$tried[] = $next_model . ': ' . $next->get_error_message();
+		}
+		return new WP_Error( 'tw_ai', 'Gemini did not finish. ' . implode( ' ', $tried ) );
+	}
+
+	/**
+	 * @param array $images
+	 * @return array|WP_Error
+	 */
+	private static function normalize_images( array $images ) {
+		$out   = array();
+		$allow = array( 'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif' );
+		foreach ( array_slice( $images, 0, 2 ) as $img ) {
+			if ( ! is_array( $img ) ) {
+				continue;
+			}
+			$mime = strtolower( (string) ( $img['mime'] ?? '' ) );
+			$data = (string) ( $img['data'] ?? '' );
+			if ( 0 === strpos( $data, 'data:' ) ) {
+				if ( preg_match( '#^data:([^;]+);base64,(.+)$#s', $data, $m ) ) {
+					$mime = strtolower( $m[1] );
+					$data = $m[2];
+				}
+			}
+			$data = preg_replace( '/\s+/', '', $data );
+			if ( 'image/jpg' === $mime ) {
+				$mime = 'image/jpeg';
+			}
+			if ( ! in_array( $mime, $allow, true ) || '' === $data ) {
+				return new WP_Error( 'tw_ai', 'Screenshots must be PNG, JPEG, WebP or GIF.' );
+			}
+			// Rough size guard: ~5MB decoded.
+			if ( strlen( $data ) > 7 * 1024 * 1024 ) {
+				return new WP_Error( 'tw_ai', 'A screenshot is too large. Paste a smaller crop or lower resolution.' );
+			}
+			$out[] = array( 'mime' => $mime, 'data' => $data );
+		}
+		return $out;
+	}
+
+	private static function image_parts( array $images ) {
+		$parts = array();
+		foreach ( $images as $img ) {
+			$parts[] = array(
+				'inlineData' => array(
+					'mimeType' => $img['mime'],
+					'data'     => $img['data'],
+				),
+			);
+		}
+		return $parts;
 	}
 
 	/** Parse and normalize the model's JSON into the package shape the UI uses. */

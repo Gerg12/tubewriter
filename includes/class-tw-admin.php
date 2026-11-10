@@ -17,8 +17,10 @@ class TW_Admin {
 		add_action( 'admin_post_tw_complete', array( $this, 'complete' ) );
 		add_action( 'admin_post_tw_disconnect', array( $this, 'disconnect' ) );
 		add_action( 'admin_post_tw_reset_prompt', array( $this, 'reset_prompt' ) );
+		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
+		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_ref_save', 'thumb_refs', 'thumb_logos_save' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -34,14 +36,22 @@ class TW_Admin {
 		if ( false === strpos( (string) $hook, 'tubewriter' ) ) {
 			return;
 		}
+		$script_deps = array();
+		if ( isset( $_GET['video'] ) && '' !== (string) wp_unslash( $_GET['video'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+			wp_enqueue_media();
+			$script_deps[] = 'media-editor';
+		}
 		wp_enqueue_style( 'tubewriter', TW_URL . 'assets/admin.css', array(), TW_VERSION );
-		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', array(), TW_VERSION, true );
+		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $script_deps, TW_VERSION, true );
 		wp_localize_script(
 			'tubewriter',
 			'TW',
 			array(
-				'ajax'  => admin_url( 'admin-ajax.php' ),
-				'nonce' => wp_create_nonce( 'tw_ajax' ),
+				'ajax'               => admin_url( 'admin-ajax.php' ),
+				'nonce'              => wp_create_nonce( 'tw_ajax' ),
+				'imageProvider'      => TW_Settings::get( 'image_provider' ),
+				'imageProviderLabel' => TW_Settings::image_provider_label(),
+				'settingsUrl'        => admin_url( 'admin.php?page=tubewriter-settings' ),
 			)
 		);
 	}
@@ -65,6 +75,14 @@ class TW_Admin {
 				<h2>1. Connect YouTube</h2>
 				<?php if ( $connected ) : ?>
 					<p class="tw-ok">Connected<?php echo $channel ? ' to <strong>' . esc_html( $channel['title'] ) . '</strong>' : ''; ?>.</p>
+					<?php if ( TW_OAuth::needs_reconnect() ) : ?>
+						<div class="notice notice-error inline"><p>YouTube needs you to sign in again. Use the steps below.</p></div>
+					<?php endif; ?>
+					<details class="tw-reconnect" <?php echo TW_OAuth::needs_reconnect() ? 'open' : ''; ?>>
+						<summary>Sign in again</summary>
+						<p>Use this when Google asks you to approve TubeWriter again, or when a video says the YouTube connection expired.</p>
+						<?php $this->reconnect_steps( 'Sign in again' ); ?>
+					</details>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 						<?php wp_nonce_field( 'tw_disconnect' ); ?>
 						<input type="hidden" name="action" value="tw_disconnect">
@@ -73,21 +91,7 @@ class TW_Admin {
 				<?php elseif ( ! $configured ) : ?>
 					<p>Save your Google Client ID and Client Secret below first.</p>
 				<?php else : ?>
-					<ol class="tw-steps">
-						<li>
-							<a class="button button-primary" target="_blank" rel="noopener" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>">Connect YouTube</a>
-							opens Google sign-in in a new tab. Pick the account that owns your channel and allow access.
-						</li>
-						<li>Google then sends you to a <strong>"This site can't be reached"</strong> page at 127.0.0.1. That is expected. Copy the whole address from the address bar.</li>
-						<li>
-							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline-form">
-								<?php wp_nonce_field( 'tw_complete' ); ?>
-								<input type="hidden" name="action" value="tw_complete">
-								<input type="text" name="tw_pasted" class="large-text code" placeholder="http://127.0.0.1:8765/?state=...&code=..." required>
-								<button class="button button-primary">Finish connecting</button>
-							</form>
-						</li>
-					</ol>
+					<?php $this->reconnect_steps( 'Connect YouTube' ); ?>
 				<?php endif; ?>
 			</div>
 
@@ -115,7 +119,57 @@ class TW_Admin {
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
 								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code> (free tier). Other free options: <code>gemini-3.6-flash</code>, <code>gemini-2.5-flash</code>.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Other options: <code>gemini-3.6-flash</code>, <code>gemini-3.8-flash</code>. If the model you type here is busy or does not answer, TubeWriter tries <code>gemini-3.5-flash-lite</code>, then <code>gemini-flash-lite-latest</code>. Used for metadata and thumbnail briefs.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_openai_key">OpenAI API key</label></th>
+							<td>
+								<input type="password" id="tw_openai_key" name="tw_openai_key" class="regular-text code" autocomplete="off" placeholder="<?php echo TW_Settings::get( 'openai_key' ) ? 'Saved. Leave blank to keep it.' : ''; ?>">
+								<p class="description">From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>. Used for ChatGPT text in the editor and for OpenAI thumbnails.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_openai_model">OpenAI text model</label></th>
+							<td>
+								<input type="text" id="tw_openai_model" name="tw_openai_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_model' ) ); ?>">
+								<p class="description">Used when you pick ChatGPT next to Generate. Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_MODEL ); ?></code>. If ChatGPT says this model was not found, paste a current model name from <a href="https://platform.openai.com/docs/models" target="_blank" rel="noopener">platform.openai.com/docs/models</a>.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_image_provider">Thumbnail image provider</label></th>
+							<td>
+								<select id="tw_image_provider" name="tw_image_provider">
+									<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id => $label ) : ?>
+										<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
+									<?php endforeach; ?>
+								</select>
+								<p class="description">Gemini still writes the thumbnail brief. This only chooses who creates the final image from your screenshots.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_openai_image_model">OpenAI image model</label></th>
+							<td>
+								<input type="text" id="tw_openai_image_model" name="tw_openai_image_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_image_model' ) ); ?>">
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_IMAGE_MODEL ); ?></code> (tracks ChatGPT's current image model). Alternatives: <code>gpt-image-2.5-sunburst</code> (more precise edits), <code>gpt-image-2.5-flare</code> (faster).</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_openai_image_quality">OpenAI image quality</label></th>
+							<td>
+								<select id="tw_openai_image_quality" name="tw_openai_image_quality">
+									<?php foreach ( TW_Settings::OPENAI_QUALITIES as $id => $label ) : ?>
+										<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'openai_image_quality' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
+									<?php endforeach; ?>
+								</select>
+								<p class="description">Same choice as the ChatGPT picker. Instant is the fast pass. High is the finished thumbnail.</p>
+							</td>
+						</tr>
+						<tr>
+							<th><label for="tw_image_model">Gemini image model</label></th>
+							<td>
+								<input type="text" id="tw_image_model" name="tw_image_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'image_model' ) ); ?>">
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_IMAGE_MODEL ); ?></code>. Only used when the image provider is Gemini.</p>
 							</td>
 						</tr>
 					</table>
@@ -154,6 +208,18 @@ class TW_Admin {
 					<textarea name="tw_prompt" rows="28" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'prompt' ) ); ?></textarea>
 				</div>
 
+				<div class="tw-card">
+					<h2>5. Thumbnail brief prompt</h2>
+					<p class="description">Gemini reads the title, description, transcript and screenshots, then writes a Gregatron thumbnail concept: hook text, picture-in-picture, avatar, GG logo and game logo. JSON rules are added automatically.</p>
+					<textarea name="tw_thumb_prompt" rows="24" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_prompt' ) ); ?></textarea>
+				</div>
+
+				<div class="tw-card">
+					<h2>6. Thumbnail render instructions</h2>
+					<p class="description">Standing layout sent with every Create thumbnail, before the approved brief. This is the stencil headline, inset card, avatar, GG logo, game logo and safe zones. Per-video specifics stay in the brief on step 3.</p>
+					<textarea name="tw_thumb_render_prompt" rows="22" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_render_prompt' ) ); ?></textarea>
+				</div>
+
 				<p class="description">Schedules use your WordPress timezone: <strong><?php echo esc_html( $tz ); ?></strong>. Change it under <a href="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>">Settings &gt; General</a>.</p>
 				<?php submit_button( 'Save settings' ); ?>
 			</form>
@@ -161,7 +227,17 @@ class TW_Admin {
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your prompt with the default GG prompt?');">
 				<?php wp_nonce_field( 'tw_reset_prompt' ); ?>
 				<input type="hidden" name="action" value="tw_reset_prompt">
-				<button class="button-link tw-danger-link">Reset prompt to default</button>
+				<button class="button-link tw-danger-link">Reset voice prompt to default</button>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your thumbnail brief prompt with the default?');">
+				<?php wp_nonce_field( 'tw_reset_thumb_prompt' ); ?>
+				<input type="hidden" name="action" value="tw_reset_thumb_prompt">
+				<button class="button-link tw-danger-link">Reset thumbnail brief prompt to default</button>
+			</form>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your thumbnail render instructions with the default?');">
+				<?php wp_nonce_field( 'tw_reset_thumb_render_prompt' ); ?>
+				<input type="hidden" name="action" value="tw_reset_thumb_render_prompt">
+				<button class="button-link tw-danger-link">Reset thumbnail render instructions to default</button>
 			</form>
 		</div>
 		<?php
@@ -177,6 +253,18 @@ class TW_Admin {
 		$this->guard( 'tw_reset_prompt' );
 		TW_Settings::set( 'prompt', TW_Settings::default_prompt() );
 		$this->back( 'settings', 'Prompt reset to the default.' );
+	}
+
+	public function reset_thumb_prompt() {
+		$this->guard( 'tw_reset_thumb_prompt' );
+		TW_Settings::set( 'thumb_prompt', TW_Settings::default_thumb_prompt() );
+		$this->back( 'settings', 'Thumbnail brief prompt reset to the default.' );
+	}
+
+	public function reset_thumb_render_prompt() {
+		$this->guard( 'tw_reset_thumb_render_prompt' );
+		TW_Settings::set( 'thumb_render_prompt', TW_Settings::default_thumb_render_prompt() );
+		$this->back( 'settings', 'Thumbnail render instructions reset to the default.' );
 	}
 
 	public function connect() {
@@ -219,6 +307,9 @@ class TW_Admin {
 
 		echo '<div class="wrap tw-wrap"><h1 class="wp-heading-inline">TubeWriter</h1>';
 		$this->notice();
+		if ( TW_OAuth::needs_reconnect() ) {
+			echo '<div class="notice notice-error"><p>YouTube needs you to sign in again. Open <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a> and use <strong>Sign in again</strong>.</p></div>';
+		}
 
 		if ( ! TW_Settings::is_configured() || ! TW_OAuth::is_connected() ) {
 			echo '<div class="tw-card"><p>Finish setup first: add your credentials and connect YouTube in <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a>.</p></div></div>';
@@ -275,14 +366,21 @@ class TW_Admin {
 
 		$video = TW_YouTube::get_video( $video_id );
 		if ( is_wp_error( $video ) ) {
-			echo '<div class="notice notice-error"><p>' . esc_html( $video->get_error_message() ) . '</p></div></div>';
+			echo '<div class="notice notice-error"><p>' . esc_html( $video->get_error_message() ) . '</p></div>';
+			if ( in_array( $video->get_error_code(), array( 'tw_expired', 'tw_not_connected' ), true ) ) {
+				echo '<div class="tw-card">';
+				$this->reconnect_steps( 'Sign in again' );
+				echo '</div>';
+			}
+			echo '</div>';
 			return;
 		}
 
 		$state         = get_option( 'tw_state_' . $video_id, array() );
 		$snap          = TW_YouTube::snapshot( $video );
 		$secs          = TW_Transcript::duration_seconds( $video['contentDetails']['duration'] ?? '' );
-		$thumb         = $video['snippet']['thumbnails']['medium']['url'] ?? '';
+		$remote_thumb  = $video['snippet']['thumbnails']['medium']['url'] ?? '';
+		$thumb         = TW_Index::cache_thumbnail( $video_id, $remote_thumb );
 		$studio        = 'https://studio.youtube.com/video/' . rawurlencode( $video_id ) . '/edit';
 		$index_privacy = TW_Index::privacy_of( $video_id );
 		$badge_privacy = ( 'draft' === $index_privacy ) ? 'draft' : $snap['privacyStatus'];
@@ -297,6 +395,10 @@ class TW_Admin {
 				'time'     => TW_Settings::get( 'default_time' ),
 				'language' => TW_Settings::get( 'default_language' ),
 				'category' => TW_Settings::get( 'default_category' ),
+			),
+			'logos'     => array(
+				'game'    => $this->logo_boot( (int) ( is_array( $state ) ? ( $state['game_logo_id'] ?? 0 ) : 0 ), (string) ( is_array( $state ) ? ( $state['game_logo_pos'] ?? '' ) : '' ), 'upper-right' ),
+				'channel' => $this->logo_boot( (int) get_option( 'tw_channel_logo_id', 0 ), (string) get_option( 'tw_channel_logo_pos', '' ), 'lower-left' ),
 			),
 			'today'     => wp_date( 'Y-m-d' ),
 			'tz'        => wp_timezone_string(),
@@ -332,17 +434,18 @@ class TW_Admin {
 						&middot; <a href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
 						&middot; <span class="tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
 					</p>
-					<p class="tw-safe">Nothing on YouTube changes until step 6, where you confirm twice. A backup is saved before every change, and TubeWriter never deletes anything.</p>
+					<p class="tw-safe">Nothing on YouTube changes until step 7, where you confirm twice. A backup is saved before every change, and TubeWriter never deletes anything. Thumbnails stay on your computer until you upload them in Studio.</p>
 				</div>
 			</div>
 
 			<ol class="tw-stepper" id="tw-stepper">
 				<li><button type="button" data-go="1">1. Source</button></li>
 				<li><button type="button" data-go="2">2. Details</button></li>
-				<li><button type="button" data-go="3">3. Playlist</button></li>
-				<li><button type="button" data-go="4">4. Schedule</button></li>
-				<li><button type="button" data-go="5">5. Review</button></li>
-				<li><button type="button" data-go="6">6. Publish</button></li>
+				<li><button type="button" data-go="3">3. Thumbnail</button></li>
+				<li><button type="button" data-go="4">4. Playlist</button></li>
+				<li><button type="button" data-go="5">5. Schedule</button></li>
+				<li><button type="button" data-go="6">6. Review</button></li>
+				<li><button type="button" data-go="7">7. Publish</button></li>
 			</ol>
 
 			<div id="tw-msg" class="tw-msg" hidden></div>
@@ -357,7 +460,7 @@ class TW_Admin {
 						'Click <strong>Pull YouTube captions</strong>, or paste a transcript. Skip it if there are no captions.',
 						'Check the <strong>starting title and description</strong>. They are filled in from YouTube. If there is no transcript, skim the video and write a short version yourself.',
 						'Add <strong>notes</strong>: key moments with rough times (each becomes a chapter) and anything the AI must get right.',
-						'Click <strong>Generate with AI</strong>. Or click <strong>Fill in by hand</strong> to skip the AI and edit what is on YouTube now.',
+						'Pick <strong>Gemini</strong> or <strong>ChatGPT</strong> next to <strong>Generate with AI</strong>, then generate. Or click <strong>Fill in by hand</strong>. The draft stays on this page, under your notes. Generate asks before it overwrites the current description. It does not save to YouTube, and you can undo. A busy model is not the YouTube sign-in.',
 					)
 				);
 				?>
@@ -393,44 +496,64 @@ class TW_Admin {
 
 				<p class="tw-actions-left">
 					<button type="button" class="button button-primary button-hero" id="tw-generate">Generate with AI</button>
+					<label for="tw-text-provider" class="tw-provider-label">with</label>
+					<select id="tw-text-provider" aria-label="AI model">
+						<option value="gemini">Gemini (<?php echo esc_html( TW_Settings::get( 'model' ) ); ?>)</option>
+						<option value="openai">ChatGPT (<?php echo esc_html( TW_Settings::get( 'openai_model' ) ); ?>)</option>
+					</select>
 					<button type="button" class="button button-hero" id="tw-manual">Fill in by hand</button>
 				</p>
+				<p id="tw-replace-warn" class="tw-draft-note" hidden>
+					Careful: Generate will replace the current description. It will not save to YouTube, and you can undo.
+					<button type="button" class="button button-primary" id="tw-replace-go">Replace the description</button>
+					<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
+				</p>
+				<p class="description">Switching models only changes who writes the draft. YouTube sign-in is separate. If the Gemini model in Settings is busy or does not answer, TubeWriter tries gemini-3.5-flash-lite, then gemini-flash-lite-latest. You can also pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
 			</section>
 
-			<!-- STEP 2 -->
-			<section class="tw-card tw-step" data-step="2" hidden>
+			<!-- STEP 2 (same page as the source, so the draft can be compared with what it came from) -->
+			<section class="tw-card tw-step" data-step="2">
 				<h2>Step 2: Details</h2>
+				<p id="tw-draft-undo" class="tw-draft-note" hidden>Generate replaced the description in this draft. Nothing was saved to YouTube. <button type="button" class="button" id="tw-undo-generate">Undo</button></p>
 				<?php
 				$help(
-					'The same fields you fill out in Studio: title, description, tags, category and language. Edit anything. This only changes your draft.',
+					'The title, description, tags, category and language that will be published. They stay on this page with your starting title, description and notes so you can see where the draft came from. Editing here only changes the draft.',
 					array(
-						'Pick a <strong>title</strong> from the AI options or type your own.',
-						'Read the <strong>description</strong> and <strong>chapters</strong>. Fix anything the AI got wrong.',
+						'Compare the draft with the <strong>starting title, description and notes</strong> above.',
+						'Pick a <strong>title</strong> from the AI options, type your own, or keep what is on YouTube.',
+						'Read the <strong>description</strong> and <strong>chapters</strong>. Fix anything that is wrong.',
 						'Check <strong>tags</strong>, <strong>hashtags</strong>, <strong>category</strong> and <strong>language</strong>.',
 						'Want a change from the AI? Type it in <strong>Tweak it</strong>. Then click <strong>Next</strong>.',
 					)
 				);
 				?>
-				<label>Title</label>
+				<div class="tw-row">
+					<label>Title</label>
+					<p class="tw-count" data-for="tw-title" data-max="100"></p>
+				</div>
 				<div id="tw-titles" class="tw-titles"></div>
 				<input type="text" id="tw-title" class="large-text">
-				<p class="tw-count" data-for="tw-title" data-max="100"></p>
 
-				<label for="tw-body">Description</label>
-				<textarea id="tw-body" rows="10" class="large-text"></textarea>
+				<div class="tw-row">
+					<label for="tw-body">Description</label>
+					<p class="tw-count" id="tw-desc-count"></p>
+				</div>
+				<textarea id="tw-body" rows="18" class="large-text"></textarea>
+				<p class="description">YouTube allows 5,000 characters for the full description, including the chapter breakdown and hashtags. The first ~100 characters show in search, so lead with the game and what happens.</p>
 
 				<label for="tw-chapters-heading">Chapters heading</label>
 				<input type="text" id="tw-chapters-heading" class="large-text">
 
 				<label for="tw-chapters">Chapters (one per line, first must be 0:00, leave empty for none)</label>
-				<textarea id="tw-chapters" rows="8" class="large-text code"></textarea>
+				<textarea id="tw-chapters" rows="14" class="large-text code"></textarea>
 
-				<label for="tw-hashtags">Hashtags (space separated, added at the end of the description)</label>
+				<label for="tw-hashtags">Hashtags (3, added at the end of the description. Only 3 show above the title.)</label>
 				<input type="text" id="tw-hashtags" class="large-text">
+				<p class="tw-count" id="tw-hashtag-count"></p>
 
 				<label for="tw-tags">Tags (comma separated)</label>
 				<textarea id="tw-tags" rows="2" class="large-text"></textarea>
-				<p class="tw-count" data-for="tw-tags" data-max="500"></p>
+				<p class="tw-count" id="tw-tag-count"></p>
 
 				<div class="tw-two">
 					<div>
@@ -442,13 +565,13 @@ class TW_Admin {
 						<?php $select( 'tw-language', TW_Settings::LANGUAGES, $boot['defaults']['language'] ); ?>
 					</div>
 				</div>
-				<p class="description">Game title is not available through YouTube's API. Step 6 links you straight to it in Studio.</p>
+				<p class="description">Game title is not available through YouTube's API. Step 7 links you straight to it in Studio.</p>
 
 				<details class="tw-preview">
 					<summary>Full description preview</summary>
 					<pre id="tw-preview"></pre>
-					<p class="tw-count" id="tw-desc-count"></p>
 				</details>
+				<p class="description" id="tw-search-preview"></p>
 
 				<div class="tw-tweak">
 					<label for="tw-tweak">Tweak it with AI</label>
@@ -459,10 +582,110 @@ class TW_Admin {
 
 			<!-- STEP 3 -->
 			<section class="tw-card tw-step" data-step="3" hidden>
-				<h2>Step 3: Playlist</h2>
+				<h2>Step 3: Thumbnail</h2>
 				<?php
 				$help(
-					'Adds the video to a playlist, or creates a new playlist for it. Nothing is created until you publish in step 6.',
+					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Upload to YouTube only when you click that button and confirm.',
+					array(
+						'Press <strong>Ctrl+V</strong> to paste a thumbnail. It is saved in the Media Library. Click a saved one below to look at it, then copy it.',
+						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and GG logo, and the game logo. The hook does not repeat the title.',
+						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
+						'Click <strong>Upload to YouTube</strong> and confirm, or download and upload in Studio. Skip this step anytime with Next.',
+					)
+				);
+				?>
+				<p class="description" id="tw-thumb-provider">Image provider: <strong><?php echo esc_html( TW_Settings::image_provider_label() ); ?></strong>. Change it in Settings.</p>
+				<div id="tw-thumb-zone" class="tw-thumb-zone" tabindex="0" role="button" aria-label="Paste screenshot area">
+					<p class="tw-thumb-zone-title">Paste screenshots here</p>
+					<p class="description">Press Ctrl+V while this box is focused, or click Add image to open the Media Library. Max two.</p>
+					<div id="tw-thumb-shots" class="tw-thumb-shots"></div>
+					<div class="tw-inline">
+						<button type="button" class="button" id="tw-thumb-add">Add image</button>
+						<button type="button" class="button" id="tw-thumb-clear" hidden>Clear images</button>
+						<input type="file" id="tw-thumb-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+					</div>
+				</div>
+
+				<div id="tw-thumb-refs" class="tw-thumb-refs">
+					<p class="tw-thumb-zone-title">Saved references</p>
+					<p class="description">Pasted thumbnails stay in the Media Library. Click one to look at it, then copy it.</p>
+					<div id="tw-thumb-ref-list" class="tw-thumb-shots"></div>
+				</div>
+
+				<div id="tw-thumb-lightbox" class="tw-thumb-lightbox" hidden>
+					<div class="tw-thumb-lightbox-card" role="dialog" aria-modal="true" aria-label="Saved thumbnail">
+						<img id="tw-thumb-lightbox-img" alt="">
+						<p class="tw-inline">
+							<button type="button" class="button button-primary" id="tw-thumb-lightbox-copy">Copy image</button>
+							<a class="button" id="tw-thumb-lightbox-edit" href="#" target="_blank" rel="noopener">Open in Media Library</a>
+							<button type="button" class="button" id="tw-thumb-lightbox-close">Close</button>
+						</p>
+					</div>
+				</div>
+
+				<p class="tw-actions-left">
+					<button type="button" class="button button-primary" id="tw-thumb-describe">Write thumbnail description</button>
+				</p>
+
+				<label for="tw-thumb-desc">Thumbnail description</label>
+				<textarea id="tw-thumb-desc" rows="22" class="large-text" placeholder="The numbered 16:9 concept appears here. Edit any line, then create the thumbnail."></textarea>
+
+				<div class="tw-two tw-logo-fields">
+					<div>
+						<label for="tw-game-logo-pos">Game logo</label>
+						<select id="tw-game-logo-pos">
+							<option value="upper-right">Top right</option>
+							<option value="upper-left">Top left</option>
+							<option value="lower-right">Bottom right</option>
+							<option value="none">Don't place it</option>
+						</select>
+						<p class="description" id="tw-game-logo-note">Headline stays top left. With one screenshot the game logo sits top right, or top left if you pick that.</p>
+						<p class="tw-inline">
+							<button type="button" class="button" id="tw-game-logo-pick">Choose from Media Library</button>
+							<button type="button" class="button-link" id="tw-game-logo-clear" hidden>Remove</button>
+						</p>
+						<img id="tw-game-logo-preview" class="tw-logo-preview" alt="" hidden>
+					</div>
+					<div>
+						<label for="tw-channel-logo-pos">Channel logo</label>
+						<select id="tw-channel-logo-pos">
+							<option value="lower-left">Bottom left</option>
+							<option value="lower-right">Bottom right</option>
+							<option value="upper-left">Top left</option>
+							<option value="upper-right">Top right</option>
+							<option value="none">Don't place it</option>
+						</select>
+						<p class="tw-inline">
+							<button type="button" class="button" id="tw-channel-logo-pick">Choose from Media Library</button>
+							<button type="button" class="button-link" id="tw-channel-logo-clear" hidden>Remove</button>
+						</p>
+						<img id="tw-channel-logo-preview" class="tw-logo-preview" alt="" hidden>
+					</div>
+				</div>
+				<p class="description">Headline is always top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. A second screenshot becomes a picture-in-picture in the top right, and the game logo moves to the bottom right.</p>
+
+				<p class="tw-actions-left">
+					<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
+				</p>
+
+				<div id="tw-thumb-result" class="tw-thumb-result" hidden>
+					<label>Generated thumbnail</label>
+					<img id="tw-thumb-preview" alt="Generated thumbnail">
+					<p class="tw-inline">
+						<button type="button" class="button button-primary" id="tw-thumb-upload">Upload to YouTube</button>
+						<a class="button" id="tw-thumb-download" download="thumbnail.png" href="#">Download PNG</a>
+						<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
+					</p>
+					<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. You can still download and upload in Studio instead.</p>
+				</div>
+			</section>
+
+			<!-- STEP 4 -->
+			<section class="tw-card tw-step" data-step="4" hidden>
+				<h2>Step 4: Playlist</h2>
+				<?php
+				$help(
+					'Adds the video to a playlist, or creates a new playlist for it. Nothing is created until you publish in step 7.',
 					array(
 						'Choose <strong>Don\'t add</strong>, <strong>Add to an existing playlist</strong>, or <strong>Create a new playlist</strong>.',
 						'For a new playlist, type a rough name and click <strong>Polish for SEO</strong>. Edit the result if you want.',
@@ -492,9 +715,9 @@ class TW_Admin {
 				</div>
 			</section>
 
-			<!-- STEP 4 -->
-			<section class="tw-card tw-step" data-step="4" hidden>
-				<h2>Step 4: Schedule</h2>
+			<!-- STEP 5 -->
+			<section class="tw-card tw-step" data-step="5" hidden>
+				<h2>Step 5: Schedule</h2>
 				<?php
 				$help(
 					'Picks when the video goes public. Only private videos can be scheduled.',
@@ -529,9 +752,9 @@ class TW_Admin {
 				</div>
 			</section>
 
-			<!-- STEP 5 -->
-			<section class="tw-card tw-step" data-step="5" hidden>
-				<h2>Step 5: Review</h2>
+			<!-- STEP 6 -->
+			<section class="tw-card tw-step" data-step="6" hidden>
+				<h2>Step 6: Review</h2>
 				<?php
 				$help(
 					'Compares what is on YouTube right now with what TubeWriter will write. Nothing has changed yet.',
@@ -546,9 +769,9 @@ class TW_Admin {
 				<div id="tw-review"></div>
 			</section>
 
-			<!-- STEP 6 -->
-			<section class="tw-card tw-step" data-step="6" hidden>
-				<h2>Step 6: Publish</h2>
+			<!-- STEP 7 -->
+			<section class="tw-card tw-step" data-step="7" hidden>
+				<h2>Step 7: Publish</h2>
 				<?php
 				$help(
 					'Saves a backup of the current details, then makes exactly the changes listed below. Nothing else on the video is touched.',
@@ -556,7 +779,7 @@ class TW_Admin {
 						'Read the list of changes.',
 						'Tick the box to confirm you reviewed them.',
 						'Click <strong>Publish changes</strong>, then confirm once more in the pop-up.',
-						'Afterwards, finish the manual steps in Studio (game title and end screen).',
+						'Afterwards, finish the manual steps in Studio (thumbnail, game title and end screen).',
 					)
 				);
 				?>
@@ -564,7 +787,7 @@ class TW_Admin {
 					<h3>These changes will be made</h3>
 					<ul id="tw-actions" class="tw-action-list"></ul>
 					<p class="tw-backup-note">Before anything changes, TubeWriter saves the current title, description, tags, category, language and schedule. You can restore them from <strong>Version history</strong> below.</p>
-					<p><label><input type="checkbox" id="tw-ack"> I reviewed these changes in step 5 and want to make them.</label></p>
+					<p><label><input type="checkbox" id="tw-ack"> I reviewed these changes in step 6 and want to make them.</label></p>
 					<p><button type="button" class="button button-primary button-hero" id="tw-publish" disabled>Publish changes</button></p>
 				</div>
 				<div id="tw-results" hidden></div>
@@ -573,8 +796,9 @@ class TW_Admin {
 					<h3>Finish in Studio (not possible through the API)</h3>
 					<ol>
 						<li><strong>Game title:</strong> open <a href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">the video in Studio</a>, Details, Show more, Game title.</li>
-						<li><strong>End screen:</strong> in Studio, Video elements, End screen. Add <em>Subscribe</em>, <em>Video: Best for viewer</em>, and the playlist from step 3 (or one in the same genre).</li>
+						<li><strong>End screen:</strong> in Studio, Video elements, End screen. Add <em>Subscribe</em>, <em>Video: Best for viewer</em>, and the playlist from step 4 (or one in the same genre).</li>
 					</ol>
+					<p class="description">Thumbnails can be uploaded from step 3. If you skipped that, you can still set one in Studio under Details.</p>
 				</div>
 
 				<div class="tw-history">
@@ -643,7 +867,7 @@ class TW_Admin {
 		if ( '' === trim( $input['transcript'] ) && '' === trim( $input['notes'] ) && '' === trim( $input['current_description'] ) ) {
 			wp_send_json_error( 'Nothing to work from yet. Add a transcript, a starting description or some notes.' );
 		}
-		$pkg = TW_AI::generate( $input );
+		$pkg = TW_AI::generate( $input, $this->text_provider() );
 		$this->respond_with_package( $input, $pkg );
 	}
 
@@ -655,7 +879,7 @@ class TW_Admin {
 			wp_send_json_error( 'Type what you want changed.' );
 		}
 		$current = $this->pkg_from_post();
-		$pkg     = TW_AI::revise( $input, $current, $instruction );
+		$pkg     = TW_AI::revise( $input, $current, $instruction, $this->text_provider() );
 		$this->respond_with_package( $input, $pkg );
 	}
 
@@ -665,16 +889,245 @@ class TW_Admin {
 		$this->save_state(
 			$input['video'],
 			array(
-				'transcript' => $input['transcript'],
-				'notes'      => $input['notes'],
-				'seed_title' => $input['current_title'],
-				'seed_desc'  => $input['current_description'],
-				'pkg'        => $this->pkg_from_post(),
-				'opts'       => $this->opts_from_post(),
-				'saved'      => time(),
+				'transcript'        => $input['transcript'],
+				'notes'             => $input['notes'],
+				'seed_title'        => $input['current_title'],
+				'seed_desc'         => $input['current_description'],
+				'pkg'               => $this->pkg_from_post(),
+				'opts'              => $this->opts_from_post(),
+				'thumb_description' => $this->post( 'thumb_description', true ),
+				'saved'             => time(),
 			)
 		);
 		wp_send_json_success( array( 'saved' => wp_date( 'g:ia' ) ) );
+	}
+
+	public function ajax_thumb_logos_save() {
+		$this->ajax_guard();
+		$channel_id  = absint( $this->post( 'channel_logo_id' ) );
+		$game_id     = absint( $this->post( 'game_logo_id' ) );
+		$channel_pos = $this->logo_pos( $this->post( 'channel_logo_pos' ), 'lower-left' );
+		$game_pos    = $this->logo_pos( $this->post( 'game_logo_pos' ), 'upper-right' );
+		update_option( 'tw_channel_logo_id', $channel_id, false );
+		update_option( 'tw_channel_logo_pos', $channel_pos, false );
+		$this->save_state(
+			$this->post( 'video' ),
+			array(
+				'game_logo_id'  => $game_id,
+				'game_logo_pos' => $game_pos,
+			)
+		);
+		wp_send_json_success();
+	}
+
+	public function ajax_thumb_ref_save() {
+		$this->ajax_guard();
+		if ( empty( $_FILES['image']['tmp_name'] ) ) {
+			wp_send_json_error( 'No image was pasted.' );
+		}
+		$allowed = array( 'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif' );
+		$type    = isset( $_FILES['image']['type'] ) ? strtolower( (string) $_FILES['image']['type'] ) : '';
+		if ( ! in_array( $type, $allowed, true ) ) {
+			wp_send_json_error( 'Use a PNG, JPEG, WebP or GIF.' );
+		}
+		$name = isset( $_FILES['image']['name'] ) ? (string) $_FILES['image']['name'] : '';
+		if ( '' === $name || 'blob' === $name || 'image.png' === $name ) {
+			$ext = 'jpg';
+			if ( false !== strpos( $type, 'png' ) ) {
+				$ext = 'png';
+			} elseif ( false !== strpos( $type, 'webp' ) ) {
+				$ext = 'webp';
+			} elseif ( false !== strpos( $type, 'gif' ) ) {
+				$ext = 'gif';
+			}
+			$_FILES['image']['name'] = 'tw-ref-' . gmdate( 'Ymd-His' ) . '.' . $ext;
+		}
+
+		require_once ABSPATH . 'wp-admin/includes/file.php';
+		require_once ABSPATH . 'wp-admin/includes/media.php';
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+
+		$id = media_handle_upload( 'image', 0 );
+		if ( is_wp_error( $id ) ) {
+			wp_send_json_error( $id->get_error_message() );
+		}
+		update_post_meta( $id, '_tw_thumb_ref', '1' );
+		$video = sanitize_text_field( $this->post( 'video' ) );
+		if ( '' !== $video ) {
+			update_post_meta( $id, '_tw_thumb_ref_video', $video );
+		}
+		wp_update_post(
+			array(
+				'ID'         => $id,
+				'post_title' => 'TubeWriter reference ' . wp_date( 'Y-m-d g:i a' ),
+			)
+		);
+		wp_send_json_success( $this->thumb_ref_payload( $id ) );
+	}
+
+	public function ajax_thumb_refs() {
+		$this->ajax_guard();
+		$query = new WP_Query(
+			array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'posts_per_page' => 24,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+				'meta_key'       => '_tw_thumb_ref',
+				'meta_value'     => '1',
+			)
+		);
+		$items = array();
+		foreach ( $query->posts as $post ) {
+			$items[] = $this->thumb_ref_payload( $post->ID );
+		}
+		wp_send_json_success( array( 'items' => $items ) );
+	}
+
+	/**
+	 * @param int $id Attachment id.
+	 * @return array{id: int, url: string, thumb: string, edit: string, title: string}
+	 */
+	private function thumb_ref_payload( $id ) {
+		$id    = (int) $id;
+		$full  = (string) wp_get_attachment_image_url( $id, 'full' );
+		$thumb = (string) wp_get_attachment_image_url( $id, 'medium' );
+		return array(
+			'id'    => $id,
+			'url'   => $full,
+			'thumb' => '' !== $thumb ? $thumb : $full,
+			'edit'  => (string) get_edit_post_link( $id, 'raw' ),
+			'title' => get_the_title( $id ),
+		);
+	}
+
+	public function ajax_thumb_describe() {
+		$this->ajax_guard();
+		$input  = $this->input();
+		$images = $this->images_from_post();
+		if ( is_wp_error( $images ) ) {
+			wp_send_json_error( $images->get_error_message() );
+		}
+		$out = TW_AI::describe_thumbnail( $input, $images, $this->pkg_from_post() );
+		if ( is_wp_error( $out ) ) {
+			wp_send_json_error( $out->get_error_message() );
+		}
+		$this->save_state(
+			$input['video'],
+			array(
+				'transcript'        => $input['transcript'],
+				'notes'             => $input['notes'],
+				'seed_title'        => $input['current_title'],
+				'seed_desc'         => $input['current_description'],
+				'pkg'               => $this->pkg_from_post(),
+				'thumb_description' => $out['description'],
+			)
+		);
+		wp_send_json_success( $out );
+	}
+
+	public function ajax_thumb_generate() {
+		$this->ajax_guard();
+		$input       = $this->input();
+		$description = $this->post( 'thumb_description', true );
+		$images      = $this->images_from_post();
+		if ( is_wp_error( $images ) ) {
+			wp_send_json_error( $images->get_error_message() );
+		}
+		$logos = $this->logos_from_post( is_array( $images ) ? count( $images ) : 1 );
+		if ( is_wp_error( $logos ) ) {
+			wp_send_json_error( $logos->get_error_message() );
+		}
+		$image = TW_AI::generate_thumbnail( $description, $images, $logos );
+		if ( is_wp_error( $image ) ) {
+			wp_send_json_error( $image->get_error_message() );
+		}
+
+		$saved = $this->store_thumbnail( $input['video'], $image['data'], $image['mime'] );
+		if ( is_wp_error( $saved ) ) {
+			wp_send_json_error( $saved->get_error_message() );
+		}
+
+		$this->save_state(
+			$input['video'],
+			array(
+				'thumb_description' => $description,
+				'thumb_url'         => $saved['url'],
+				'thumb_file'        => $saved['file'],
+			)
+		);
+
+		wp_send_json_success(
+			array(
+				'url'         => $saved['url'],
+				'mime'        => $image['mime'],
+				'description' => $description,
+			)
+		);
+	}
+
+	public function ajax_thumb_upload() {
+		$this->ajax_guard();
+		$video_id = $this->post( 'video' );
+		if ( ! $video_id ) {
+			wp_send_json_error( 'Missing video id.' );
+		}
+
+		$key   = 'tw_state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
+		$state = get_option( $key, array() );
+		$file  = is_array( $state ) ? (string) ( $state['thumb_file'] ?? '' ) : '';
+		if ( '' === $file || ! is_readable( $file ) ) {
+			wp_send_json_error( 'Create a thumbnail first, then upload it.' );
+		}
+
+		$uploads = wp_get_upload_dir();
+		$basedir = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+		$norm    = wp_normalize_path( $file );
+		if ( ! $basedir || 0 !== strpos( $norm, $basedir ) ) {
+			wp_send_json_error( 'Thumbnail file is not in the uploads folder.' );
+		}
+
+		$bin = file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( false === $bin || '' === $bin ) {
+			wp_send_json_error( 'Could not read the generated thumbnail file.' );
+		}
+
+		$mime = 'image/png';
+		if ( preg_match( '/\.jpe?g$/i', $file ) ) {
+			$mime = 'image/jpeg';
+		} elseif ( preg_match( '/\.webp$/i', $file ) ) {
+			wp_send_json_error( 'YouTube needs PNG or JPEG. Create the thumbnail again so it saves as PNG.' );
+		}
+
+		$result = TW_YouTube::set_thumbnail( $video_id, $bin, $mime );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message() );
+		}
+
+		$thumb_url = $result['items'][0]['high']['url']
+			?? $result['items'][0]['medium']['url']
+			?? $result['items'][0]['default']['url']
+			?? (string) ( $state['thumb_url'] ?? '' );
+
+		$this->save_state(
+			$video_id,
+			array(
+				'thumb_uploaded' => time(),
+				'thumb_yt_url'   => $thumb_url,
+			)
+		);
+
+		TW_Index::refresh_one( $video_id );
+
+		wp_send_json_success(
+			array(
+				'ok'      => true,
+				'message' => 'Thumbnail uploaded to YouTube.',
+				'url'     => $thumb_url,
+				'quota'   => TW_YouTube::quota_used(),
+			)
+		);
 	}
 
 	public function ajax_playlists() {
@@ -880,6 +1333,148 @@ class TW_Admin {
 	private function post( $key, $multiline = false ) {
 		$value = wp_unslash( $_POST[ $key ] ?? '' ); // phpcs:ignore
 		return $multiline ? wp_check_invalid_utf8( (string) $value ) : sanitize_text_field( $value );
+	}
+
+	/**
+	 * Decode up to two pasted screenshots from the editor.
+	 *
+	 * @return array|WP_Error
+	 */
+	/**
+	 * @param int    $id
+	 * @param string $pos
+	 * @param string $default
+	 * @return array{id: int, url: string, pos: string}
+	 */
+	private function logo_boot( $id, $pos, $default ) {
+		$id  = absint( $id );
+		$pos = $this->logo_pos( $pos, $default );
+		$url = $id ? (string) wp_get_attachment_url( $id ) : '';
+		if ( $id && '' === $url ) {
+			$id = 0;
+		}
+		return array(
+			'id'  => $id,
+			'url' => $url,
+			'pos' => $pos,
+		);
+	}
+
+	/** @return string */
+	private function logo_pos( $pos, $default = 'none' ) {
+		$pos = sanitize_key( (string) $pos );
+		$ok  = array( 'upper-left', 'upper-right', 'lower-left', 'lower-right', 'none' );
+		return in_array( $pos, $ok, true ) ? $pos : $default;
+	}
+
+	/**
+	 * Game and channel logo files chosen on the thumbnail step.
+	 *
+	 * @return array<int, array{mime: string, data: string, label: string, pos: string}>|WP_Error
+	 */
+	private function logos_from_post( $shot_count = 1 ) {
+		$specs = array(
+			array( 'game_logo_id', 'game_logo_pos', 'official game logo', 'upper-right' ),
+			array( 'channel_logo_id', 'channel_logo_pos', 'GG channel logo', 'lower-left' ),
+		);
+		$out = array();
+		foreach ( $specs as $spec ) {
+			$id  = absint( $this->post( $spec[0] ) );
+			$pos = $this->logo_pos( $this->post( $spec[1] ), $spec[3] );
+			if ( 'official game logo' === $spec[2] && (int) $shot_count > 1 && 'upper-right' === $pos ) {
+				$pos = 'lower-right';
+			}
+			if ( ! $id || 'none' === $pos ) {
+				continue;
+			}
+			$path = get_attached_file( $id );
+			if ( ! $path || ! is_readable( $path ) ) {
+				return new WP_Error( 'tw_ai', 'Could not read the ' . $spec[2] . ' from the Media Library. Choose it again.' );
+			}
+			$bin = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			if ( false === $bin || '' === $bin ) {
+				return new WP_Error( 'tw_ai', 'The ' . $spec[2] . ' file was empty.' );
+			}
+			$mime = (string) get_post_mime_type( $id );
+			if ( '' === $mime ) {
+				$mime = 'image/png';
+			}
+			$out[] = array(
+				'mime'  => $mime,
+				'data'  => base64_encode( $bin ),
+				'label' => $spec[2],
+				'pos'   => str_replace( '-', ' ', $pos ),
+			);
+		}
+		return $out;
+	}
+
+	private function images_from_post() {
+		$raw = json_decode( wp_unslash( $_POST['images'] ?? '' ), true ); // phpcs:ignore
+		if ( ! is_array( $raw ) ) {
+			return new WP_Error( 'tw_ai', 'Paste at least one screenshot first.' );
+		}
+		return $raw;
+	}
+
+	/**
+	 * Save a generated thumbnail under uploads/tubewriter/.
+	 *
+	 * @param string $video_id
+	 * @param string $base64
+	 * @param string $mime
+	 * @return array{url: string, file: string}|WP_Error
+	 */
+	private function store_thumbnail( $video_id, $base64, $mime ) {
+		$bin = base64_decode( (string) $base64, true );
+		if ( false === $bin || '' === $bin ) {
+			return new WP_Error( 'tw_ai', 'Could not decode the generated image.' );
+		}
+		$ext = 'png';
+		if ( false !== strpos( $mime, 'jpeg' ) || false !== strpos( $mime, 'jpg' ) ) {
+			$ext = 'jpg';
+		} elseif ( false !== strpos( $mime, 'webp' ) ) {
+			$ext = 'webp';
+		}
+		$safe = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		$name = 'tw-thumb-' . ( $safe ?: 'video' ) . '-' . gmdate( 'Ymd-His' ) . '.' . $ext;
+
+		$upload = wp_upload_bits( $name, null, $bin );
+		if ( ! empty( $upload['error'] ) ) {
+			return new WP_Error( 'tw_ai', 'Could not save the thumbnail: ' . $upload['error'] );
+		}
+		return array(
+			'url'  => $upload['url'],
+			'file' => $upload['file'],
+		);
+	}
+
+	/** Gemini or ChatGPT, from the editor dropdown. */
+	private function text_provider() {
+		return TW_AI::text_provider( $this->post( 'provider' ) );
+	}
+
+	/** Google sign-in steps. The paste box is how a Desktop OAuth client finishes. */
+	private function reconnect_steps( $button_label ) {
+		?>
+		<ol class="tw-steps">
+			<li>
+				<a class="button button-primary" target="_blank" rel="noopener" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
+				opens Google in a new tab. Pick the account that owns the channel and allow access.
+				If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to TubeWriter (unsafe)</strong>.
+			</li>
+			<li>Google then opens a <strong>This site can't be reached</strong> page at 127.0.0.1. That is expected. Copy the entire address from the address bar.</li>
+			<li>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline-form">
+					<?php wp_nonce_field( 'tw_complete' ); ?>
+					<input type="hidden" name="action" value="tw_complete">
+					<input type="text" name="tw_pasted" class="large-text code" placeholder="http://127.0.0.1:8765/?state=...&amp;code=..." required>
+					<button class="button button-primary">Finish connecting</button>
+				</form>
+			</li>
+		</ol>
+		<p class="description">This signs TubeWriter into YouTube. It does not fix a busy Gemini or ChatGPT model. A Google Cloud project left in <strong>Testing</strong> makes you do this about every 7 days. To stop that, open Google Auth Platform, go to Audience, and click <strong>Publish app</strong>.</p>
+		<?php
 	}
 
 	private function ajax_guard() {

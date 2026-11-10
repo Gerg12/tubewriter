@@ -59,28 +59,32 @@ Your video list is stored on your WordPress site, so searching and filtering nev
 
 ### Editor
 
-Open **TubeWriter > Videos** and click **Edit** on a video. The editor walks you through 6 steps, each with its own instructions at the top. **Nothing on YouTube changes until step 6.** **Save draft** is in the bar at the bottom, and drafts also save every time you change steps.
+Open **TubeWriter > Videos** and click **Edit** on a video. The editor walks you through 7 steps, each with its own instructions at the top. **Nothing on YouTube changes until step 7.** **Save draft** is in the bar at the bottom, and drafts also save every time you change steps.
 
 1. **Source.** Pull captions or paste a transcript, check the starting title and description, add notes. Click **Generate with AI**, or **Fill in by hand** to edit what is on YouTube now.
 2. **Details.** Title, description, chapters, hashtags, tags, category and language. Use **Tweak it with AI** for changes.
-3. **Playlist.** Don't add, add to an existing playlist, or create a new one (**Polish for SEO** writes the title and description).
-4. **Schedule.** Click a day on the calendar. Orange is already scheduled, green is already published, empty days are open. Private videos only.
-5. **Review.** What is on YouTube now next to what it will be after publishing. Red errors block publishing.
-6. **Publish.** Read the list of changes, tick the box, click **Publish changes**, confirm the pop-up. Then do the game title and end screen in Studio (YouTube's API can't set those).
+3. **Thumbnail (optional).** Paste up to two screenshots with Ctrl+V, let Gemini write a thumbnail brief, edit it, then **Create thumbnail** with OpenAI or Gemini (set the provider and API key in Settings). **Upload to YouTube** pushes it live (about 50 API units, needs a verified channel), or download and upload in Studio. Skip with Next if you do not need one.
+4. **Playlist.** Don't add, add to an existing playlist, or create a new one (**Polish for SEO** writes the title and description).
+5. **Schedule.** Click a day on the calendar. Orange is already scheduled, green is already published, empty days are open. Private videos only.
+6. **Review.** What is on YouTube now next to what it will be after publishing. Red errors block publishing.
+7. **Publish.** Read the list of changes, tick the box, click **Publish changes**, confirm the pop-up. Then set the game title and end screen in Studio (YouTube's API can't set those). Thumbnails can be uploaded from step 3.
 
 ## Safety
 
 - A backup of the current title, description, tags, category, language and schedule is saved before every publish.
-- **Version history** in step 6 lists every backup. **Restore this version** puts it back, and backs up the current version first so you can undo the undo.
+- **Version history** in step 7 lists every backup. **Restore this version** puts it back, and backs up the current version first so you can undo the undo.
 - If the video changed in Studio after your review, publishing stops and asks you to review again.
-- Editing anything after the review locks step 6 until you review again.
+- Editing anything after the review locks step 7 until you review again.
 - TubeWriter never deletes videos, playlists or playlist entries.
 - **TubeWriter > History** lists every change across all videos.
 
 ## Rules TubeWriter enforces before pushing
 
 - Chapters: first at 0:00, at least 3, each 10+ seconds apart, none past the end. It fixes these automatically and tells you what it changed.
-- Title: 100 characters max. Description: 5000 bytes max (emoji count as 4). Tags: 500 characters total.
+- Title: 100 characters max. Description: 5000 bytes max (emoji count as 4).
+- Tags: 500 characters total, capped at 8 (aim for 4 to 6). Generic tags and near-duplicates are dropped. Warnings only, not blockers.
+- Hashtags: capped at 3 (only 3 show above the title). Extras are trimmed with a warning.
+- Description body: warnings if it opens with the warning block or a link, looks like a keyword list, runs over 1,500 characters, or has a truncated GG Algorithm Warning.
 - No `<` or `>` (YouTube rejects them).
 
 ## Quota

@@ -442,6 +442,86 @@ class TW_YouTube {
 		return TW_Index::calendar_events();
 	}
 
+	/**
+	 * Upload a custom thumbnail for a video. thumbnails.set, about 50 units.
+	 * Channel must be verified for custom thumbnails. PNG or JPEG only.
+	 *
+	 * @param string $video_id
+	 * @param string $binary Raw image bytes.
+	 * @param string $mime   image/png or image/jpeg.
+	 * @return array|WP_Error YouTube thumbnailSetResponse.
+	 */
+	public static function set_thumbnail( $video_id, $binary, $mime = 'image/png' ) {
+		$video_id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		if ( ! $video_id ) {
+			return new WP_Error( 'tw_yt', 'Missing video id.' );
+		}
+		if ( '' === (string) $binary ) {
+			return new WP_Error( 'tw_yt', 'Thumbnail file is empty.' );
+		}
+		$mime = strtolower( (string) $mime );
+		if ( 'image/jpg' === $mime ) {
+			$mime = 'image/jpeg';
+		}
+		if ( ! in_array( $mime, array( 'image/png', 'image/jpeg' ), true ) ) {
+			return new WP_Error( 'tw_yt', 'YouTube only accepts PNG or JPEG thumbnails.' );
+		}
+
+		$token = TW_OAuth::access_token();
+		if ( is_wp_error( $token ) ) {
+			return $token;
+		}
+
+		$url = add_query_arg(
+			array(
+				'videoId'    => $video_id,
+				'uploadType' => 'media',
+			),
+			'https://www.googleapis.com/upload/youtube/v3/thumbnails/set'
+		);
+
+		$response = wp_remote_request(
+			$url,
+			array(
+				'method'  => 'POST',
+				'timeout' => 60,
+				'headers' => array(
+					'Authorization' => 'Bearer ' . $token,
+					'Content-Type'  => $mime,
+				),
+				'body'    => $binary,
+			)
+		);
+		self::track_quota( 'POST', 'thumbnails/set' );
+
+		if ( is_wp_error( $response ) ) {
+			return new WP_Error( 'tw_yt', 'Could not reach YouTube: ' . $response->get_error_message() );
+		}
+
+		$code = wp_remote_retrieve_response_code( $response );
+		$raw  = wp_remote_retrieve_body( $response );
+		$data = json_decode( $raw, true );
+
+		if ( $code >= 400 ) {
+			$reason  = $data['error']['errors'][0]['reason'] ?? '';
+			$message = $data['error']['message'] ?? ( 'HTTP ' . $code );
+			if ( 'quotaExceeded' === $reason ) {
+				$message = 'Daily YouTube API quota used up. It resets at midnight Pacific time.';
+			} elseif ( 'forbidden' === $reason || 403 === (int) $code ) {
+				$message = 'YouTube refused the thumbnail. The channel may need phone verification for custom thumbnails, or this account cannot edit that video.';
+			} elseif ( 'invalidImage' === $reason ) {
+				$message = 'YouTube rejected the image. Try a PNG under 2 MB at 1280x720.';
+			} elseif ( 'uploadRateLimitExceeded' === $reason ) {
+				$message = 'Too many thumbnail uploads recently. Wait a bit and try again.';
+			} elseif ( 'videoNotFound' === $reason ) {
+				$message = 'Video not found on your channel.';
+			}
+			return new WP_Error( 'tw_yt', 'YouTube: ' . wp_strip_all_tags( $message ), array( 'reason' => $reason, 'status' => $code ) );
+		}
+
+		return is_array( $data ) ? $data : array( 'ok' => true );
+	}
+
 	/** Rough count of API units used today (Pacific day, like Google's reset). */
 	public static function quota_used() {
 		$q = get_option( 'tw_quota', array() );

@@ -82,7 +82,11 @@ class TW_Index {
 			}
 		}
 
-		$row = array(
+		// Private/scheduled thumbs are signed i9.ytimg URLs that expire. Download
+		// while the API URL is fresh so the Videos list never hotlinks YouTube.
+		$remote_thumb = self::remote_thumb_from_snippet( $sn );
+		$thumb        = self::cache_thumbnail( $v['id'], $remote_thumb, ! self::has_local_thumb( $v['id'] ) );
+		$row          = array(
 			'id'           => $v['id'],
 			'title'        => (string) ( $sn['title'] ?? '' ),
 			'description'  => (string) ( $sn['description'] ?? '' ),
@@ -90,7 +94,7 @@ class TW_Index {
 			'publish_at'   => ! empty( $st['publishAt'] ) ? gmdate( 'Y-m-d H:i:s', strtotime( $st['publishAt'] ) ) : null,
 			'published_at' => ! empty( $sn['publishedAt'] ) ? gmdate( 'Y-m-d H:i:s', strtotime( $sn['publishedAt'] ) ) : null,
 			'duration'     => TW_Transcript::duration_seconds( $v['contentDetails']['duration'] ?? '' ),
-			'thumb'        => (string) ( $sn['thumbnails']['default']['url'] ?? '' ),
+			'thumb'        => $thumb,
 			'synced_at'    => time(),
 		);
 		if ( isset( $v['statistics']['viewCount'] ) ) {
@@ -437,8 +441,216 @@ class TW_Index {
 		$list_sql = "SELECT id, title, LEFT(description, 220) AS excerpt, privacy, publish_at, published_at, views, duration, thumb, tw_status
 			FROM {$t} WHERE {$sql_where} ORDER BY {$orderby} {$order}, id ASC LIMIT %d OFFSET %d";
 		$items    = $wpdb->get_results( $wpdb->prepare( $list_sql, array_merge( $args, array( $per, ( $paged - 1 ) * $per ) ) ), ARRAY_A ); // phpcs:ignore
+		$items    = self::ensure_local_thumbs( is_array( $items ) ? $items : array() );
 
 		return array( 'items' => $items, 'total' => $total, 'per_page' => $per );
+	}
+
+	/** Best thumbnail URL from a YouTube snippet. */
+	public static function remote_thumb_from_snippet( array $sn ) {
+		$thumbs = $sn['thumbnails'] ?? array();
+		foreach ( array( 'medium', 'high', 'default', 'standard', 'maxres' ) as $key ) {
+			if ( ! empty( $thumbs[ $key ]['url'] ) ) {
+				return (string) $thumbs[ $key ]['url'];
+			}
+		}
+		return '';
+	}
+
+	/** True when the stored thumb still points at YouTube's CDN. */
+	public static function thumb_is_remote( $url ) {
+		$url = (string) $url;
+		if ( '' === $url ) {
+			return false;
+		}
+		return (bool) preg_match( '#https?://([^/]+\.)?(ytimg\.com|youtube\.com|ggpht\.com)/#i', $url );
+	}
+
+	/**
+	 * Local path/URL for a cached YouTube thumb under uploads/tubewriter/thumbs/.
+	 *
+	 * @return array{dir:string,file:string,url:string}|null
+	 */
+	public static function local_thumb_paths( $video_id ) {
+		$safe = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		if ( ! $safe ) {
+			return null;
+		}
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) ) {
+			return null;
+		}
+		$dir    = trailingslashit( $uploads['basedir'] ) . 'tubewriter/thumbs';
+		$scheme = wp_parse_url( home_url(), PHP_URL_SCHEME );
+		$url    = trailingslashit( $uploads['baseurl'] ) . 'tubewriter/thumbs/' . $safe . '.jpg';
+		return array(
+			'dir'  => $dir,
+			'file' => $dir . '/' . $safe . '.jpg',
+			'url'  => set_url_scheme( $url, $scheme ? $scheme : 'https' ),
+		);
+	}
+
+	/** Whether a usable local thumb file already exists. */
+	public static function has_local_thumb( $video_id ) {
+		$paths = self::local_thumb_paths( $video_id );
+		return $paths && file_exists( $paths['file'] ) && filesize( $paths['file'] ) > 200;
+	}
+
+	/**
+	 * Download a YouTube thumbnail and serve it from this site.
+	 * Returns the local URL when possible, otherwise the remote URL (or empty).
+	 *
+	 * @param string $video_id
+	 * @param string $remote_url
+	 * @param bool   $force Re-download even when a local file already exists.
+	 */
+	public static function cache_thumbnail( $video_id, $remote_url, $force = false ) {
+		$remote_url = esc_url_raw( (string) $remote_url );
+		$paths      = self::local_thumb_paths( $video_id );
+		if ( ! $paths ) {
+			return $remote_url;
+		}
+
+		if ( ! $force && self::has_local_thumb( $video_id ) ) {
+			return $paths['url'];
+		}
+
+		if ( '' === $remote_url ) {
+			return self::has_local_thumb( $video_id ) ? $paths['url'] : '';
+		}
+
+		if ( ! self::thumb_is_remote( $remote_url ) ) {
+			return self::has_local_thumb( $video_id ) ? $paths['url'] : $remote_url;
+		}
+
+		if ( ! wp_mkdir_p( $paths['dir'] ) ) {
+			return self::has_local_thumb( $video_id ) ? $paths['url'] : $remote_url;
+		}
+
+		$body = self::fetch_image_bytes( $remote_url );
+		if ( null === $body ) {
+			return self::has_local_thumb( $video_id ) ? $paths['url'] : $remote_url;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		if ( false === file_put_contents( $paths['file'], $body ) ) {
+			return $remote_url;
+		}
+		return $paths['url'];
+	}
+
+	/**
+	 * @return string|null Raw image bytes, or null on failure.
+	 */
+	private static function fetch_image_bytes( $url ) {
+		$response = wp_remote_get(
+			$url,
+			array(
+				'timeout'     => 15,
+				'redirection' => 3,
+				'user-agent'  => 'TubeWriter/' . TW_VERSION . '; ' . home_url( '/' ),
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		$body = (string) wp_remote_retrieve_body( $response );
+		$type = strtolower( (string) wp_remote_retrieve_header( $response, 'content-type' ) );
+		if ( $code < 200 || $code >= 300 || strlen( $body ) < 200 ) {
+			return null;
+		}
+		if ( $type && false === strpos( $type, 'image' ) ) {
+			return null;
+		}
+		return $body;
+	}
+
+	/**
+	 * Backfill local thumbs for the current page. Expired private/scheduled URLs
+	 * are refreshed with videos.list (1 unit per 50) then downloaded.
+	 *
+	 * @param array $items
+	 * @return array
+	 */
+	private static function ensure_local_thumbs( array $items ) {
+		global $wpdb;
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 120 ); // phpcs:ignore
+		}
+
+		$need_refresh = array();
+		foreach ( $items as &$item ) {
+			$id    = (string) ( $item['id'] ?? '' );
+			$thumb = (string) ( $item['thumb'] ?? '' );
+			if ( ! $id ) {
+				continue;
+			}
+			$paths = self::local_thumb_paths( $id );
+			if ( self::has_local_thumb( $id ) ) {
+				if ( $paths && $thumb !== $paths['url'] ) {
+					$wpdb->update( self::table(), array( 'thumb' => $paths['url'] ), array( 'id' => $id ) );
+					$item['thumb'] = $paths['url'];
+				}
+				continue;
+			}
+			if ( self::thumb_is_remote( $thumb ) ) {
+				$local = self::cache_thumbnail( $id, $thumb );
+				if ( self::has_local_thumb( $id ) ) {
+					$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'id' => $id ) );
+					$item['thumb'] = $local;
+					continue;
+				}
+			}
+			$need_refresh[] = $id;
+		}
+		unset( $item );
+
+		if ( ! $need_refresh ) {
+			return $items;
+		}
+
+		$videos = TW_YouTube::videos_by_ids( $need_refresh );
+		if ( is_wp_error( $videos ) ) {
+			return $items;
+		}
+
+		$fresh = array();
+		foreach ( $videos as $video ) {
+			$vid = (string) ( $video['id'] ?? '' );
+			$url = self::remote_thumb_from_snippet( $video['snippet'] ?? array() );
+			if ( $vid && $url ) {
+				$fresh[ $vid ] = $url;
+			}
+		}
+
+		foreach ( $items as &$item ) {
+			$id = (string) ( $item['id'] ?? '' );
+			if ( ! $id || self::has_local_thumb( $id ) || empty( $fresh[ $id ] ) ) {
+				continue;
+			}
+			$local = self::cache_thumbnail( $id, $fresh[ $id ], true );
+			if ( self::has_local_thumb( $id ) ) {
+				$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'id' => $id ) );
+				$item['thumb'] = $local;
+			} else {
+				// Keep the fresh signed URL briefly if download failed this pass.
+				$wpdb->update( self::table(), array( 'thumb' => $fresh[ $id ] ), array( 'id' => $id ) );
+				$item['thumb'] = $fresh[ $id ];
+			}
+		}
+		unset( $item );
+
+		return $items;
+	}
+
+	/** Local cached thumb URL for one video, if the file exists. */
+	public static function local_thumb_url( $video_id ) {
+		$paths = self::local_thumb_paths( $video_id );
+		if ( ! $paths || ! self::has_local_thumb( $video_id ) ) {
+			return '';
+		}
+		return $paths['url'];
 	}
 
 	/** Scheduled and published uploads for the editor calendar, from the index (no API calls). */

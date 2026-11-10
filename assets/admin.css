@@ -41,10 +41,13 @@
 .tw-cols .tw-card { margin: 0; }
 .tw-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tw-row label { margin: 0; }
+.tw-row .tw-count { margin: 0; flex: 0 0 auto; }
 
 .tw-count { margin: 2px 0 0; font-size: 12px; color: #646970; text-align: right; }
+.tw-count.tw-warn { color: #996800; font-weight: 600; }
 .tw-count.tw-over { color: #b32d2e; font-weight: 600; }
 .tw-bad { border-color: #b32d2e !important; box-shadow: 0 0 0 1px #b32d2e; }
+#tw-search-preview { margin-top: 8px; }
 
 .tw-preview { margin-top: 16px; }
 .tw-preview pre {
@@ -89,6 +92,20 @@
 .tw-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 20px; }
 
 .tw-msg { padding: 10px 14px; border-left: 4px solid #72aee6; background: #fff; margin: 12px 0; }
+.tw-wrap .tw-spin {
+	width: 16px;
+	height: 16px;
+	margin: 0 8px 0 0;
+	border: 2px solid #c3c4c7;
+	border-top-color: #2271b1;
+	border-radius: 50%;
+	display: inline-block;
+	vertical-align: middle;
+	animation: tw-spin .7s linear infinite;
+}
+.tw-wrap .tw-busy-spinner { display: none; margin: 0; }
+.tw-wrap .tw-busy-spinner.is-active { display: inline-block; }
+@keyframes tw-spin { to { transform: rotate(360deg); } }
 .tw-msg-success { border-color: #00a32a; }
 .tw-msg-error { border-color: #d63638; }
 .tw-msg ul { margin: 6px 0 0 18px; list-style: disc; }
@@ -114,7 +131,19 @@
 .tw-help p { margin: 2px 0; }
 .tw-help ol { margin: 4px 0 0 20px; }
 .tw-help li { margin-bottom: 3px; }
-.tw-actions-left { display: flex; gap: 10px; margin-top: 18px; }
+.tw-actions-left { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+.tw-provider-label { margin: 0; font-weight: 600; }
+.tw-actions-left select { max-width: 320px; }
+.tw-reconnect { margin: 12px 0; }
+.tw-reconnect summary { cursor: pointer; font-weight: 600; }
+.tw-draft-note {
+	margin: 0 0 12px;
+	padding: 10px 14px;
+	background: #fcf9e8;
+	border-left: 4px solid #dba617;
+	border-radius: 4px;
+}
+.tw-draft-note .button { margin-left: 8px; vertical-align: baseline; }
 .tw-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .tw-two select { width: 100%; }
 .tw-wrap label.tw-radio { font-weight: 400; display: inline; margin: 0; }
@@ -232,3 +261,127 @@
 .tw-tw { font-size: 12px; font-weight: 600; }
 .tw-tw-pushed { color: #1a5e2a; }
 .tw-tw-draft, .tw-tw-started { color: #8a4b00; }
+
+/* ---------- thumbnail step ---------- */
+.tw-thumb-zone {
+	margin-top: 8px;
+	padding: 14px 16px;
+	border: 2px dashed #c3c4c7;
+	border-radius: 6px;
+	background: #f6f7f7;
+	outline: none;
+	cursor: pointer;
+}
+.tw-thumb-zone:focus,
+.tw-thumb-zone.is-drag {
+	border-color: #2271b1;
+	background: #f0f6fc;
+}
+.tw-thumb-zone.has-shots {
+	border-style: solid;
+	background: #fff;
+}
+.tw-thumb-zone-title {
+	margin: 0 0 4px;
+	font-weight: 600;
+}
+.tw-thumb-shots {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin: 12px 0;
+}
+.tw-thumb-shot {
+	position: relative;
+	width: 220px;
+	max-width: 100%;
+}
+.tw-thumb-shot img {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 4px;
+	border: 1px solid #dcdcde;
+	background: #fff;
+}
+.tw-thumb-remove {
+	margin-top: 4px;
+}
+.tw-logo-fields {
+	margin: 8px 0 4px;
+}
+.tw-logo-fields select {
+	max-width: 220px;
+	margin-bottom: 8px;
+}
+.tw-logo-preview {
+	display: block;
+	max-width: 180px;
+	max-height: 84px;
+	width: auto;
+	height: auto;
+	margin-top: 8px;
+	padding: 6px;
+	background: #1d2327;
+	border-radius: 4px;
+}
+.tw-thumb-refs {
+	margin-top: 16px;
+}
+.tw-thumb-ref {
+	width: 220px;
+	max-width: 100%;
+}
+.tw-thumb-ref img {
+	display: block;
+	width: 100%;
+	height: auto;
+	border-radius: 4px;
+	border: 1px solid #dcdcde;
+	background: #111;
+	cursor: zoom-in;
+}
+.tw-thumb-ref .tw-inline {
+	margin-top: 4px;
+}
+.tw-thumb-lightbox {
+	position: fixed;
+	inset: 0;
+	z-index: 100000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: rgba(0, 0, 0, 0.72);
+}
+.tw-thumb-lightbox[hidden] {
+	display: none;
+}
+.tw-thumb-lightbox-card {
+	max-width: min(1100px, 100%);
+	background: #fff;
+	padding: 12px;
+	border-radius: 6px;
+}
+.tw-thumb-lightbox-card img {
+	display: block;
+	max-width: 100%;
+	max-height: 72vh;
+	height: auto;
+	margin: 0 auto 12px;
+	background: #111;
+}
+.tw-thumb-result {
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid #f0f0f1;
+}
+.tw-thumb-result img {
+	display: block;
+	max-width: min(720px, 100%);
+	height: auto;
+	border-radius: 4px;
+	border: 1px solid #dcdcde;
+	margin: 8px 0 12px;
+	background: #111;
+}

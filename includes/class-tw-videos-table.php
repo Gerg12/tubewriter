@@ -142,10 +142,23 @@ class TW_Videos_Table extends WP_List_Table {
 		return admin_url( 'admin.php?page=tubewriter&video=' . rawurlencode( $id ) );
 	}
 
+	private static function has_local_file( $file ) {
+		return is_string( $file ) && file_exists( $file ) && filesize( $file ) > 200;
+	}
+
 	protected function column_default( $item, $col ) {
 		switch ( $col ) {
 			case 'thumb':
-				return $item['thumb'] ? '<img src="' . esc_url( $item['thumb'] ) . '" width="96" height="54" loading="lazy" alt="">' : '';
+				$src = (string) ( $item['thumb'] ?? '' );
+				if ( ! $src ) {
+					return '';
+				}
+				// Bust stale browser caches after we replace expired YouTube URLs with local files.
+				$paths = TW_Index::local_thumb_paths( $item['id'] );
+				if ( $paths && self::has_local_file( $paths['file'] ) ) {
+					$src = add_query_arg( 'v', (string) filemtime( $paths['file'] ), $paths['url'] );
+				}
+				return '<img src="' . esc_url( $src ) . '" width="96" height="54" loading="lazy" alt="">';
 			case 'visibility':
 				$sched = 'private' === $item['privacy'] && $item['publish_at'] && strtotime( $item['publish_at'] . ' UTC' ) > time();
 				$key   = $sched ? 'scheduled' : $item['privacy'];
