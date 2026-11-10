@@ -472,7 +472,7 @@ class TW_Admin {
 					</span>
 				</div>
 				<textarea id="tw-transcript" rows="12" class="large-text code" placeholder="Pull captions, or paste a transcript (plain text with timestamps, SRT or VTT all work)."></textarea>
-				<p class="description">Pulling captions costs 250 of your 10,000 daily YouTube API units.</p>
+				<p class="description">Pulling captions costs 250 of your 10,000 daily YouTube API units. TubeWriter remembers when a pull already ran, including pulls that found nothing, so old videos are not charged again by accident.</p>
 
 				<div class="tw-guide" id="tw-guide">
 					<strong>No transcript? Skim the video and fill in the boxes below.</strong>
@@ -860,13 +860,45 @@ class TW_Admin {
 
 	public function ajax_captions() {
 		$this->ajax_guard();
-		$srt = TW_YouTube::captions_srt( $this->post( 'video' ) );
+		$video_id = $this->post( 'video' );
+		$srt      = TW_YouTube::captions_srt( $video_id );
 		if ( is_wp_error( $srt ) ) {
+			// No track / empty track still spent list (and maybe download) units. Remember so old videos are not re-pulled by accident.
+			if ( 'tw_no_captions' === $srt->get_error_code() ) {
+				$this->mark_captions( $video_id, 'none', '' );
+				wp_send_json_success(
+					array(
+						'transcript'      => '',
+						'captions_status' => 'none',
+						'message'         => $srt->get_error_message(),
+					)
+				);
+			}
 			wp_send_json_error( $srt->get_error_message() );
 		}
-		$text = TW_Transcript::normalize( $srt );
-		$this->save_state( $this->post( 'video' ), array( 'transcript' => $text ) );
-		wp_send_json_success( array( 'transcript' => $text ) );
+		$text   = TW_Transcript::normalize( $srt );
+		$status = '' !== trim( $text ) ? 'ok' : 'none';
+		$this->mark_captions( $video_id, $status, $text );
+		wp_send_json_success(
+			array(
+				'transcript'      => $text,
+				'captions_status' => $status,
+				'message'         => 'none' === $status ? 'The caption track came back empty. Paste a transcript instead.' : '',
+			)
+		);
+	}
+
+	/** Persist a captions pull result on the draft and on the videos index. */
+	private function mark_captions( $video_id, $status, $transcript ) {
+		$status = in_array( $status, array( 'ok', 'none' ), true ) ? $status : '';
+		$this->save_state(
+			$video_id,
+			array(
+				'transcript'      => (string) $transcript,
+				'captions_status' => $status,
+			)
+		);
+		TW_Index::set_captions_status( $video_id, $status );
 	}
 
 	public function ajax_generate() {

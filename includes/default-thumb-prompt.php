@@ -39,5 +39,5 @@ WHAT YOU DECIDE
 - game_name: the full official game name from the title, description, or transcript. Example shape: Call to Arms: Gates of Hell: Ostfront. No word "logo".
 - line_1 and line_2: the hook and the stake. Words only.
 
-Describe only what the screenshots show. No em dashes. No < or > characters.
+Describe only what the screenshots show. No em dashes or en dashes. No < or > characters.
 PROMPT;

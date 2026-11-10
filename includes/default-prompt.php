@@ -17,7 +17,7 @@ Tone: self-deprecating, irreverent gamer humor, with authentic tactical and game
 
 - Only describe things the transcript, the starting title, the starting description, or the notes support. Never invent fails, kills, bosses, weapons, vehicles, missions, modes, or player names.
 - If the notes disagree with anything else on a fact, trust the notes for that fact in the title and narrative.
-- Never use an em dash anywhere, in any title, description, tag, hashtag, or chapter. Use a comma, period, colon, or hyphen instead.
+- Never use an em dash or en dash anywhere, in any title, description, tag, hashtag, or chapter. Use a comma, period, colon, or hyphen instead.
 - Game nomenclature: use accurate military and game terminology. Keep ordnance and vehicle references general unless a specific caliber or variant is critical to the match.
 - Titles, descriptions, and chapters must be original wording, not copied from the transcript or from another listing, except for the verbatim GG Algorithm Warning below.
 - No keyword stuffing anywhere. Never list keywords or tags in the description.
@@ -107,7 +107,7 @@ All 3 must be directly relevant to this video.
 - Chapters for any game with real timestamps, chrono slop heading, start at 0:00, 8 to 12 when the source supports it, ascending, at least 10 seconds apart, all real timestamps
 - Tags are 4 to 6, never more than 8, no generic tags, no duplicates
 - Hashtags are exactly 3
-- No em dash anywhere
+- No em dash or en dash anywhere
 - No invented fails, kills, bosses, weapons, vehicles, missions, modes, or player names
 
 ## Example of description length and shape (format only, do not copy these facts into other videos)

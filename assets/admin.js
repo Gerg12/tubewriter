@@ -496,6 +496,8 @@
 	}
 	el.transcript.addEventListener('input', toggleGuide);
 
+	var captionsStatus = saved.captions_status === 'ok' || saved.captions_status === 'none' ? saved.captions_status : '';
+
 	function setPullStatus(text, state) {
 		var status = $('tw-pull-status');
 		if (!status) {
@@ -511,24 +513,61 @@
 		status.innerHTML = (state === 'working' ? '<span class="tw-spin" aria-hidden="true"></span>' : '') + esc(text);
 	}
 
-	wire($('tw-pull'), 'Pulling...', function () {
-		setPullStatus('Pulling captions from YouTube…', 'working');
-		return call('captions').then(function (d) {
-			el.transcript.value = d.transcript;
-			toggleGuide();
-			var n = (d.transcript || '').trim() ? (d.transcript.trim().split(/\n+/).length) : 0;
-			if (!n) {
-				setPullStatus('No caption text came back. Paste a transcript instead.', 'error');
-				say('No caption text came back. Paste a transcript instead.', 'error');
-				return;
+	function refreshPullLabel() {
+		var btn = $('tw-pull');
+		if (!btn) {
+			return;
+		}
+		btn.textContent = captionsStatus ? 'Pull captions again' : 'Pull YouTube captions';
+	}
+
+	function showSavedPullStatus() {
+		if (captionsStatus === 'ok') {
+			var n = (el.transcript.value || '').trim() ? el.transcript.value.trim().split(/\n+/).length : 0;
+			setPullStatus(n ? ('Captions already pulled (' + n + ' line' + (n === 1 ? '' : 's') + ').') : 'Captions already pulled.', 'success');
+			return;
+		}
+		if (captionsStatus === 'none') {
+			setPullStatus('Already tried. No captions found for this video.', 'error');
+		}
+	}
+
+	(function () {
+		var pullBtn = $('tw-pull');
+		if (!pullBtn) {
+			return;
+		}
+		pullBtn.addEventListener('click', function () {
+			if (captionsStatus === 'ok' || captionsStatus === 'none') {
+				if (!window.confirm('You already tried this. Are you sure you want to try again and waste the points?')) {
+					return;
+				}
 			}
-			setPullStatus('Pulled ' + n + ' line' + (n === 1 ? '' : 's') + '.', 'success');
-			say('Captions pulled. Add notes, then Generate with AI.', 'success');
-		}).catch(function (e) {
-			setPullStatus(e.message || 'Caption pull failed.', 'error');
-			throw e;
+			busy(pullBtn, true, 'Pulling...');
+			setPullStatus('Pulling captions from YouTube…', 'working');
+			call('captions').then(function (d) {
+				el.transcript.value = d.transcript || '';
+				captionsStatus = d.captions_status === 'ok' || d.captions_status === 'none' ? d.captions_status : captionsStatus;
+				saved.captions_status = captionsStatus;
+				toggleGuide();
+				var n = (d.transcript || '').trim() ? (d.transcript.trim().split(/\n+/).length) : 0;
+				if (captionsStatus === 'none' || !n) {
+					var noneMsg = d.message || 'No caption text came back. Paste a transcript instead.';
+					setPullStatus(noneMsg, 'error');
+					say(noneMsg, 'error');
+					return;
+				}
+				setPullStatus('Pulled ' + n + ' line' + (n === 1 ? '' : 's') + '.', 'success');
+				say('Captions pulled. Add notes, then Generate with AI.', 'success');
+			}).catch(function (e) {
+				setPullStatus(e.message || 'Caption pull failed.', 'error');
+				say(e.message, 'error');
+			}).finally(function () {
+				busy(pullBtn, false);
+				refreshPullLabel();
+			});
 		});
-	});
+	})();
 
 	function youtubePkg() {
 		return {
@@ -1756,6 +1795,8 @@
 	if (saved.thumb_url) {
 		showThumbResult(saved.thumb_url);
 	}
+	refreshPullLabel();
+	showSavedPullStatus();
 	toggleGuide();
 	fillOpts(saved.opts);
 	if (saved.pkg && (saved.pkg.title || saved.pkg.body)) {

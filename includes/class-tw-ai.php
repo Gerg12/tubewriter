@@ -31,7 +31,7 @@ Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
   "tags": ["4 to 6 tags, max 8, no # symbols"],
   "hashtags": ["#Game", "#Topic", "#Brand"]
 }
-Rules: the first chapter time MUST be "0:00". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return "chapters": [] and never invent times. No < or > characters anywhere.
+Rules: the first chapter time MUST be "0:00". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return "chapters": [] and never invent times. No < or > characters anywhere. Never use an em dash or en dash (– or —); use a comma, period, colon, or hyphen instead.
 The STARTING TITLE and STARTING DESCRIPTION are the creator's starting point. If the starting title is just a date or filename (like "2026 10 01 19 19 26"), ignore it. When there is no transcript, build the package from the starting title, starting description and notes, and stay close to what they say.
 The STARTING DESCRIPTION is also context. Keep any links, social handles, sponsor or affiliate lines, credits and "watch next" lines from it in the new body (near the end of the body) unless the creator notes say to drop them. Use its facts about the match when there is no transcript.
 TXT;
@@ -104,7 +104,7 @@ TXT;
 		$channel = get_option( 'tw_channel' );
 		$system  = 'You write YouTube playlist titles and descriptions that rank in YouTube search for the channel "'
 			. ( $channel['title'] ?? 'this channel' ) . '". '
-			. 'Title: under 60 characters, game name first, then what the playlist is (mode, series, theme). No clickbait, no em dashes, no < or >. '
+			. 'Title: under 60 characters, game name first, then what the playlist is (mode, series, theme). No clickbait, no em dashes, no en dashes, no < or >. '
 			. 'Description: 2 to 3 natural sentences, under 600 characters, that say what viewers get and naturally include the game name and the main search terms. '
 			. 'Respond with ONLY JSON: {"title": "...", "description": "..."}';
 		$user    = "ROUGH PLAYLIST NAME FROM THE CREATOR: " . ( trim( $rough_name ) ?: '(none, infer from the video)' ) . "\n\n"

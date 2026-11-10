@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class TW_Index {
 
-	const DB_VERSION   = '1';
+	const DB_VERSION   = '2';
 	const BATCH_PAGES  = 4;  // 4 x 50 = 200 videos per AJAX request.
 	const QUICK_PAGES  = 2;
 
@@ -47,6 +47,7 @@ class TW_Index {
 				duration int(10) unsigned NOT NULL DEFAULT 0,
 				thumb varchar(255) NOT NULL DEFAULT '',
 				tw_status varchar(20) NOT NULL DEFAULT '',
+				captions_status varchar(10) NOT NULL DEFAULT '',
 				sync_run varchar(16) NOT NULL DEFAULT '',
 				synced_at int(10) unsigned NOT NULL DEFAULT 0,
 				PRIMARY KEY  (id),
@@ -106,7 +107,8 @@ class TW_Index {
 		if ( $existing ) {
 			$wpdb->update( self::table(), $row, array( 'id' => $v['id'] ) );
 		} else {
-			$row['tw_status'] = self::tw_status_from_state( $v['id'] );
+			$row['tw_status']        = self::tw_status_from_state( $v['id'] );
+			$row['captions_status'] = self::captions_status_from_state( $v['id'] );
 			$wpdb->insert( self::table(), $row );
 		}
 	}
@@ -124,6 +126,13 @@ class TW_Index {
 		$wpdb->update( self::table(), array( 'tw_status' => $status ), array( 'id' => $video_id ) );
 	}
 
+	/** ok = captions text saved, none = pull tried and came back empty. */
+	public static function set_captions_status( $video_id, $status ) {
+		global $wpdb;
+		$status = in_array( $status, array( 'ok', 'none' ), true ) ? $status : '';
+		$wpdb->update( self::table(), array( 'captions_status' => $status ), array( 'id' => $video_id ) );
+	}
+
 	private static function tw_status_from_state( $video_id ) {
 		$state = get_option( 'tw_state_' . $video_id );
 		if ( ! is_array( $state ) ) {
@@ -133,6 +142,15 @@ class TW_Index {
 			return 'pushed';
 		}
 		return ! empty( $state['pkg'] ) ? 'draft' : 'started';
+	}
+
+	private static function captions_status_from_state( $video_id ) {
+		$state = get_option( 'tw_state_' . $video_id );
+		if ( ! is_array( $state ) ) {
+			return '';
+		}
+		$status = (string) ( $state['captions_status'] ?? '' );
+		return in_array( $status, array( 'ok', 'none' ), true ) ? $status : '';
 	}
 
 	/**
@@ -438,7 +456,7 @@ class TW_Index {
 		$count_sql = "SELECT COUNT(*) FROM {$t} WHERE {$sql_where}";
 		$total     = (int) $wpdb->get_var( $args ? $wpdb->prepare( $count_sql, $args ) : $count_sql ); // phpcs:ignore
 
-		$list_sql = "SELECT id, title, LEFT(description, 220) AS excerpt, privacy, publish_at, published_at, views, duration, thumb, tw_status
+		$list_sql = "SELECT id, title, LEFT(description, 220) AS excerpt, privacy, publish_at, published_at, views, duration, thumb, tw_status, captions_status
 			FROM {$t} WHERE {$sql_where} ORDER BY {$orderby} {$order}, id ASC LIMIT %d OFFSET %d";
 		$items    = $wpdb->get_results( $wpdb->prepare( $list_sql, array_merge( $args, array( $per, ( $paged - 1 ) * $per ) ) ), ARRAY_A ); // phpcs:ignore
 		$items    = self::ensure_local_thumbs( is_array( $items ) ? $items : array() );

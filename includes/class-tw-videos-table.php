@@ -178,7 +178,14 @@ class TW_Videos_Table extends WP_List_Table {
 				return $item['duration'] ? esc_html( TW_Transcript::fmt( (int) $item['duration'] ) ) : '';
 			case 'tw':
 				$map = array( 'started' => 'Started', 'draft' => 'Draft ready', 'pushed' => 'Published' );
-				return isset( $map[ $item['tw_status'] ] ) ? '<span class="tw-tw tw-tw-' . esc_attr( $item['tw_status'] ) . '">' . esc_html( $map[ $item['tw_status'] ] ) . '</span>' : '';
+				$out = isset( $map[ $item['tw_status'] ] ) ? '<span class="tw-tw tw-tw-' . esc_attr( $item['tw_status'] ) . '">' . esc_html( $map[ $item['tw_status'] ] ) . '</span>' : '';
+				$cap = (string) ( $item['captions_status'] ?? '' );
+				if ( 'ok' === $cap ) {
+					$out .= ( $out ? '<br>' : '' ) . '<span class="tw-cap tw-cap-ok">Captions pulled</span>';
+				} elseif ( 'none' === $cap ) {
+					$out .= ( $out ? '<br>' : '' ) . '<span class="tw-cap tw-cap-none">No captions</span>';
+				}
+				return $out;
 			case 'action':
 				return '<a class="button button-primary" href="' . esc_url( $this->edit_url( $item['id'] ) ) . '">Edit</a>';
 		}

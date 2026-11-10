@@ -39,7 +39,7 @@
 .tw-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 20px; align-items: start; }
 @media (max-width: 1100px) { .tw-cols { grid-template-columns: 1fr; } }
 .tw-cols .tw-card { margin: 0; }
-.tw-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tw-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .tw-row label { margin: 0; }
 .tw-row .tw-count { margin: 0; flex: 0 0 auto; }
 .tw-pull-wrap { display: flex; align-items: center; gap: 10px; margin-left: auto; }
@@ -274,6 +274,9 @@
 .tw-tw { font-size: 12px; font-weight: 600; }
 .tw-tw-pushed { color: #1a5e2a; }
 .tw-tw-draft, .tw-tw-started { color: #8a4b00; }
+.tw-cap { font-size: 11px; font-weight: 600; }
+.tw-cap-ok { color: #1a5e2a; }
+.tw-cap-none { color: #8a2424; }
 
 /* ---------- thumbnail step ---------- */
 .tw-thumb-zone {

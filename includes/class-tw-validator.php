@@ -119,10 +119,12 @@ class TW_Validator {
 		return array( 'chapters' => $out, 'notes' => array_values( array_unique( $notes ) ) );
 	}
 
-	/** YouTube rejects < and > in titles and descriptions. */
+	/** YouTube rejects < and >. Typographic dashes are swapped to a plain hyphen. */
 	public static function clean_text( $text ) {
-		// YouTube rejects < and >. Em dashes are swapped too, by request.
-		return str_replace( array( '<', '>', ' — ', '—' ), array( '‹', '›', ' - ', ' - ' ), (string) $text );
+		$text = str_replace( array( '<', '>' ), array( '‹', '›' ), (string) $text );
+		// En dash, em dash, figure dash, horizontal bar. Never leave these in titles or copy.
+		$text = preg_replace( '/\s*[–—‒―]\s*/u', ' - ', $text );
+		return is_string( $text ) ? $text : '';
 	}
 
 	/**
@@ -153,7 +155,7 @@ class TW_Validator {
 		$len               = 0;
 
 		foreach ( $tags as $tag ) {
-			$tag = trim( str_replace( array( '<', '>', ',', '#' ), '', (string) $tag ) );
+			$tag = trim( self::clean_text( str_replace( array( ',', '#' ), '', (string) $tag ) ) );
 			if ( '' === $tag ) {
 				continue;
 			}
@@ -249,7 +251,9 @@ class TW_Validator {
 		$pkg['tags']           = $tag_clean['tags'];
 		$hash_clean            = self::clean_hashtags( $pkg['hashtags'] ?? array() );
 		$pkg['hashtags']       = $hash_clean['hashtags'];
-		$pkg['title']          = trim( self::clean_text( $pkg['title'] ?? '' ) );
+		$pkg['title']            = trim( self::clean_text( $pkg['title'] ?? '' ) );
+		$pkg['body']             = self::clean_text( trim( (string) ( $pkg['body'] ?? '' ) ) );
+		$pkg['chapters_heading'] = self::clean_text( trim( (string) ( $pkg['chapters_heading'] ?? '' ) ) );
 
 		if ( $tag_clean['removed_generic'] ) {
 			$warnings[] = 'Dropped generic tags: ' . implode( ', ', $tag_clean['removed_generic'] ) . '.';
