@@ -12,7 +12,7 @@ class TW_YouTube {
 
 	/** Uploads playlist id for the connected channel (channels.list, 1 unit, cached). */
 	public static function channel() {
-		$cached = get_option( 'tw_channel' );
+		$cached = TW_Store::get( 'channel', array() );
 		if ( is_array( $cached ) && ! empty( $cached['uploads'] ) ) {
 			return $cached;
 		}
@@ -29,7 +29,7 @@ class TW_YouTube {
 			'title'   => $item['snippet']['title'] ?? '',
 			'uploads' => $item['contentDetails']['relatedPlaylists']['uploads'] ?? '',
 		);
-		update_option( 'tw_channel', $channel, false );
+		TW_Store::set( 'channel', $channel );
 		return $channel;
 	}
 
@@ -524,8 +524,8 @@ class TW_YouTube {
 
 	/** Rough count of API units used today (Pacific day, like Google's reset). */
 	public static function quota_used() {
-		$q = get_option( 'tw_quota', array() );
-		return ( ( $q['day'] ?? '' ) === self::quota_day() ) ? (int) $q['used'] : 0;
+		$q = TW_Store::get( 'quota', array() );
+		return ( is_array( $q ) && ( $q['day'] ?? '' ) === self::quota_day() ) ? (int) $q['used'] : 0;
 	}
 
 	private static function quota_day() {
@@ -542,10 +542,10 @@ class TW_YouTube {
 		} else {
 			$cost = 1;
 		}
-		$day = self::quota_day();
-		$q   = get_option( 'tw_quota', array() );
-		$used = ( ( $q['day'] ?? '' ) === $day ) ? (int) $q['used'] : 0;
-		update_option( 'tw_quota', array( 'day' => $day, 'used' => $used + $cost ), false );
+		$day  = self::quota_day();
+		$q    = TW_Store::get( 'quota', array() );
+		$used = ( is_array( $q ) && ( $q['day'] ?? '' ) === $day ) ? (int) $q['used'] : 0;
+		TW_Store::set( 'quota', array( 'day' => $day, 'used' => $used + $cost ) );
 	}
 
 	/**

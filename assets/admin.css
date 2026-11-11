@@ -116,9 +116,37 @@
 	vertical-align: middle;
 	animation: tw-spin .7s linear infinite;
 }
-.tw-wrap .tw-busy-spinner { display: none; margin: 0; }
-.tw-wrap .tw-busy-spinner.is-active { display: inline-block; }
+.tw-wrap .tw-busy-spinner { display: none; margin: 0 0 0 8px; }
+.tw-wrap .tw-busy-spinner.is-active { display: inline-block; vertical-align: middle; }
 @keyframes tw-spin { to { transform: rotate(360deg); } }
+
+.tw-action-tip {
+	margin: 10px 0 0;
+	padding: 10px 14px;
+	border-left: 4px solid #72aee6;
+	background: #f0f6fc;
+	border-radius: 4px;
+	font-weight: 600;
+	color: #1d2327;
+	max-width: 40rem;
+}
+.tw-action-tip--working { border-color: #2271b1; background: #f0f6fc; }
+.tw-action-tip--success { border-color: #00a32a; background: #edfaef; }
+.tw-action-tip--error { border-color: #d63638; background: #fcf0f1; }
+.tw-action-tip--warn { border-color: #dba617; background: #fcf9e8; }
+.tw-action-tip--info { border-color: #72aee6; background: #f0f6fc; }
+
+.tw-next-pulse {
+	animation: tw-next-pulse 1.2s ease-in-out 3;
+	box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.28);
+}
+@keyframes tw-next-pulse {
+	0%, 100% { transform: translateY(0); }
+	50% { transform: translateY(-1px); }
+}
+.tw-stepper button.is-hint {
+	box-shadow: 0 0 0 3px rgba(15, 122, 108, 0.22);
+}
 .tw-msg-success { border-color: #00a32a; }
 .tw-msg-error { border-color: #d63638; }
 .tw-msg ul { margin: 6px 0 0 18px; list-style: disc; }
@@ -200,7 +228,11 @@
 .tw-diff th { width: 170px; vertical-align: top; }
 .tw-diff td { vertical-align: top; width: 42%; }
 .tw-diff tr.is-changed { background: #fffbe6; }
+.tw-diff tr.is-error { background: #fcf0f1; }
 .tw-diff tr.is-same { color: #8c8f94; }
+.tw-badge-changed { background: #fcf9e8; color: #6b5300; }
+.tw-badge-error { background: #fcf0f1; color: #8a2424; }
+.tw-sched-layout { margin-top: 8px; }
 .tw-cell { white-space: pre-wrap; max-height: 260px; overflow: auto; font-size: 12px; }
 .tw-action-list li { font-size: 14px; margin-bottom: 4px; }
 .tw-backup-note { background: #edfaef; padding: 8px 12px; border-radius: 4px; }
@@ -435,4 +467,14 @@
 	border: 1px solid #dcdcde;
 	margin: 8px 0 12px;
 	background: #111;
+}
+.tw-thumb-status {
+	margin: 0 0 10px;
+	font-weight: 600;
+}
+.tw-thumb-status.is-staged {
+	color: #996800;
+}
+.tw-thumb-status.is-uploaded {
+	color: #007017;
 }

@@ -20,7 +20,7 @@ class TW_Admin {
 		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
 		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_ref_save', 'thumb_refs', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -64,7 +64,7 @@ class TW_Admin {
 		}
 		$connected  = TW_OAuth::is_connected();
 		$configured = TW_Settings::get( 'client_id' ) && TW_Settings::get( 'client_secret' );
-		$channel    = get_option( 'tw_channel' );
+		$channel    = TW_Store::get( 'channel', array() );
 		$tz         = wp_timezone_string();
 		?>
 		<div class="wrap tw-wrap">
@@ -101,7 +101,8 @@ class TW_Admin {
 
 				<div class="tw-card">
 					<h2>2. Credentials</h2>
-					<p class="description">From your own Google Cloud project (OAuth client type <strong>Desktop app</strong>) and Google AI Studio. See README.md in the plugin folder for the 15 minute setup.</p>
+					<p class="description">From your own Google Cloud project (OAuth client type <strong>Desktop app</strong> for this admin paste flow) and Google AI Studio. See README.md in the plugin folder for the 15 minute setup.</p>
+					<p class="description">Front-end accounts at <code><?php echo esc_html( home_url( '/tubewriter/' ) ); ?></code> use the same Client ID and Secret. On local/staging they use the same paste-the-URL loopback. On a live https site they redirect to <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code>, so add that URI on a Web client when you go live.</p>
 					<table class="form-table">
 						<tr>
 							<th><label for="tw_client_id">Google Client ID</label></th>
@@ -318,9 +319,9 @@ class TW_Admin {
 
 		$indexed      = TW_Index::count_all();
 		$scheduled_n  = TW_Index::count_scheduled();
-		$synced       = (int) get_option( 'tw_index_synced', 0 );
-		$full         = (int) get_option( 'tw_index_full', 0 );
-		$sched_note   = (string) get_option( 'tw_scheduled_sync_note', '' );
+		$synced       = (int) TW_Store::get( 'index_synced', 0 );
+		$full         = (int) TW_Store::get( 'index_full', 0 );
+		$sched_note   = (string) TW_Store::get( 'scheduled_sync_note', '' );
 		$est          = max( 2, (int) ceil( max( $indexed, 50 ) / 50 ) * 2 ) + 16;
 		?>
 		<div class="tw-sync" id="tw-sync" data-empty="<?php echo $indexed ? '0' : '1'; ?>">
@@ -360,23 +361,29 @@ class TW_Admin {
 		echo '</form></div>';
 	}
 
-	private function page_editor( $video_id ) {
+	public function page_editor( $video_id, $back_url = '' ) {
+		$back_url = $back_url ? $back_url : admin_url( 'admin.php?page=tubewriter' );
 		echo '<div class="wrap tw-wrap">';
-		echo '<p><a href="' . esc_url( admin_url( 'admin.php?page=tubewriter' ) ) . '">&larr; All videos</a></p>';
+		echo '<p><a href="' . esc_url( $back_url ) . '">&larr; All videos</a></p>';
 
 		$video = TW_YouTube::get_video( $video_id );
 		if ( is_wp_error( $video ) ) {
 			echo '<div class="notice notice-error"><p>' . esc_html( $video->get_error_message() ) . '</p></div>';
 			if ( in_array( $video->get_error_code(), array( 'tw_expired', 'tw_not_connected' ), true ) ) {
 				echo '<div class="tw-card">';
-				$this->reconnect_steps( 'Sign in again' );
+				if ( TW_Context::is_user() ) {
+					$connect = wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' );
+					echo '<p><a class="button button-primary" href="' . esc_url( $connect ) . '">Connect YouTube again</a></p>';
+				} else {
+					$this->reconnect_steps( 'Sign in again' );
+				}
 				echo '</div>';
 			}
 			echo '</div>';
 			return;
 		}
 
-		$state         = get_option( 'tw_state_' . $video_id, array() );
+		$state         = TW_Store::get( 'state_' . $video_id, array() );
 		$snap          = TW_YouTube::snapshot( $video );
 		$secs          = TW_Transcript::duration_seconds( $video['contentDetails']['duration'] ?? '' );
 		$remote_thumb  = $video['snippet']['thumbnails']['medium']['url'] ?? '';
@@ -398,7 +405,7 @@ class TW_Admin {
 			),
 			'logos'     => array(
 				'game'    => $this->logo_boot( (int) ( is_array( $state ) ? ( $state['game_logo_id'] ?? 0 ) : 0 ), (string) ( is_array( $state ) ? ( $state['game_logo_pos'] ?? '' ) : '' ), 'upper-right' ),
-				'channel' => $this->logo_boot( (int) get_option( 'tw_channel_logo_id', 0 ), (string) get_option( 'tw_channel_logo_pos', '' ), 'lower-left' ),
+				'channel' => $this->logo_boot( (int) TW_Store::get( 'channel_logo_id', 0 ), (string) TW_Store::get( 'channel_logo_pos', '' ), 'lower-left' ),
 			),
 			'today'     => wp_date( 'Y-m-d' ),
 			'tz'        => wp_timezone_string(),
@@ -588,12 +595,13 @@ class TW_Admin {
 				<h2>Step 3: Thumbnail</h2>
 				<?php
 				$help(
-					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Upload to YouTube only when you click that button and confirm.',
+					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
 					array(
-						'Press <strong>Ctrl+V</strong> to paste a thumbnail. It is saved in the Media Library. Click a saved one below to look at it, then copy it.',
+						'Press <strong>Ctrl+V</strong> to paste a screenshot. It is saved in the Media Library for this video. Look, copy, or delete a saved one below.',
 						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and GG logo, and the game logo. The hook does not repeat the title.',
 						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
-						'Click <strong>Upload to YouTube</strong> and confirm, or download and upload in Studio. Skip this step anytime with Next.',
+						'Or click <strong>Choose from Media Library</strong> to select or upload a finished PNG or JPEG. Use <strong>Remove</strong> to clear it.',
+						'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Download or Open in Studio only if you will finish the upload yourself. Skip this step anytime with Next.',
 					)
 				);
 				?>
@@ -611,7 +619,7 @@ class TW_Admin {
 
 				<div id="tw-thumb-refs" class="tw-thumb-refs">
 					<p class="tw-thumb-zone-title">Saved references</p>
-					<p class="description">Pasted thumbnails stay in the Media Library. Click one to look at it, then copy it.</p>
+					<p class="description">Pasted thumbnails for this video stay in the Media Library. Look, copy, or delete one.</p>
 					<div id="tw-thumb-ref-list" class="tw-thumb-shots"></div>
 				</div>
 
@@ -621,6 +629,7 @@ class TW_Admin {
 						<p class="tw-inline">
 							<button type="button" class="button button-primary" id="tw-thumb-lightbox-copy">Copy image</button>
 							<a class="button" id="tw-thumb-lightbox-edit" href="#" target="_blank" rel="noopener">Open in Media Library</a>
+							<button type="button" class="button" id="tw-thumb-lightbox-delete">Delete</button>
 							<button type="button" class="button" id="tw-thumb-lightbox-close">Close</button>
 						</p>
 					</div>
@@ -672,19 +681,22 @@ class TW_Admin {
 				</div>
 				<p class="description">Headline is always top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. A second screenshot becomes a picture-in-picture in the top right, and the game logo moves to the bottom right. The lower-left character comes from the screenshot for that video. Search for a real game logo PNG in the Media Library, or upload one and pick it.</p>
 
-				<p class="tw-actions-left">
+				<p class="tw-actions-left tw-inline">
 					<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
+					<button type="button" class="button button-hero" id="tw-thumb-pick">Choose from Media Library</button>
 				</p>
 
 				<div id="tw-thumb-result" class="tw-thumb-result" hidden>
-					<label>Generated thumbnail</label>
-					<img id="tw-thumb-preview" alt="Generated thumbnail">
+					<label>Thumbnail</label>
+					<img id="tw-thumb-preview" alt="Thumbnail">
+					<p id="tw-thumb-status" class="description tw-thumb-status" hidden></p>
 					<p class="tw-inline">
 						<button type="button" class="button button-primary" id="tw-thumb-upload">Upload to YouTube</button>
 						<a class="button" id="tw-thumb-download" download="thumbnail.png" href="#">Download PNG</a>
 						<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
+						<button type="button" class="button" id="tw-thumb-remove">Remove</button>
 					</p>
-					<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. You can still download and upload in Studio instead.</p>
+					<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated files sit in <code>uploads/tubewriter/generated</code> and unused ones are removed after 7 days.</p>
 				</div>
 			</section>
 
@@ -736,27 +748,31 @@ class TW_Admin {
 					)
 				);
 				?>
-				<p id="tw-sched-current" class="tw-current-line"></p>
-				<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so its schedule can't be changed here.</p></div>
-				<div id="tw-sched-controls">
-					<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label></p>
-					<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> Schedule it</label></p>
-					<div class="tw-sub" id="tw-sched-set" hidden>
-						<div class="tw-inline">
-							<label for="tw-sched-date">Date</label> <input type="date" id="tw-sched-date">
-							<label for="tw-sched-time">Time</label> <input type="time" id="tw-sched-time">
-							<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
+				<div class="tw-sched-layout">
+					<div class="tw-sched-side">
+						<p id="tw-sched-current" class="tw-current-line"></p>
+						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so its schedule can't be changed here.</p></div>
+						<div id="tw-sched-controls">
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> Schedule it</label></p>
+							<div class="tw-sub" id="tw-sched-set" hidden>
+								<div class="tw-inline">
+									<label for="tw-sched-date">Date</label> <input type="date" id="tw-sched-date">
+									<label for="tw-sched-time">Time</label> <input type="time" id="tw-sched-time">
+									<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
+								</div>
+							</div>
 						</div>
 					</div>
-				</div>
-				<div class="tw-cal">
-					<div class="tw-cal-head">
-						<button type="button" class="button" id="tw-cal-prev">&larr;</button>
-						<strong id="tw-cal-title"></strong>
-						<button type="button" class="button" id="tw-cal-next">&rarr;</button>
-						<button type="button" class="button-link" id="tw-cal-refresh">Refresh from YouTube</button>
+					<div class="tw-cal">
+						<div class="tw-cal-head">
+							<button type="button" class="button" id="tw-cal-prev">&larr;</button>
+							<strong id="tw-cal-title"></strong>
+							<button type="button" class="button" id="tw-cal-next">&rarr;</button>
+							<button type="button" class="button-link" id="tw-cal-refresh">Refresh from YouTube</button>
+						</div>
+						<div class="tw-cal-grid" id="tw-cal-grid"></div>
 					</div>
-					<div class="tw-cal-grid" id="tw-cal-grid"></div>
 				</div>
 			</section>
 
@@ -908,7 +924,7 @@ class TW_Admin {
 			wp_send_json_error( 'Nothing to work from yet. Add a transcript, a starting description or some notes.' );
 		}
 		$pkg = TW_AI::generate( $input, $this->text_provider() );
-		$this->respond_with_package( $input, $pkg );
+		$this->respond_with_package( $input, $pkg, 'generate' );
 	}
 
 	public function ajax_revise() {
@@ -920,12 +936,16 @@ class TW_Admin {
 		}
 		$current = $this->pkg_from_post();
 		$pkg     = TW_AI::revise( $input, $current, $instruction, $this->text_provider() );
-		$this->respond_with_package( $input, $pkg );
+		$this->respond_with_package( $input, $pkg, 'revise' );
 	}
 
 	public function ajax_save() {
 		$this->ajax_guard();
 		$input = $this->input();
+		$step  = absint( $this->post( 'step' ) );
+		if ( $step < 1 || $step > 7 ) {
+			$step = 1;
+		}
 		$this->save_state(
 			$input['video'],
 			array(
@@ -936,6 +956,7 @@ class TW_Admin {
 				'pkg'               => $this->pkg_from_post(),
 				'opts'              => $this->opts_from_post(),
 				'thumb_description' => $this->post( 'thumb_description', true ),
+				'step'              => $step,
 				'saved'             => time(),
 			)
 		);
@@ -949,17 +970,17 @@ class TW_Admin {
 		$channel_pos = $this->logo_pos( $this->post( 'channel_logo_pos' ), 'lower-left' );
 		$game_pos    = $this->logo_pos( $this->post( 'game_logo_pos' ), 'upper-right' );
 		$game_name   = sanitize_text_field( $this->post( 'game_name' ) );
-		update_option( 'tw_channel_logo_id', $channel_id, false );
-		update_option( 'tw_channel_logo_pos', $channel_pos, false );
+		TW_Store::set( 'channel_logo_id', $channel_id );
+		TW_Store::set( 'channel_logo_pos', $channel_pos );
 		if ( $game_id && '' !== $game_name ) {
 			update_post_meta( $game_id, '_tw_game_logo', '1' );
 			update_post_meta( $game_id, '_tw_game_logo_name', $game_name );
-			$map = get_option( 'tw_game_logos', array() );
+			$map = TW_Store::get( 'game_logos', array() );
 			if ( ! is_array( $map ) ) {
 				$map = array();
 			}
 			$map[ $this->game_logo_key( $game_name ) ] = $game_id;
-			update_option( 'tw_game_logos', $map, false );
+			TW_Store::set( 'game_logos', $map );
 		}
 		$this->save_state(
 			$this->post( 'video' ),
@@ -993,7 +1014,7 @@ class TW_Admin {
 		if ( '' === $name ) {
 			return 0;
 		}
-		$map = get_option( 'tw_game_logos', array() );
+		$map = TW_Store::get( 'game_logos', array() );
 		if ( ! is_array( $map ) ) {
 			return 0;
 		}
@@ -1019,7 +1040,7 @@ class TW_Admin {
 		$items = array();
 		$seen  = array();
 
-		$map = get_option( 'tw_game_logos', array() );
+		$map = TW_Store::get( 'game_logos', array() );
 		if ( is_array( $map ) && '' !== $query ) {
 			$key = $this->game_logo_key( $query );
 			if ( ! empty( $map[ $key ] ) ) {
@@ -1141,6 +1162,15 @@ class TW_Admin {
 			$_FILES['image']['name'] = 'tw-ref-' . gmdate( 'Ymd-His' ) . '.' . $ext;
 		}
 
+		$video = sanitize_text_field( $this->post( 'video' ) );
+		$hash  = md5_file( (string) $_FILES['image']['tmp_name'] );
+		if ( $hash && '' !== $video ) {
+			$existing = $this->find_thumb_ref_by_hash( $video, $hash );
+			if ( $existing ) {
+				wp_send_json_success( $this->thumb_ref_payload( $existing ) );
+			}
+		}
+
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 		require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -1150,9 +1180,11 @@ class TW_Admin {
 			wp_send_json_error( $id->get_error_message() );
 		}
 		update_post_meta( $id, '_tw_thumb_ref', '1' );
-		$video = sanitize_text_field( $this->post( 'video' ) );
 		if ( '' !== $video ) {
 			update_post_meta( $id, '_tw_thumb_ref_video', $video );
+		}
+		if ( $hash ) {
+			update_post_meta( $id, '_tw_thumb_ref_hash', $hash );
 		}
 		wp_update_post(
 			array(
@@ -1163,24 +1195,105 @@ class TW_Admin {
 		wp_send_json_success( $this->thumb_ref_payload( $id ) );
 	}
 
+	/**
+	 * @param string $video Video id.
+	 * @param string $hash  md5 of file bytes.
+	 * @return int Attachment id or 0.
+	 */
+	private function find_thumb_ref_by_hash( $video, $hash ) {
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => 1,
+			'fields'         => 'ids',
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'meta_query'     => array(
+				array(
+					'key'   => '_tw_thumb_ref',
+					'value' => '1',
+				),
+				array(
+					'key'   => '_tw_thumb_ref_video',
+					'value' => $video,
+				),
+				array(
+					'key'   => '_tw_thumb_ref_hash',
+					'value' => $hash,
+				),
+			),
+		);
+		$uid = get_current_user_id();
+		if ( $uid ) {
+			$args['author'] = $uid;
+		}
+		$query = new WP_Query( $args );
+		if ( empty( $query->posts[0] ) ) {
+			return 0;
+		}
+		return (int) $query->posts[0];
+	}
+
 	public function ajax_thumb_refs() {
 		$this->ajax_guard();
-		$query = new WP_Query(
-			array(
-				'post_type'      => 'attachment',
-				'post_status'    => 'inherit',
-				'posts_per_page' => 24,
-				'orderby'        => 'date',
-				'order'          => 'DESC',
-				'meta_key'       => '_tw_thumb_ref',
-				'meta_value'     => '1',
-			)
+		$video = sanitize_text_field( $this->post( 'video' ) );
+		if ( '' === $video ) {
+			wp_send_json_success( array( 'items' => array() ) );
+		}
+		$args = array(
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => 24,
+			'orderby'        => 'date',
+			'order'          => 'DESC',
+			'meta_query'     => array(
+				array(
+					'key'   => '_tw_thumb_ref',
+					'value' => '1',
+				),
+				array(
+					'key'   => '_tw_thumb_ref_video',
+					'value' => $video,
+				),
+			),
 		);
+		$uid = get_current_user_id();
+		if ( $uid ) {
+			$args['author'] = $uid;
+		}
+		$query = new WP_Query( $args );
 		$items = array();
 		foreach ( $query->posts as $post ) {
 			$items[] = $this->thumb_ref_payload( $post->ID );
 		}
 		wp_send_json_success( array( 'items' => $items ) );
+	}
+
+	public function ajax_thumb_ref_delete() {
+		$this->ajax_guard();
+		$id = absint( $this->post( 'id' ) );
+		if ( ! $id || 'attachment' !== get_post_type( $id ) ) {
+			wp_send_json_error( 'That saved reference was not found.' );
+		}
+		if ( '1' !== (string) get_post_meta( $id, '_tw_thumb_ref', true ) ) {
+			wp_send_json_error( 'That file is not a TubeWriter reference.' );
+		}
+		$uid = get_current_user_id();
+		if ( $uid && (int) get_post_field( 'post_author', $id ) !== $uid ) {
+			wp_send_json_error( 'Not allowed.', 403 );
+		}
+		$video = sanitize_text_field( $this->post( 'video' ) );
+		if ( '' !== $video ) {
+			$tagged = (string) get_post_meta( $id, '_tw_thumb_ref_video', true );
+			if ( '' !== $tagged && $tagged !== $video ) {
+				wp_send_json_error( 'That reference belongs to another video.' );
+			}
+		}
+		$deleted = wp_delete_attachment( $id, true );
+		if ( ! $deleted ) {
+			wp_send_json_error( 'Could not delete that reference.' );
+		}
+		wp_send_json_success( array( 'id' => $id ) );
 	}
 
 	/**
@@ -1220,8 +1333,15 @@ class TW_Admin {
 				'seed_desc'         => $input['current_description'],
 				'pkg'               => $this->pkg_from_post(),
 				'thumb_description' => $out['description'],
+				'thumb_described'   => 1,
 			)
 		);
+		$out['thumb_described'] = 1;
+		$usage = TW_AI::last_usage();
+		if ( $usage ) {
+			$out['ai_usage'] = $usage;
+		}
+		$out['quota'] = TW_YouTube::quota_used();
 		wp_send_json_success( $out );
 	}
 
@@ -1242,27 +1362,44 @@ class TW_Admin {
 			wp_send_json_error( $image->get_error_message() );
 		}
 
+		$key       = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $input['video'] );
+		$prev      = TW_Store::get( $key, array() );
+		$prev_file = is_array( $prev ) ? (string) ( $prev['thumb_file'] ?? '' ) : '';
+
 		$saved = $this->store_thumbnail( $input['video'], $image['data'], $image['mime'] );
 		if ( is_wp_error( $saved ) ) {
 			wp_send_json_error( $saved->get_error_message() );
 		}
 
+		if ( $prev_file && $prev_file !== $saved['file'] ) {
+			self::delete_generated_thumb_file( $prev_file );
+		}
+
 		$this->save_state(
 			$input['video'],
 			array(
-				'thumb_description' => $description,
-				'thumb_url'         => $saved['url'],
-				'thumb_file'        => $saved['file'],
+				'thumb_description'   => $description,
+				'thumb_url'           => $saved['url'],
+				'thumb_file'          => $saved['file'],
+				'thumb_attachment_id' => 0,
+				'thumb_generated'     => 1,
+				'thumb_uploaded'      => 0,
+				'thumb_yt_url'        => '',
 			)
 		);
 
-		wp_send_json_success(
-			array(
-				'url'         => $saved['url'],
-				'mime'        => $image['mime'],
-				'description' => $description,
-			)
+		$payload = array(
+			'url'             => $saved['url'],
+			'mime'            => $image['mime'],
+			'description'     => $description,
+			'thumb_generated' => 1,
+			'quota'           => TW_YouTube::quota_used(),
 		);
+		$usage = TW_AI::last_usage();
+		if ( $usage ) {
+			$payload['ai_usage'] = $usage;
+		}
+		wp_send_json_success( $payload );
 	}
 
 	public function ajax_thumb_upload() {
@@ -1272,30 +1409,38 @@ class TW_Admin {
 			wp_send_json_error( 'Missing video id.' );
 		}
 
-		$key   = 'tw_state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
-		$state = get_option( $key, array() );
-		$file  = is_array( $state ) ? (string) ( $state['thumb_file'] ?? '' ) : '';
-		if ( '' === $file || ! is_readable( $file ) ) {
-			wp_send_json_error( 'Create a thumbnail first, then upload it.' );
+		$key   = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
+		$state = TW_Store::get( $key, array() );
+		if ( ! is_array( $state ) ) {
+			$state = array();
 		}
 
-		$uploads = wp_get_upload_dir();
-		$basedir = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
-		$norm    = wp_normalize_path( $file );
-		if ( ! $basedir || 0 !== strpos( $norm, $basedir ) ) {
-			wp_send_json_error( 'Thumbnail file is not in the uploads folder.' );
+		$resolved = $this->resolve_draft_thumb_file( $state );
+		if ( is_wp_error( $resolved ) ) {
+			wp_send_json_error( $resolved->get_error_message() );
+		}
+
+		$file = $resolved['file'];
+		if ( (string) ( $state['thumb_file'] ?? '' ) !== $file ) {
+			$this->save_state(
+				$video_id,
+				array(
+					'thumb_file' => $file,
+					'thumb_url'  => $resolved['url'] ?: (string) ( $state['thumb_url'] ?? '' ),
+				)
+			);
 		}
 
 		$bin = file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		if ( false === $bin || '' === $bin ) {
-			wp_send_json_error( 'Could not read the generated thumbnail file.' );
+			wp_send_json_error( 'Could not read the thumbnail file. Choose it again from the Media Library.' );
 		}
 
 		$mime = 'image/png';
 		if ( preg_match( '/\.jpe?g$/i', $file ) ) {
 			$mime = 'image/jpeg';
 		} elseif ( preg_match( '/\.webp$/i', $file ) ) {
-			wp_send_json_error( 'YouTube needs PNG or JPEG. Create the thumbnail again so it saves as PNG.' );
+			wp_send_json_error( 'YouTube needs PNG or JPEG. Choose a PNG or JPEG, or create the thumbnail again.' );
 		}
 
 		$result = TW_YouTube::set_thumbnail( $video_id, $bin, $mime );
@@ -1306,7 +1451,7 @@ class TW_Admin {
 		$thumb_url = $result['items'][0]['high']['url']
 			?? $result['items'][0]['medium']['url']
 			?? $result['items'][0]['default']['url']
-			?? (string) ( $state['thumb_url'] ?? '' );
+			?? (string) ( $resolved['url'] ?: ( $state['thumb_url'] ?? '' ) );
 
 		$this->save_state(
 			$video_id,
@@ -1320,12 +1465,100 @@ class TW_Admin {
 
 		wp_send_json_success(
 			array(
-				'ok'      => true,
-				'message' => 'Thumbnail uploaded to YouTube.',
-				'url'     => $thumb_url,
-				'quota'   => TW_YouTube::quota_used(),
+				'ok'       => true,
+				'message'  => 'Thumbnail uploaded to YouTube.',
+				'url'      => $thumb_url,
+				'uploaded' => time(),
+				'quota'    => TW_YouTube::quota_used(),
 			)
 		);
+	}
+
+	/**
+	 * Set the draft thumbnail from a Media Library attachment (PNG or JPEG).
+	 */
+	public function ajax_thumb_set() {
+		$this->ajax_guard();
+		$video_id = $this->post( 'video' );
+		$att_id   = absint( $this->post( 'attachment_id' ) );
+		if ( ! $video_id ) {
+			wp_send_json_error( 'Missing video id.' );
+		}
+		if ( ! $att_id || 'attachment' !== get_post_type( $att_id ) ) {
+			wp_send_json_error( 'Pick an image from the Media Library.' );
+		}
+		if ( 0 !== strpos( (string) get_post_mime_type( $att_id ), 'image/' ) ) {
+			wp_send_json_error( 'That file is not an image.' );
+		}
+
+		$file = wp_normalize_path( (string) get_attached_file( $att_id ) );
+		$url  = (string) wp_get_attachment_url( $att_id );
+		if ( '' === $file || ! is_readable( $file ) || '' === $url ) {
+			wp_send_json_error( 'Could not read that image from the Media Library.' );
+		}
+
+		$mime = (string) get_post_mime_type( $att_id );
+		if ( false !== strpos( $mime, 'webp' ) || preg_match( '/\.webp$/i', $file ) ) {
+			wp_send_json_error( 'YouTube needs PNG or JPEG. Convert this image, or pick a different one.' );
+		}
+		if ( ! preg_match( '/\.(png|jpe?g)$/i', $file ) && false === strpos( $mime, 'png' ) && false === strpos( $mime, 'jpeg' ) && false === strpos( $mime, 'jpg' ) ) {
+			wp_send_json_error( 'Use a PNG or JPEG for the YouTube thumbnail.' );
+		}
+
+		$uploads = wp_get_upload_dir();
+		$basedir = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+		if ( ! $basedir || 0 !== strpos( $file, $basedir ) ) {
+			wp_send_json_error( 'That image is not in the uploads folder.' );
+		}
+
+		$key       = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
+		$prev      = TW_Store::get( $key, array() );
+		$prev_file = is_array( $prev ) ? (string) ( $prev['thumb_file'] ?? '' ) : '';
+		if ( $prev_file && wp_normalize_path( $prev_file ) !== $file ) {
+			self::delete_generated_thumb_file( $prev_file );
+		}
+
+		$this->save_state(
+			$video_id,
+			array(
+				'thumb_url'           => $url,
+				'thumb_file'          => $file,
+				'thumb_attachment_id' => $att_id,
+				'thumb_generated'     => 0,
+				'thumb_uploaded'      => 0,
+				'thumb_yt_url'        => '',
+			)
+		);
+
+		wp_send_json_success(
+			array(
+				'url' => $url,
+				'id'  => $att_id,
+			)
+		);
+	}
+
+	/** Clear the draft thumbnail without deleting the Media Library file. */
+	public function ajax_thumb_clear() {
+		$this->ajax_guard();
+		$video_id = $this->post( 'video' );
+		if ( ! $video_id ) {
+			wp_send_json_error( 'Missing video id.' );
+		}
+
+		$this->save_state(
+			$video_id,
+			array(
+				'thumb_url'           => '',
+				'thumb_file'          => '',
+				'thumb_attachment_id' => 0,
+				'thumb_generated'     => 0,
+				'thumb_uploaded'      => 0,
+				'thumb_yt_url'        => '',
+			)
+		);
+
+		wp_send_json_success( array( 'ok' => true ) );
 	}
 
 	public function ajax_playlists() {
@@ -1348,6 +1581,13 @@ class TW_Admin {
 		if ( is_wp_error( $out ) ) {
 			wp_send_json_error( $out->get_error_message() );
 		}
+		$this->save_state(
+			$this->post( 'video' ),
+			array(
+				'playlist_polished' => 1,
+			)
+		);
+		$out['playlist_polished'] = 1;
 		wp_send_json_success( $out );
 	}
 
@@ -1438,14 +1678,34 @@ class TW_Admin {
 
 	/* ---------------------------------------------------------------- Helpers */
 
-	private function respond_with_package( array $input, $pkg ) {
+	private function respond_with_package( array $input, $pkg, $kind = 'generate' ) {
 		if ( is_wp_error( $pkg ) ) {
 			wp_send_json_error( $pkg->get_error_message() );
 		}
 		$check = TW_Validator::check( $pkg, $input['duration'] );
 		// Keep the AI's title options even though check() only returns the chosen one cleaned.
 		$check['pkg']['titles'] = array_map( array( 'TW_Validator', 'clean_text' ), $pkg['titles'] );
-		$this->save_state( $input['video'], array( 'transcript' => $input['transcript'], 'notes' => $input['notes'], 'seed_title' => $input['current_title'], 'seed_desc' => $input['current_description'], 'pkg' => $check['pkg'] ) );
+		$extra                  = array(
+			'transcript'   => $input['transcript'],
+			'notes'        => $input['notes'],
+			'seed_title'   => $input['current_title'],
+			'seed_desc'    => $input['current_description'],
+			'pkg'          => $check['pkg'],
+			'ai_generated' => 1,
+		);
+		if ( 'revise' === $kind ) {
+			$extra['ai_revised'] = 1;
+		}
+		$this->save_state( $input['video'], $extra );
+		$check['ai_generated'] = 1;
+		if ( 'revise' === $kind ) {
+			$check['ai_revised'] = 1;
+		}
+		$usage = TW_AI::last_usage();
+		if ( $usage ) {
+			$check['ai_usage'] = $usage;
+		}
+		$check['quota'] = TW_YouTube::quota_used();
 		wp_send_json_success( $check );
 	}
 
@@ -1521,10 +1781,10 @@ class TW_Admin {
 		if ( ! $video_id ) {
 			return;
 		}
-		$key   = 'tw_state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
-		$state = get_option( $key, array() );
+		$key   = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
+		$state = TW_Store::get( $key, array() );
 		$state = array_merge( is_array( $state ) ? $state : array(), $data );
-		update_option( $key, $state, false );
+		TW_Store::set( $key, $state );
 		TW_Index::set_tw_status( $video_id, ! empty( $state['pushed'] ) ? 'pushed' : ( ! empty( $state['pkg'] ) ? 'draft' : 'started' ) );
 	}
 
@@ -1619,7 +1879,7 @@ class TW_Admin {
 	}
 
 	/**
-	 * Save a generated thumbnail under uploads/tubewriter/.
+	 * Save a generated thumbnail under uploads/tubewriter/generated/.
 	 *
 	 * @param string $video_id
 	 * @param string $base64
@@ -1640,14 +1900,218 @@ class TW_Admin {
 		$safe = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
 		$name = 'tw-thumb-' . ( $safe ?: 'video' ) . '-' . gmdate( 'Ymd-His' ) . '.' . $ext;
 
-		$upload = wp_upload_bits( $name, null, $bin );
-		if ( ! empty( $upload['error'] ) ) {
-			return new WP_Error( 'tw_ai', 'Could not save the thumbnail: ' . $upload['error'] );
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) ) {
+			return new WP_Error( 'tw_ai', 'Could not save the thumbnail: ' . $uploads['error'] );
 		}
+		$dir = trailingslashit( $uploads['basedir'] ) . 'tubewriter/generated';
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'tw_ai', 'Could not create the thumbnail folder.' );
+		}
+		$file = trailingslashit( $dir ) . $name;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		if ( false === file_put_contents( $file, $bin ) ) {
+			return new WP_Error( 'tw_ai', 'Could not save the thumbnail file.' );
+		}
+
+		$url = trailingslashit( $uploads['baseurl'] ) . 'tubewriter/generated/' . $name;
+		$scheme = wp_parse_url( home_url(), PHP_URL_SCHEME );
 		return array(
-			'url'  => $upload['url'],
-			'file' => $upload['file'],
+			'url'  => set_url_scheme( $url, $scheme ? $scheme : 'https' ),
+			'file' => $file,
 		);
+	}
+
+	/**
+	 * Find a readable draft thumbnail under uploads.
+	 * Tries thumb_file, then Media Library attachment id, then a local thumb_url.
+	 *
+	 * @param array $state
+	 * @return array{file: string, url: string}|WP_Error
+	 */
+	private function resolve_draft_thumb_file( array $state ) {
+		$uploads = wp_get_upload_dir();
+		$basedir = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+		$baseurl = untrailingslashit( (string) ( $uploads['baseurl'] ?? '' ) );
+		if ( ! $basedir || ! $baseurl ) {
+			return new WP_Error( 'tw_thumb', 'Uploads folder is not available.' );
+		}
+
+		$candidates = array();
+		$stored     = wp_normalize_path( (string) ( $state['thumb_file'] ?? '' ) );
+		if ( '' !== $stored ) {
+			$candidates[] = $stored;
+		}
+
+		$att_id = absint( $state['thumb_attachment_id'] ?? 0 );
+		if ( $att_id ) {
+			$attached = wp_normalize_path( (string) get_attached_file( $att_id ) );
+			if ( '' !== $attached ) {
+				$candidates[] = $attached;
+			}
+		}
+
+		$url = (string) ( $state['thumb_url'] ?? '' );
+		if ( $url ) {
+			$from_url = $this->uploads_url_to_file( $url, $basedir, $baseurl );
+			if ( $from_url ) {
+				$candidates[] = $from_url;
+			}
+		}
+
+		$seen = array();
+		foreach ( $candidates as $file ) {
+			$file = wp_normalize_path( (string) $file );
+			if ( '' === $file || isset( $seen[ $file ] ) ) {
+				continue;
+			}
+			$seen[ $file ] = true;
+			if ( 0 !== strpos( $file, $basedir ) ) {
+				continue;
+			}
+			if ( ! is_readable( $file ) ) {
+				continue;
+			}
+			$out_url = $url;
+			if ( '' === $out_url ) {
+				$rel     = ltrim( substr( $file, strlen( $basedir ) ), '/' );
+				$out_url = trailingslashit( $baseurl ) . str_replace( '\\', '/', $rel );
+			}
+			return array(
+				'file' => $file,
+				'url'  => $out_url,
+			);
+		}
+
+		if ( $url || $stored || $att_id ) {
+			return new WP_Error(
+				'tw_thumb',
+				'The staged thumbnail file is missing. Click Choose from Media Library and pick it again, or create a new thumbnail.'
+			);
+		}
+		return new WP_Error( 'tw_thumb', 'Create or choose a thumbnail first, then upload it.' );
+	}
+
+	/**
+	 * Map a local uploads URL to an absolute file path.
+	 *
+	 * @param string $url
+	 * @param string $basedir Normalized uploads basedir.
+	 * @param string $baseurl Uploads baseurl without trailing slash.
+	 * @return string Empty when the URL is not under uploads.
+	 */
+	private function uploads_url_to_file( $url, $basedir, $baseurl ) {
+		$url = (string) $url;
+		if ( '' === $url ) {
+			return '';
+		}
+		$variants = array_unique(
+			array(
+				untrailingslashit( $baseurl ),
+				untrailingslashit( set_url_scheme( $baseurl, 'https' ) ),
+				untrailingslashit( set_url_scheme( $baseurl, 'http' ) ),
+			)
+		);
+		$path = wp_parse_url( $url, PHP_URL_PATH );
+		foreach ( $variants as $root ) {
+			$root_path = wp_parse_url( $root, PHP_URL_PATH );
+			if ( $root_path && $path && 0 === strpos( $path, $root_path ) ) {
+				$rel = ltrim( substr( $path, strlen( $root_path ) ), '/' );
+				return wp_normalize_path( trailingslashit( $basedir ) . $rel );
+			}
+			if ( 0 === strpos( $url, $root . '/' ) ) {
+				$rel = substr( $url, strlen( $root ) + 1 );
+				$rel = (string) strtok( $rel, '?' );
+				return wp_normalize_path( trailingslashit( $basedir ) . $rel );
+			}
+		}
+		return '';
+	}
+
+	/**
+	 * Delete a TubeWriter-generated thumb file. Never touches Media Library attachments.
+	 *
+	 * @param string $file Absolute path.
+	 */
+	public static function delete_generated_thumb_file( $file ) {
+		$file = wp_normalize_path( (string) $file );
+		if ( '' === $file || ! is_file( $file ) ) {
+			return;
+		}
+		$uploads = wp_get_upload_dir();
+		$base    = wp_normalize_path( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'tubewriter/generated' );
+		if ( ! $base || 0 !== strpos( $file, $base ) ) {
+			return;
+		}
+		if ( ! preg_match( '#/tw-thumb-[^/]+\.(png|jpe?g|webp)$#i', $file ) ) {
+			return;
+		}
+		wp_delete_file( $file );
+	}
+
+	/**
+	 * Daily cron: remove orphan generated thumbs older than 7 days.
+	 */
+	public static function cleanup_generated_thumbs() {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) ) {
+			return;
+		}
+		$dir = trailingslashit( $uploads['basedir'] ) . 'tubewriter/generated';
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+
+		$keep   = self::referenced_thumb_files();
+		$cutoff = time() - ( 7 * DAY_IN_SECONDS );
+		$files  = glob( $dir . '/tw-thumb-*.*' );
+		if ( ! is_array( $files ) ) {
+			return;
+		}
+
+		foreach ( $files as $file ) {
+			if ( ! is_file( $file ) ) {
+				continue;
+			}
+			$norm = wp_normalize_path( $file );
+			if ( isset( $keep[ $norm ] ) ) {
+				continue;
+			}
+			$mtime = @filemtime( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! $mtime || $mtime > $cutoff ) {
+				continue;
+			}
+			self::delete_generated_thumb_file( $file );
+		}
+	}
+
+	/**
+	 * Absolute thumb_file paths still referenced by any draft state.
+	 *
+	 * @return array<string,true>
+	 */
+	private static function referenced_thumb_files() {
+		global $wpdb;
+		$keep = array();
+		$vals = $wpdb->get_col( "SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE 'tw_state\\_%'" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$meta = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE 'tw_state\\_%'" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		if ( ! is_array( $vals ) ) {
+			$vals = array();
+		}
+		if ( ! is_array( $meta ) ) {
+			$meta = array();
+		}
+		foreach ( array_merge( $vals, $meta ) as $raw ) {
+			$state = maybe_unserialize( $raw );
+			if ( ! is_array( $state ) ) {
+				continue;
+			}
+			$file = wp_normalize_path( (string) ( $state['thumb_file'] ?? '' ) );
+			if ( '' !== $file ) {
+				$keep[ $file ] = true;
+			}
+		}
+		return $keep;
 	}
 
 	/** Gemini or ChatGPT, from the editor dropdown. */
@@ -1679,10 +2143,19 @@ class TW_Admin {
 	}
 
 	private function ajax_guard() {
+		check_ajax_referer( 'tw_ajax', 'nonce' );
+		$front = ! empty( $_POST['tw_front'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( $front ) {
+			if ( ! is_user_logged_in() ) {
+				wp_send_json_error( 'Please log in again.', 403 );
+			}
+			TW_Context::set_user( get_current_user_id() );
+			return;
+		}
 		if ( ! current_user_can( self::CAP ) ) {
 			wp_send_json_error( 'Not allowed.', 403 );
 		}
-		check_ajax_referer( 'tw_ajax', 'nonce' );
+		TW_Context::clear();
 	}
 
 	private function guard( $action, $method = 'POST' ) {

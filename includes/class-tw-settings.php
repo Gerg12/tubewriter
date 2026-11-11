@@ -28,7 +28,7 @@ class TW_Settings {
 	);
 
 	const DEFAULTS = array(
-		'default_time'         => '18:00',
+		'default_time'         => '07:30',
 		'default_language'     => 'en',
 		'default_category'     => '20',
 		'openai_image_quality' => 'high',
@@ -69,6 +69,8 @@ class TW_Settings {
 		'27' => 'Education',
 	);
 
+	const CRON_CLEANUP_THUMBS = 'tw_cleanup_generated_thumbs';
+
 	public static function activate() {
 		if ( false === get_option( 'tw_prompt', false ) ) {
 			add_option( 'tw_prompt', self::default_prompt(), '', false );
@@ -93,6 +95,23 @@ class TW_Settings {
 		}
 		if ( false === get_option( 'tw_image_provider', false ) ) {
 			add_option( 'tw_image_provider', TW_DEFAULT_IMAGE_PROVIDER, '', false );
+		}
+		self::schedule_thumb_cleanup();
+	}
+
+	/** Schedule daily orphan generated-thumbnail cleanup. */
+	public static function schedule_thumb_cleanup() {
+		if ( ! wp_next_scheduled( self::CRON_CLEANUP_THUMBS ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::CRON_CLEANUP_THUMBS );
+		}
+	}
+
+	/** Clear scheduled cleanup on deactivate. */
+	public static function deactivate() {
+		$ts = wp_next_scheduled( self::CRON_CLEANUP_THUMBS );
+		while ( $ts ) {
+			wp_unschedule_event( $ts, self::CRON_CLEANUP_THUMBS );
+			$ts = wp_next_scheduled( self::CRON_CLEANUP_THUMBS );
 		}
 	}
 
@@ -127,6 +146,8 @@ class TW_Settings {
 			|| false !== strpos( $brief, 'A plain gameplay still, a cinematic painting' )
 			|| false !== strpos( $brief, 'The plugin adds the avatar, the GG logo, the bottom-right game logo' )
 			|| false !== strpos( $brief, 'Lower left: the bald brown commander already in the screenshot' )
+			|| false !== strpos( $brief, 'anime commander in the olive uniform with the cat' )
+			|| false !== strpos( $brief, 'Do not invent a different person. Do not default to a generic bald commander' )
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
 		}
@@ -138,6 +159,9 @@ class TW_Settings {
 			|| false !== strpos( $render, 'Never square. Never portrait. Never 3:2.' )
 			|| false !== strpos( $render, 'The working canvas is taller than 16:9' )
 			|| false !== strpos( $render, 'The recurring avatar is a bald brown-skinned man' )
+			|| false !== strpos( $render, 'Leave at least 100px of image to the left of the text' )
+			|| false !== strpos( $render, 'Do not swap in a generic bald commander when the screenshot already has someone else' )
+			|| false !== strpos( $render, 'Military stencil, chipped, not a thin font' )
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}
@@ -152,7 +176,7 @@ class TW_Settings {
 	}
 
 	public static function get( $key ) {
-		$value = get_option( 'tw_' . $key, '' );
+		$value = TW_Store::get( $key, '' );
 		if ( 'model' === $key && '' === $value ) {
 			return TW_DEFAULT_MODEL;
 		}
@@ -194,7 +218,12 @@ class TW_Settings {
 	}
 
 	public static function set( $key, $value ) {
-		update_option( 'tw_' . $key, $value, false );
+		TW_Store::set( $key, $value );
+	}
+
+	/** Front-end user is ready when they have at least one AI key. */
+	public static function user_has_ai_key() {
+		return TW_Store::has( 'gemini_key' ) || TW_Store::has( 'openai_key' );
 	}
 
 	public static function save_from_post( array $post ) {
@@ -253,6 +282,9 @@ class TW_Settings {
 	}
 
 	public static function is_configured() {
+		if ( TW_Context::is_user() ) {
+			return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::user_has_ai_key();
+		}
 		return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::get( 'gemini_key' );
 	}
 

@@ -13,12 +13,12 @@ class TW_History {
 	const LOG_MAX   = 300;
 
 	private static function key( $video_id ) {
-		return 'tw_history_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
+		return 'history_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
 	}
 
 	/** @return array<int, array> Newest first. */
 	public static function for_video( $video_id ) {
-		$list = get_option( self::key( $video_id ), array() );
+		$list = TW_Store::get( self::key( $video_id ), array() );
 		return is_array( $list ) ? $list : array();
 	}
 
@@ -51,7 +51,7 @@ class TW_History {
 		);
 		$list = self::for_video( $video_id );
 		array_unshift( $list, $entry );
-		update_option( self::key( $video_id ), array_slice( $list, 0, self::PER_VIDEO ), false );
+		TW_Store::set( self::key( $video_id ), array_slice( $list, 0, self::PER_VIDEO ) );
 		return $entry['id'];
 	}
 
@@ -66,11 +66,11 @@ class TW_History {
 			}
 		}
 		unset( $entry );
-		update_option( self::key( $video_id ), $list, false );
+		TW_Store::set( self::key( $video_id ), $list );
 	}
 
 	private static function log( $video_id, array $entry ) {
-		$log = get_option( 'tw_log', array() );
+		$log = TW_Store::get( 'log', array() );
 		$log = is_array( $log ) ? $log : array();
 		array_unshift(
 			$log,
@@ -83,11 +83,11 @@ class TW_History {
 				'changes' => $entry['changes'],
 			)
 		);
-		update_option( 'tw_log', array_slice( $log, 0, self::LOG_MAX ), false );
+		TW_Store::set( 'log', array_slice( $log, 0, self::LOG_MAX ) );
 	}
 
 	public static function log_entries() {
-		$log = get_option( 'tw_log', array() );
+		$log = TW_Store::get( 'log', array() );
 		return is_array( $log ) ? $log : array();
 	}
 

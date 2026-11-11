@@ -18,13 +18,18 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class TW_Index {
 
-	const DB_VERSION   = '2';
+	const DB_VERSION   = '3';
 	const BATCH_PAGES  = 4;  // 4 x 50 = 200 videos per AJAX request.
 	const QUICK_PAGES  = 2;
 
 	public static function table() {
 		global $wpdb;
 		return $wpdb->prefix . 'tw_videos';
+	}
+
+	/** Active account scope. 0 = site admin index. */
+	public static function uid() {
+		return TW_Context::user_id();
 	}
 
 	public static function maybe_install() {
@@ -37,6 +42,7 @@ class TW_Index {
 		$charset = $wpdb->get_charset_collate();
 		dbDelta(
 			"CREATE TABLE {$table} (
+				user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 				id varchar(32) NOT NULL,
 				title text NOT NULL,
 				description longtext NOT NULL,
@@ -50,12 +56,20 @@ class TW_Index {
 				captions_status varchar(10) NOT NULL DEFAULT '',
 				sync_run varchar(16) NOT NULL DEFAULT '',
 				synced_at int(10) unsigned NOT NULL DEFAULT 0,
-				PRIMARY KEY  (id),
+				PRIMARY KEY  (user_id,id),
 				KEY privacy (privacy),
 				KEY published_at (published_at),
 				KEY views (views)
 			) {$charset};"
 		);
+
+		// Upgrade from v2 (id-only PK) to per-user composite key.
+		$cols = $wpdb->get_col( "DESCRIBE {$table}", 0 ); // phpcs:ignore
+		if ( is_array( $cols ) && ! in_array( 'user_id', $cols, true ) ) {
+			$wpdb->query( "ALTER TABLE {$table} ADD COLUMN user_id bigint(20) unsigned NOT NULL DEFAULT 0 FIRST" ); // phpcs:ignore
+			$wpdb->query( "ALTER TABLE {$table} DROP PRIMARY KEY, ADD PRIMARY KEY (user_id, id)" ); // phpcs:ignore
+		}
+
 		update_option( 'tw_db_version', self::DB_VERSION, false );
 	}
 
@@ -72,7 +86,8 @@ class TW_Index {
 		$sn       = $v['snippet'] ?? array();
 		$st       = $v['status'] ?? array();
 		$privacy  = (string) ( $st['privacyStatus'] ?? '' );
-		$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT id, privacy, sync_run FROM ' . self::table() . ' WHERE id = %s', $v['id'] ), ARRAY_A ); // phpcs:ignore
+		$uid      = self::uid();
+		$existing = $wpdb->get_row( $wpdb->prepare( 'SELECT id, privacy, sync_run FROM ' . self::table() . ' WHERE user_id = %d AND id = %s', $uid, $v['id'] ), ARRAY_A ); // phpcs:ignore
 
 		// API has no draft status. Studio drafts come back as private. Treat every
 		// private video without a future go-live date as a draft, including ones
@@ -105,9 +120,10 @@ class TW_Index {
 			$row['sync_run'] = $run;
 		}
 		if ( $existing ) {
-			$wpdb->update( self::table(), $row, array( 'id' => $v['id'] ) );
+			$wpdb->update( self::table(), $row, array( 'user_id' => $uid, 'id' => $v['id'] ) );
 		} else {
-			$row['tw_status']        = self::tw_status_from_state( $v['id'] );
+			$row['user_id']         = $uid;
+			$row['tw_status']       = self::tw_status_from_state( $v['id'] );
 			$row['captions_status'] = self::captions_status_from_state( $v['id'] );
 			$wpdb->insert( self::table(), $row );
 		}
@@ -123,18 +139,18 @@ class TW_Index {
 
 	public static function set_tw_status( $video_id, $status ) {
 		global $wpdb;
-		$wpdb->update( self::table(), array( 'tw_status' => $status ), array( 'id' => $video_id ) );
+		$wpdb->update( self::table(), array( 'tw_status' => $status ), array( 'user_id' => self::uid(), 'id' => $video_id ) );
 	}
 
 	/** ok = captions text saved, none = pull tried and came back empty. */
 	public static function set_captions_status( $video_id, $status ) {
 		global $wpdb;
 		$status = in_array( $status, array( 'ok', 'none' ), true ) ? $status : '';
-		$wpdb->update( self::table(), array( 'captions_status' => $status ), array( 'id' => $video_id ) );
+		$wpdb->update( self::table(), array( 'captions_status' => $status ), array( 'user_id' => self::uid(), 'id' => $video_id ) );
 	}
 
 	private static function tw_status_from_state( $video_id ) {
-		$state = get_option( 'tw_state_' . $video_id );
+		$state = TW_Store::get( 'state_' . $video_id, array() );
 		if ( ! is_array( $state ) ) {
 			return '';
 		}
@@ -145,7 +161,7 @@ class TW_Index {
 	}
 
 	private static function captions_status_from_state( $video_id ) {
-		$state = get_option( 'tw_state_' . $video_id );
+		$state = TW_Store::get( 'state_' . $video_id, array() );
 		if ( ! is_array( $state ) ) {
 			return '';
 		}
@@ -218,23 +234,23 @@ class TW_Index {
 			if ( $refreshed['error'] ) {
 				$note = trim( $note . ' Refreshing private videos failed: ' . $refreshed['error'] );
 			}
-			update_option( 'tw_scheduled_sync_note', $note, false );
+			TW_Store::set( 'scheduled_sync_note', $note );
 			if ( 'full' === $mode ) {
 				global $wpdb;
 				// Local cleanup only. An unfinished excluded-video check must not drop
 				// draft or scheduled rows the scan did not reach.
-				$sql = 'DELETE FROM ' . self::table() . ' WHERE sync_run <> %s';
+				$sql = 'DELETE FROM ' . self::table() . ' WHERE user_id = %d AND sync_run <> %s';
 				if ( ! $found['complete'] ) {
 					$sql .= " AND privacy <> 'draft'";
 					$sql .= " AND NOT (privacy = 'private' AND publish_at IS NOT NULL AND publish_at > UTC_TIMESTAMP())";
 				}
-				$wpdb->query( $wpdb->prepare( $sql, $run ) ); // phpcs:ignore
+				$wpdb->query( $wpdb->prepare( $sql, self::uid(), $run ) ); // phpcs:ignore
 				if ( $found['complete'] ) {
-					update_option( 'tw_index_full', time(), false );
+					TW_Store::set( 'index_full', time() );
 				}
 			}
-			update_option( 'tw_index_synced', time(), false );
-			delete_transient( 'tw_calendar' );
+			TW_Store::set( 'index_synced', time() );
+			delete_transient( 'tw_calendar_' . self::uid() );
 		}
 
 		return array(
@@ -291,9 +307,9 @@ class TW_Index {
 		} elseif ( ! $found['complete'] ) {
 			$note = 'Compare read about 600 newest owned videos. If Studio still shows more drafts, run it again later or use Full sync.';
 		}
-		update_option( 'tw_scheduled_sync_note', $note, false );
-		update_option( 'tw_index_synced', time(), false );
-		delete_transient( 'tw_calendar' );
+		TW_Store::set( 'scheduled_sync_note', $note );
+		TW_Store::set( 'index_synced', time() );
+		delete_transient( 'tw_calendar_' . self::uid() );
 
 		$draft_count = self::count_drafts();
 		return array(
@@ -320,25 +336,29 @@ class TW_Index {
 	/** Move private-unscheduled index rows to draft (0 API units). */
 	public static function promote_private_to_draft() {
 		global $wpdb;
-		$t = self::table();
+		$t   = self::table();
+		$uid = self::uid();
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		return (int) $wpdb->query(
-			"UPDATE {$t} SET privacy = 'draft'
-			WHERE privacy = 'private'
-			AND (publish_at IS NULL OR publish_at <= UTC_TIMESTAMP())"
+			$wpdb->prepare(
+				"UPDATE {$t} SET privacy = 'draft'
+				WHERE user_id = %d AND privacy = 'private'
+				AND (publish_at IS NULL OR publish_at <= UTC_TIMESTAMP())",
+				$uid
+			)
 		);
 	}
 
 	public static function has_draft( $video_id ) {
 		global $wpdb;
-		$privacy = $wpdb->get_var( $wpdb->prepare( 'SELECT privacy FROM ' . self::table() . ' WHERE id = %s', $video_id ) ); // phpcs:ignore
+		$privacy = $wpdb->get_var( $wpdb->prepare( 'SELECT privacy FROM ' . self::table() . ' WHERE user_id = %d AND id = %s', self::uid(), $video_id ) ); // phpcs:ignore
 		return 'draft' === $privacy;
 	}
 
 	/** Re-fetch publishAt for indexed private and draft videos. */
 	private static function refresh_private_schedules( $run ) {
 		global $wpdb;
-		$ids = $wpdb->get_col( "SELECT id FROM " . self::table() . " WHERE privacy IN ('private','draft')" ); // phpcs:ignore
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM " . self::table() . " WHERE user_id = %d AND privacy IN ('private','draft')", self::uid() ) ); // phpcs:ignore
 		$err = '';
 		if ( $ids ) {
 			$videos = TW_YouTube::videos_by_ids( $ids );
@@ -358,23 +378,23 @@ class TW_Index {
 
 	public static function count_scheduled() {
 		global $wpdb;
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . self::table() . " WHERE privacy = 'private' AND publish_at IS NOT NULL AND publish_at > UTC_TIMESTAMP()" ); // phpcs:ignore
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM " . self::table() . " WHERE user_id = %d AND privacy = 'private' AND publish_at IS NOT NULL AND publish_at > UTC_TIMESTAMP()", self::uid() ) ); // phpcs:ignore
 	}
 
 	public static function count_drafts() {
 		global $wpdb;
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM " . self::table() . " WHERE privacy = 'draft'" ); // phpcs:ignore
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM " . self::table() . " WHERE user_id = %d AND privacy = 'draft'", self::uid() ) ); // phpcs:ignore
 	}
 
 	public static function count_all() {
 		global $wpdb;
-		return (int) $wpdb->get_var( 'SELECT COUNT(*) FROM ' . self::table() ); // phpcs:ignore
+		return (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM ' . self::table() . ' WHERE user_id = %d', self::uid() ) ); // phpcs:ignore
 	}
 
 	/** Indexed visibility for a video id, or empty string. */
 	public static function privacy_of( $video_id ) {
 		global $wpdb;
-		$privacy = $wpdb->get_var( $wpdb->prepare( 'SELECT privacy FROM ' . self::table() . ' WHERE id = %s', $video_id ) ); // phpcs:ignore
+		$privacy = $wpdb->get_var( $wpdb->prepare( 'SELECT privacy FROM ' . self::table() . ' WHERE user_id = %d AND id = %s', self::uid(), $video_id ) ); // phpcs:ignore
 		return is_string( $privacy ) ? $privacy : '';
 	}
 
@@ -382,11 +402,12 @@ class TW_Index {
 	public static function counts() {
 		global $wpdb;
 		$t   = self::table();
+		$uid = self::uid();
 		$out = array(
 			'all'       => self::count_all(),
-			'public'    => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} WHERE privacy = 'public'" ), // phpcs:ignore
-			'unlisted'  => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} WHERE privacy = 'unlisted'" ), // phpcs:ignore
-			'private'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$t} WHERE privacy = 'private' AND (publish_at IS NULL OR publish_at <= UTC_TIMESTAMP())" ), // phpcs:ignore
+			'public'    => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE user_id = %d AND privacy = 'public'", $uid ) ), // phpcs:ignore
+			'unlisted'  => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE user_id = %d AND privacy = 'unlisted'", $uid ) ), // phpcs:ignore
+			'private'   => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$t} WHERE user_id = %d AND privacy = 'private' AND (publish_at IS NULL OR publish_at <= UTC_TIMESTAMP())", $uid ) ), // phpcs:ignore
 			'scheduled' => self::count_scheduled(),
 			'draft'     => self::count_drafts(),
 		);
@@ -400,8 +421,8 @@ class TW_Index {
 	public static function query( array $q ) {
 		global $wpdb;
 		$t     = self::table();
-		$where = array( '1=1' );
-		$args  = array();
+		$where = array( 'user_id = %d' );
+		$args  = array( self::uid() );
 
 		if ( '' !== ( $q['search'] ?? '' ) ) {
 			$like    = '%' . $wpdb->esc_like( $q['search'] ) . '%';
@@ -607,7 +628,7 @@ class TW_Index {
 			$paths = self::local_thumb_paths( $id );
 			if ( self::has_local_thumb( $id ) ) {
 				if ( $paths && $thumb !== $paths['url'] ) {
-					$wpdb->update( self::table(), array( 'thumb' => $paths['url'] ), array( 'id' => $id ) );
+					$wpdb->update( self::table(), array( 'thumb' => $paths['url'] ), array( 'user_id' => self::uid(), 'id' => $id ) );
 					$item['thumb'] = $paths['url'];
 				}
 				continue;
@@ -615,7 +636,7 @@ class TW_Index {
 			if ( self::thumb_is_remote( $thumb ) ) {
 				$local = self::cache_thumbnail( $id, $thumb );
 				if ( self::has_local_thumb( $id ) ) {
-					$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'id' => $id ) );
+					$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'user_id' => self::uid(), 'id' => $id ) );
 					$item['thumb'] = $local;
 					continue;
 				}
@@ -649,11 +670,11 @@ class TW_Index {
 			}
 			$local = self::cache_thumbnail( $id, $fresh[ $id ], true );
 			if ( self::has_local_thumb( $id ) ) {
-				$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'id' => $id ) );
+				$wpdb->update( self::table(), array( 'thumb' => $local ), array( 'user_id' => self::uid(), 'id' => $id ) );
 				$item['thumb'] = $local;
 			} else {
 				// Keep the fresh signed URL briefly if download failed this pass.
-				$wpdb->update( self::table(), array( 'thumb' => $fresh[ $id ] ), array( 'id' => $id ) );
+				$wpdb->update( self::table(), array( 'thumb' => $fresh[ $id ] ), array( 'user_id' => self::uid(), 'id' => $id ) );
 				$item['thumb'] = $fresh[ $id ];
 			}
 		}
@@ -676,8 +697,11 @@ class TW_Index {
 		global $wpdb;
 		$t    = self::table();
 		$rows = $wpdb->get_results( // phpcs:ignore
-			"SELECT id, title, privacy, publish_at, published_at FROM {$t}
-			WHERE (privacy = 'private' AND publish_at IS NOT NULL) OR (privacy IN ('public','unlisted') AND published_at IS NOT NULL)",
+			$wpdb->prepare(
+				"SELECT id, title, privacy, publish_at, published_at FROM {$t}
+				WHERE user_id = %d AND ((privacy = 'private' AND publish_at IS NOT NULL) OR (privacy IN ('public','unlisted') AND published_at IS NOT NULL))",
+				self::uid()
+			),
 			ARRAY_A
 		);
 		$out = array();

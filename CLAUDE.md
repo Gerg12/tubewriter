@@ -56,7 +56,7 @@ Do not add per-row API calls to the list page.
 
 1. Source: transcript (pull captions or paste), starting title/description (prefilled from YouTube), notes. Generate with AI, or Fill in by hand.
 2. Details: title options, description body, chapters, hashtags, tags, category, language (sets both defaultLanguage and defaultAudioLanguage).
-3. Thumbnail (optional): paste up to 2 screenshots (Ctrl+V), Gemini writes a brief, user approves, OpenAI or Gemini creates a 16:9 PNG. Standing style rules live in `thumb_render_prompt`. Optional **Upload to YouTube** (`thumbnails.set`, ~50 units, confirm required). Skippable.
+3. Thumbnail (optional): paste up to 2 screenshots (Ctrl+V), Gemini writes a brief, user approves, OpenAI or Gemini creates a 16:9 PNG under `uploads/tubewriter/generated/`. Standing style rules live in `thumb_render_prompt`. Optional **Upload to YouTube** (`thumbnails.set`, ~50 units, confirm required). Advancing past step 3 with a staged unuploaded thumb soft-confirms. Daily cron deletes orphan generated files older than 7 days. Skippable.
 4. Playlist: none, existing, or new (AI "Polish for SEO"). Created only at publish.
 5. Schedule: month calendar of scheduled (orange) and published (green) uploads, click a day, default time from Settings. Private videos only.
 6. Review: server builds the plan against the live video, field-by-field diff, errors block publishing.
@@ -75,7 +75,8 @@ Custom thumbnails can be uploaded from step 3 via `thumbnails.set` (channel must
 
 - `tw_client_id`, `tw_client_secret`, `tw_gemini_key`, `tw_openai_key`, `tw_model`, `tw_image_provider`, `tw_image_model`, `tw_openai_image_model`, `tw_openai_image_quality`, `tw_prompt`, `tw_thumb_prompt`, `tw_thumb_render_prompt`, `tw_default_time`, `tw_default_language`, `tw_default_category`
 - `tw_tokens` (access, refresh, expiry), `tw_channel` (id, title, uploads playlist)
-- `tw_state_{videoId}`: draft (transcript, notes, seed title/desc, pkg, opts, thumb_description, thumb_url)
+- `tw_state_{videoId}`: draft (transcript, notes, seed title/desc, pkg, opts, thumb_description, thumb_url, thumb_file, thumb_uploaded)
+- Generated thumbs: `uploads/tubewriter/generated/tw-thumb-*.png` (not Media Library). Orphans older than 7 days cleaned by `tw_cleanup_generated_thumbs`. Index YT cache thumbs stay in `uploads/tubewriter/thumbs/`.
 - `tw_history_{videoId}`: backups; `tw_log`: global change log
 - `tw_quota`: rough daily API unit count
 - Table `{prefix}tw_videos` (version in `tw_db_version`), `tw_index_synced`, `tw_index_full` timestamps

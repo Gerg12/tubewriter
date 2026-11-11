@@ -12,6 +12,18 @@ class TW_AI {
 
 	const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent';
 
+	/** @var array|null Last token usage from Gemini or OpenAI. */
+	private static $last_usage = null;
+
+	/** @return array|null */
+	public static function last_usage() {
+		return self::$last_usage;
+	}
+
+	private static function remember_usage( array $usage ) {
+		self::$last_usage = $usage;
+	}
+
 	/** Tried in order when the chosen text model is busy or never answers. */
 	const TEXT_FALLBACKS = array(
 		'gemini-3.5-flash-lite',
@@ -142,8 +154,8 @@ TXT;
 		$title = trim( (string) ( $pkg['title'] ?? '' ) );
 		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
 		$shots = count( $images ) > 1
-			? 'Image 1 is the hero background. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". Look at the lower left of the screenshots. If a character is already there, say to keep that exact drawing for this video.'
-			: 'Only one screenshot is attached. It is the full-bleed hero. Set inset to "No inset". Look at the lower left. If a character is already there, say to keep that exact drawing for this video.';
+			? 'Image 1 is the hero background. Polish that exact shot. Do not invent a new foreground character. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". Look at the lower left of Image 1. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.'
+			: 'Only one screenshot is attached. It is the full-bleed hero. Polish that exact shot. Do not invent a new foreground character. Set inset to "No inset". Look at the lower left. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.';
 		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
 			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
 			. self::context( $input ) . "\n\n"
@@ -211,27 +223,31 @@ TXT;
 		}
 
 		return "7. Custom 16:9 Thumbnail Concept\n"
-			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. Every letter of the headline is fully visible, at least 100px from the left, top, and right edges. Never crop a word.\n"
+			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. Safe zone: keep the headline, logos, and any corner character at least 140px from every edge, prefer 180px from the top and bottom. Every letter of the headline stays fully inside that safe zone. Never crop a word.\n"
 			. "\n"
 			. 'Composition Style: ' . $composition . "\n"
 			. "\n"
 			. 'Base Imagery (Image 1): ' . $base . "\n"
 			. "\n"
+			. "Main Subject:\n"
+			. "\n"
+			. "Polish Image 1. The hero is whatever that screenshot already shows. Do not invent a new foreground character, Pixar redesign, fan-art face, or franchise look-alike that is not in the shot.\n"
+			. "\n"
 			. 'Tactical Inset (Image 2): ' . $inset . "\n"
 			. "\n"
 			. "Lower-Left Character:\n"
 			. "\n"
-			. "Look at the lower left of the screenshot. That character changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. Do not invent a different person. Do not replace him with a generic commander.\n"
+			. "Look at the lower left of the screenshot. That corner changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If the lower left is empty gameplay, leave it for the GG logo only. Do not invent a face, anime figure, cat, or mascot.\n"
 			. "\n"
-			. "The channel logo sits in the bottom left beside that character: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the frame, smaller than the headline.\n"
+			. "The channel logo sits in the bottom left: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the safe zone, smaller than the headline.\n"
 			. "\n"
-			. "Official Game Logo:\n"
+			. "Official Game Logo (exactly one):\n"
 			. "\n"
-			. 'The authentic official ' . $game . " logo is top right when there is no inset. If Image 2 is a picture-in-picture in the top right, move this logo to the bottom right, raised above the YouTube duration badge. If the creator set the game logo to top left, leave it there. Fully inside the frame, smaller than the headline.\n"
+			. 'Place exactly one authentic official ' . $game . " logo. Never two copies. Never a large logo plus a small duplicate. Top right when there is no inset. If Image 2 is a picture-in-picture in the top right, move this single logo to the bottom right, raised above the YouTube duration badge. If the creator set the game logo to top left, leave it there. Fully inside the safe zone, smaller than the headline. If a logo file is attached, use that file once and do not paint another logo from memory.\n"
 			. "\n"
 			. "Headline Typography (Top-Left):\n"
 			. "\n"
-			. "Line 1 is larger than Line 2. Both lines sit in the upper left with a wide margin. No letter is cut off.\n"
+			. "Line 1 is larger than Line 2. Both lines sit in the upper left inside the safe zone. No letter is cut off.\n"
 			. "\n"
 			. 'Line 1: ' . $line1 . "\n"
 			. "\n"
@@ -387,15 +403,15 @@ TXT;
 	private static function render_prompt( $description, $shot_count, array $logos = array() ) {
 		$standing = trim( (string) TW_Settings::get( 'thumb_render_prompt' ) );
 		$shots    = (int) $shot_count > 1
-			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Image 2 is a picture-in-picture card in the top right. The headline stays top left. The channel logo stays bottom left. The game logo moves to the bottom right so it does not cover the inset. Keep the lower-left character exactly as drawn in the screenshot for this video.'
-			: 'One screenshot is attached. It fills the 16:9 frame. No picture-in-picture. The headline is top left. The channel logo is bottom left. The game logo is top right, or top left if the logo instruction says top left. Keep the lower-left character exactly as drawn in the screenshot for this video.';
+			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Polish that exact shot. Do not invent a new foreground hero. Image 2 is a picture-in-picture card in the top right. The headline stays top left inside the safe zone. The channel logo stays bottom left. Exactly one game logo moves to the bottom right so it does not cover the inset. Keep a lower-left character only if one is already drawn in Image 1. If that corner is empty, GG logo only.'
+			: 'One screenshot is attached. It fills the 16:9 frame. Polish that exact shot. Do not invent a new foreground hero. No picture-in-picture. The headline is top left inside the safe zone. The channel logo is bottom left. Exactly one game logo is top right, or top left if the logo instruction says top left. Keep a lower-left character only if one is already drawn in the screenshot. If that corner is empty, GG logo only.';
 		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
 		$frame = ( '1536x1024' === $size )
-			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep the headline, the game logo, the commander, and the GG logo at least 160px from the top and bottom so that trim does not cut them.'
-			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep the headline, the game logo, the commander, and the GG logo at least 100px from every edge.';
+			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep the headline, the single game logo, any corner character, and the GG logo at least 200px from the top and bottom, and at least 140px from the left and right, so that trim does not cut them.'
+			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep the headline, the single game logo, any corner character, and the GG logo at least 140px from every edge. Prefer 180px from the top and bottom.';
 		$logo_block = self::logo_block( (int) $shot_count, $logos );
 		return $standing . "\n\n"
-			. $frame . " Keep every letter fully inside the frame. Do not clip a letter.\n\n"
+			. $frame . " Keep every letter fully inside the safe zone. Do not clip a letter.\n\n"
 			. $shots . "\n\n"
 			. "APPROVED THUMBNAIL BRIEF:\n" . trim( (string) $description )
 			. ( '' !== $logo_block ? "\n\n" . $logo_block : '' );
@@ -411,6 +427,7 @@ TXT;
 	private static function logo_block( $shot_count, array $logos ) {
 		$lines = array();
 		$n     = (int) $shot_count;
+		$has_game = false;
 		foreach ( $logos as $logo ) {
 			if ( empty( $logo['data'] ) ) {
 				continue;
@@ -418,12 +435,20 @@ TXT;
 			$n++;
 			$where = trim( (string) ( $logo['pos'] ?? '' ) );
 			$label = trim( (string) ( $logo['label'] ?? 'logo' ) );
-			$lines[] = 'Attached image ' . $n . ' is the exact ' . $label . ' file. Place that artwork unchanged in the ' . $where . ' corner. Do not redraw it, recolor it, or typeset a new logo.';
+			$lines[] = 'Attached image ' . $n . ' is the exact ' . $label . ' file. Place that artwork unchanged once in the ' . $where . ' corner, inside the safe zone. Do not redraw it, recolor it, or typeset a new logo.';
+			if ( false !== stripos( $label, 'game' ) ) {
+				$has_game = true;
+			}
 		}
 		if ( ! $lines ) {
 			return '';
 		}
-		return "LOGO FILES (these override the brief)\n" . implode( "\n", $lines ) . "\nKeep each logo fully inside the frame, smaller than the headline, and clear of the other logo.";
+		$extra = $has_game
+			? "\nExactly one game logo in the whole image. Use the attached game logo file once. Do not paint a second game logo from memory."
+			: '';
+		return "LOGO FILES (these override the brief)\n" . implode( "\n", $lines )
+			. "\nKeep each logo fully inside the safe zone, smaller than the headline, and clear of the other logo."
+			. $extra;
 	}
 
 	/** Gemini native image generation with reference screenshots. */
@@ -555,9 +580,11 @@ TXT;
 	 * @return mixed|WP_Error
 	 */
 	private static function openai_chat( $model, $system, $user_text, $raw ) {
+		self::$last_usage = null;
 		$key = TW_Settings::get( 'openai_key' );
 		if ( ! $key ) {
-			return new WP_Error( 'tw_ai', 'ChatGPT needs an OpenAI API key. Add it in TubeWriter > Settings, then pick ChatGPT again.' );
+			$where = TW_Context::is_user() ? 'your account settings' : 'TubeWriter > Settings';
+			return new WP_Error( 'tw_ai', 'ChatGPT needs an OpenAI API key. Add it in ' . $where . ', then pick ChatGPT again.' );
 		}
 		$model = trim( (string) $model );
 		if ( '' === $model ) {
@@ -611,6 +638,19 @@ TXT;
 				$msg = 'ChatGPT: ' . $raw_msg;
 			}
 			return new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) );
+		}
+
+		if ( ! empty( $data['usage'] ) && is_array( $data['usage'] ) ) {
+			self::remember_usage(
+				array(
+					'provider'     => 'openai',
+					'model'        => $model,
+					'prompt'       => (int) ( $data['usage']['prompt_tokens'] ?? 0 ),
+					'completion'   => (int) ( $data['usage']['completion_tokens'] ?? 0 ),
+					'total'        => (int) ( $data['usage']['total_tokens'] ?? 0 ),
+					'reused_cache' => (int) ( $data['usage']['prompt_tokens_details']['cached_tokens'] ?? 0 ),
+				)
+			);
 		}
 
 		$text = (string) ( $data['choices'][0]['message']['content'] ?? '' );
@@ -677,9 +717,11 @@ TXT;
 	 * @return mixed|WP_Error
 	 */
 	private static function request( $model, $system, array $parts, array $gen_config, $mode = false, $allow_fallback = true ) {
+		self::$last_usage = null;
 		$key = TW_Settings::get( 'gemini_key' );
 		if ( ! $key ) {
-			return new WP_Error( 'tw_ai', 'Add your Gemini API key in TubeWriter > Settings.' );
+			$where = TW_Context::is_user() ? 'your account settings' : 'TubeWriter > Settings';
+			return new WP_Error( 'tw_ai', 'Add your Gemini API key in ' . $where . '.' );
 		}
 		if ( ! $parts ) {
 			return new WP_Error( 'tw_ai', 'Nothing to send to Gemini.' );
@@ -781,6 +823,20 @@ TXT;
 				$mode,
 				$allow_fallback && ! in_array( $code, array( 400, 403 ), true ),
 				new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) )
+			);
+		}
+
+		if ( ! empty( $data['usageMetadata'] ) && is_array( $data['usageMetadata'] ) ) {
+			$um = $data['usageMetadata'];
+			self::remember_usage(
+				array(
+					'provider'     => 'gemini',
+					'model'        => $model,
+					'prompt'       => (int) ( $um['promptTokenCount'] ?? 0 ),
+					'completion'   => (int) ( $um['candidatesTokenCount'] ?? 0 ),
+					'total'        => (int) ( $um['totalTokenCount'] ?? 0 ),
+					'reused_cache' => (int) ( $um['cachedContentTokenCount'] ?? 0 ),
+				)
 			);
 		}
 
