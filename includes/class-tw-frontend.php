@@ -4,7 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Public TubeWriter app: home, login, register, account (keys, YouTube, videos, editor).
+ * Public UploadWriter app (route prefix /tubewriter/): home, login, register, account.
  */
 class TW_Frontend {
 
@@ -146,7 +146,7 @@ class TW_Frontend {
 		$notice = $this->pull_notice();
 		echo '<!DOCTYPE html><html ' . get_language_attributes() . '><head><meta charset="' . esc_attr( get_bloginfo( 'charset' ) ) . '">';
 		echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
-		echo '<title>TubeWriter</title>';
+		echo '<title>' . esc_html( TW_BRAND ) . '</title>';
 		wp_head();
 		echo '</head><body class="tw-app tw-app--' . esc_attr( $view ) . '">';
 		echo '<div class="tw-app-bg" aria-hidden="true"></div>';
@@ -178,7 +178,7 @@ class TW_Frontend {
 		?>
 		<main class="tw-shell tw-shell--auth">
 			<section class="tw-hero-panel tw-auth-center">
-				<p class="tw-brand">TubeWriter</p>
+				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
 				<h1>Write better YouTube metadata without losing control</h1>
 				<p class="tw-lead">Connect your AI key and YouTube, draft titles, descriptions, chapters, tags, and thumbnails, then publish only after review.</p>
@@ -195,7 +195,7 @@ class TW_Frontend {
 		?>
 		<main class="tw-shell tw-shell--auth">
 			<section class="tw-auth-card tw-auth-center">
-				<p class="tw-brand">TubeWriter</p>
+				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
 				<h1>Log in</h1>
 				<p class="tw-lead">Back to your channel workspace.</p>
@@ -218,7 +218,7 @@ class TW_Frontend {
 		?>
 		<main class="tw-shell tw-shell--auth">
 			<section class="tw-auth-card tw-auth-center">
-				<p class="tw-brand">TubeWriter</p>
+				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
 				<h1>Create account</h1>
 				<p class="tw-lead">Connect AI and YouTube, draft metadata, and publish only after review. Your keys stay encrypted on this site.</p>
@@ -247,10 +247,10 @@ class TW_Frontend {
 		$channel = TW_Store::get( 'channel', array() );
 		?>
 		<header class="tw-topbar">
-			<a class="tw-brand tw-brand--link" href="<?php echo esc_url( self::url( 'account' ) ); ?>">TubeWriter</a>
+			<a class="tw-brand tw-brand--link" href="<?php echo esc_url( self::url( 'account' ) ); ?>"><?php echo esc_html( TW_BRAND ); ?></a>
 			<nav class="tw-topnav">
-				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>">Videos</a>
-				<a href="#tw-keys">Keys</a>
+				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a>
+				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys>Keys</a>
 				<span class="tw-userpill"><span class="tw-userpill-dot" aria-hidden="true"></span><?php echo esc_html( $user->display_name ? $user->display_name : $user->user_login ); ?></span>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline">
 					<?php wp_nonce_field( 'tw_front_logout' ); ?>
@@ -277,15 +277,25 @@ class TW_Frontend {
 		$connected  = TW_OAuth::is_connected();
 		$site_ok    = TW_Settings::get( 'client_id' ) && TW_Settings::get( 'client_secret' );
 		$ready      = TW_Settings::user_has_ai_key() && $connected;
-		$open_setup = ! $ready || TW_OAuth::needs_reconnect();
 		$channel_label = ( is_array( $channel ) && ! empty( $channel['title'] ) ) ? (string) $channel['title'] : '';
 		?>
-		<details class="tw-setup tw-panel" id="tw-keys"<?php echo $open_setup ? ' open' : ''; ?>>
+		<section class="tw-panel tw-workspace-head">
+			<div class="tw-panel-head">
+				<h1>Your workspace</h1>
+				<?php if ( $ready ) : ?>
+					<p>Sync your videos and compare AI-generated drafts. Keys and YouTube stay tucked away until you need them.</p>
+				<?php else : ?>
+					<p>Save an AI key, connect YouTube, then sync your videos and compare AI drafts in one place.</p>
+				<?php endif; ?>
+			</div>
+		</section>
+
+		<details class="tw-setup tw-panel" id="tw-keys"<?php echo $ready ? '' : ' open'; ?>>
 			<summary class="tw-setup-summary">
 				<span class="tw-setup-title"><?php echo $ready ? 'Keys &amp; YouTube' : 'Set up your workspace'; ?></span>
 				<span class="tw-setup-meta">
 					<?php if ( $ready ) : ?>
-						<?php echo $channel_label ? esc_html( $channel_label ) . ' · ' : ''; ?>Connected. Click to edit keys or reconnect.
+						<?php echo $channel_label ? esc_html( $channel_label ) . ' · ' : ''; ?>Connected. Open to change keys or reconnect.
 					<?php else : ?>
 						Save an AI key and connect YouTube to start.
 					<?php endif; ?>
@@ -298,9 +308,19 @@ class TW_Frontend {
 					<h2>AI keys</h2>
 					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value.</p>
 					<label for="tw_gemini_key">Gemini API key <?php echo $has_gemini ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
-					<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" placeholder="<?php echo $has_gemini ? 'Saved. Leave blank to keep it.' : 'Paste Gemini key'; ?>">
+					<div class="tw-secret">
+						<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" placeholder="<?php echo $has_gemini ? 'Saved. Leave blank to keep it.' : 'Paste Gemini key'; ?>">
+						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_gemini_key" data-secret-name="Gemini API key" aria-label="Show Gemini API key">
+							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
+						</button>
+					</div>
 					<label for="tw_openai_key">OpenAI / ChatGPT API key <?php echo $has_openai ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
-					<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" placeholder="<?php echo $has_openai ? 'Saved. Leave blank to keep it.' : 'Paste OpenAI key'; ?>">
+					<div class="tw-secret">
+						<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" placeholder="<?php echo $has_openai ? 'Saved. Leave blank to keep it.' : 'Paste OpenAI key'; ?>">
+						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_openai_key" data-secret-name="OpenAI API key" aria-label="Show OpenAI API key">
+							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
+						</button>
+					</div>
 					<label for="tw_image_provider">Thumbnail image provider</label>
 					<select id="tw_image_provider" name="tw_image_provider">
 						<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id => $label ) : ?>
@@ -317,10 +337,10 @@ class TW_Frontend {
 					<?php elseif ( $connected ) : ?>
 						<p class="tw-ok-line"><span class="tw-ok-check" aria-hidden="true"></span> Connected<?php echo $channel_label ? ': <strong>' . esc_html( $channel_label ) . '</strong>' : ''; ?></p>
 						<?php if ( TW_OAuth::needs_reconnect() ) : ?>
-							<p class="tw-warn">Please reconnect. Google needs you to approve TubeWriter again.</p>
+							<p class="tw-warn">Please reconnect. Google needs you to approve <?php echo esc_html( TW_BRAND ); ?> again.</p>
 						<?php endif; ?>
 						<div class="tw-cta-row">
-							<a class="tw-btn tw-btn--primary" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Reconnect</a>
+							<a class="tw-btn" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Reconnect</a>
 							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline" onsubmit="return confirm('Disconnect YouTube from this account?');">
 								<?php wp_nonce_field( 'tw_front_disconnect' ); ?>
 								<input type="hidden" name="action" value="tw_front_disconnect">
@@ -329,7 +349,7 @@ class TW_Frontend {
 						</div>
 						<?php $this->render_connect_paste_form(); ?>
 					<?php else : ?>
-						<p class="tw-muted">Connect the Google account that owns your channel. TubeWriter only asks for YouTube manage access.</p>
+						<p class="tw-muted">Connect the Google account that owns your channel. <?php echo esc_html( TW_BRAND ); ?> only asks for YouTube manage access.</p>
 						<a class="tw-btn tw-btn--primary" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Connect YouTube</a>
 						<?php $this->render_connect_paste_form(); ?>
 					<?php endif; ?>
@@ -340,7 +360,7 @@ class TW_Frontend {
 
 		<section class="tw-panel" id="tw-videos">
 			<div class="tw-panel-head">
-				<h1>Your videos</h1>
+				<h2>Your videos</h2>
 				<p>The list lives on this site so search and filters cost zero YouTube units.</p>
 			</div>
 			<?php
@@ -450,11 +470,14 @@ class TW_Frontend {
 			<?php endif; ?>
 			<input type="hidden" name="orderby" value="<?php echo esc_attr( $orderby ); ?>">
 			<input type="hidden" name="order" value="<?php echo esc_attr( $order ); ?>">
-			<input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="Search title or description">
-			<button class="tw-btn" type="submit">Search</button>
+			<label class="tw-search">
+				<span class="tw-icon tw-icon--search" aria-hidden="true"></span>
+				<input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="Search title or description" aria-label="Search title or description">
+			</label>
+			<button class="tw-btn tw-btn--primary" type="submit">Search</button>
 		</form>
 
-		<div class="tw-tabs">
+		<div class="tw-tabs" role="tablist" aria-label="Filter by visibility">
 			<?php
 			$tabs = array( '' => 'All', 'public' => 'Public', 'unlisted' => 'Unlisted', 'private' => 'Private', 'scheduled' => 'Scheduled', 'draft' => 'Draft' );
 			foreach ( $tabs as $key => $label ) {
@@ -469,7 +492,7 @@ class TW_Frontend {
 				);
 				$cls = ( (string) $visibility === (string) $key ) ? ' is-active' : '';
 				printf(
-					'<a class="tw-tab%s" href="%s">%s <span>%s</span></a>',
+					'<a class="tw-tab%s" href="%s">%s <span>(%s)</span></a>',
 					esc_attr( $cls ),
 					esc_url( $url ),
 					esc_html( $label ),
@@ -518,24 +541,27 @@ class TW_Frontend {
 					<?php
 					$edit = add_query_arg( 'video', $item['id'], self::url( 'account' ) );
 					$priv = $item['privacy'];
+					$meta = number_format_i18n( (int) $item['views'] ) . ' views';
 					if ( 'private' === $priv && ! empty( $item['publish_at'] ) && strtotime( $item['publish_at'] . ' UTC' ) > time() ) {
 						$priv = 'scheduled';
+						$meta .= ' · Publishes ' . wp_date( 'M j, Y \a\t g:i A', strtotime( $item['publish_at'] . ' UTC' ) );
 					}
+					$badge = ucfirst( $priv );
 					?>
 					<a class="tw-video-card" href="<?php echo esc_url( $edit ); ?>">
 						<span class="tw-video-thumb">
 							<?php if ( ! empty( $item['thumb'] ) ) : ?>
-								<img src="<?php echo esc_url( $item['thumb'] ); ?>" alt="">
+								<img src="<?php echo esc_url( TW_Index::thumb_url_with_version( $item['id'], $item['thumb'] ) ); ?>" alt="">
 							<?php endif; ?>
 							<?php if ( ! empty( $item['duration'] ) ) : ?>
 								<span class="tw-video-dur"><?php echo esc_html( TW_Transcript::fmt( (int) $item['duration'] ) ); ?></span>
 							<?php endif; ?>
 						</span>
 						<span class="tw-video-body">
-							<span class="tw-badge tw-badge-<?php echo esc_attr( $priv ); ?>"><?php echo esc_html( $priv ); ?></span>
+							<span class="tw-badge tw-badge-<?php echo esc_attr( $priv ); ?>"><?php echo esc_html( $badge ); ?></span>
 							<span class="tw-video-title"><?php echo esc_html( $item['title'] ); ?></span>
-							<span class="tw-muted"><?php echo esc_html( number_format_i18n( (int) $item['views'] ) ); ?> views</span>
-							<span class="tw-btn tw-btn--small tw-btn--primary tw-btn--card">Edit</span>
+							<span class="tw-muted tw-video-meta"><?php echo esc_html( $meta ); ?></span>
+							<span class="tw-btn tw-btn--small tw-btn--primary tw-btn--card"><span class="tw-icon tw-icon--edit" aria-hidden="true"></span> Edit</span>
 						</span>
 					</a>
 				<?php endforeach; ?>

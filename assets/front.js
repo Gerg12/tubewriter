@@ -1,4 +1,4 @@
-/* TubeWriter front-end: toasts, flash fade, smooth UI helpers. */
+/* UploadWriter front-end (TubeWriter plugin): toasts, flash fade, smooth UI helpers. */
 (function () {
 	'use strict';
 
@@ -42,13 +42,57 @@
 		});
 
 		var setup = document.getElementById('tw-keys');
+		function openKeysPanel(scroll) {
+			if (!setup) {
+				return false;
+			}
+			setup.open = true;
+			if (scroll) {
+				requestAnimationFrame(function () {
+					setup.scrollIntoView({ block: 'start', behavior: 'smooth' });
+				});
+			}
+			return true;
+		}
 		function openSetupIfNeeded() {
-			if (setup && location.hash === '#tw-keys') {
-				setup.open = true;
+			if (location.hash === '#tw-keys') {
+				openKeysPanel(true);
 			}
 		}
 		openSetupIfNeeded();
 		window.addEventListener('hashchange', openSetupIfNeeded);
+
+		// Keys nav: open the accordion (or leave for account#tw-keys if on the editor).
+		document.querySelectorAll('[data-tw-open-keys]').forEach(function (link) {
+			link.addEventListener('click', function (e) {
+				if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+					return;
+				}
+				if (!setup) {
+					return;
+				}
+				e.preventDefault();
+				if (location.hash !== '#tw-keys') {
+					history.replaceState(null, '', '#tw-keys');
+				}
+				openKeysPanel(true);
+			});
+		});
+
+		document.querySelectorAll('[data-toggle-secret]').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				var id = btn.getAttribute('data-toggle-secret');
+				var input = id ? document.getElementById(id) : null;
+				if (!input) {
+					return;
+				}
+				var show = input.type === 'password';
+				input.type = show ? 'text' : 'password';
+				btn.classList.toggle('is-on', show);
+				var base = btn.getAttribute('data-secret-name') || 'API key';
+				btn.setAttribute('aria-label', (show ? 'Hide ' : 'Show ') + base);
+			});
+		});
 
 		// List filters drop the #hash so tabs always reload. Scroll back to the grid.
 		var videos = document.getElementById('tw-videos');

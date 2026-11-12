@@ -148,6 +148,9 @@ class TW_Settings {
 			|| false !== strpos( $brief, 'Lower left: the bald brown commander already in the screenshot' )
 			|| false !== strpos( $brief, 'anime commander in the olive uniform with the cat' )
 			|| false !== strpos( $brief, 'Do not invent a different person. Do not default to a generic bald commander' )
+			|| false !== strpos( $brief, 'safe zone at least 140px from every edge' )
+			|| false !== strpos( $brief, 'safe zone at least 160px from every edge' )
+			|| false !== strpos( $brief, 'A picture-in-picture inset only when a second screenshot shows a different moment' )
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
 		}
@@ -162,6 +165,11 @@ class TW_Settings {
 			|| false !== strpos( $render, 'Leave at least 100px of image to the left of the text' )
 			|| false !== strpos( $render, 'Do not swap in a generic bald commander when the screenshot already has someone else' )
 			|| false !== strpos( $render, 'Military stencil, chipped, not a thin font' )
+			|| false !== strpos( $render, 'at least 140px inward from every edge' )
+			|| false !== strpos( $render, 'Prefer 180px from the top and bottom' )
+			|| false !== strpos( $render, 'at least 160px inward from every edge' )
+			|| false !== strpos( $render, 'Edge padding is the top priority after the gameplay shot' )
+			|| false !== strpos( $render, 'Add a picture-in-picture card only when the brief describes one' )
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}

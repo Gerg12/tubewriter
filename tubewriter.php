@@ -14,9 +14,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'TW_VERSION', '2.6.9' );
+define( 'TW_VERSION', '2.6.10' );
 define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TW_URL', plugin_dir_url( __FILE__ ) );
+// Public product name (uploadwriter.com). Working title and code stay TubeWriter / tubewriter.
+define( 'TW_BRAND', 'UploadWriter' );
 
 // Desktop OAuth clients accept any loopback redirect. Nothing listens here on purpose:
 // the browser shows a "can't connect" page and the user pastes that URL back into TubeWriter.

@@ -20,7 +20,7 @@ class TW_Admin {
 		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
 		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -430,15 +430,16 @@ class TW_Admin {
 			<div class="tw-head">
 				<?php if ( $thumb ) : ?>
 					<a class="tw-head-thumb" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener" title="Open in Studio">
-						<img src="<?php echo esc_url( $thumb ); ?>" alt="">
+						<img id="tw-head-thumb-img" src="<?php echo esc_url( TW_Index::thumb_url_with_version( $video_id, $thumb ) ); ?>" alt="">
 					</a>
 				<?php endif; ?>
 				<div>
-					<h1><?php echo esc_html( $snap['title'] ); ?></h1>
-					<p>
-						<span class="tw-badge tw-badge-<?php echo esc_attr( $badge_privacy ); ?>"><?php echo esc_html( $badge_privacy ); ?></span>
-						<?php echo $secs ? esc_html( TW_Transcript::fmt( $secs ) ) : ''; ?>
+					<h1 id="tw-head-title"><?php echo esc_html( $snap['title'] ); ?></h1>
+					<p id="tw-head-meta">
+						<span id="tw-head-badge" class="tw-badge tw-badge-<?php echo esc_attr( $badge_privacy ); ?>"><?php echo esc_html( $badge_privacy ); ?></span>
+						<span id="tw-head-duration"><?php echo $secs ? esc_html( TW_Transcript::fmt( $secs ) ) : ''; ?></span>
 						&middot; <a href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
+						&middot; <button type="button" class="button-link" id="tw-refresh" title="About 1 API unit">Refresh from YouTube</button>
 						&middot; <span class="tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
 					</p>
 					<p class="tw-safe">Nothing on YouTube changes until step 7, where you confirm twice. A backup is saved before every change, and TubeWriter never deletes anything. Thumbnails stay on your computer until you upload them in Studio.</p>
@@ -465,7 +466,7 @@ class TW_Admin {
 					'Gathers what the AI writes from: the transcript, a starting title and description, and your notes.',
 					array(
 						'Click <strong>Pull YouTube captions</strong>, or paste a transcript. Skip it if there are no captions.',
-						'Check the <strong>starting title and description</strong>. They are filled in from YouTube. If there is no transcript, skim the video and write a short version yourself.',
+						'Check the <strong>starting title and description</strong>. They are filled in from YouTube. If you changed them in Studio after opening this page, click <strong>Refresh from YouTube</strong> in the header (about 1 unit).',
 						'Add <strong>notes</strong>: key moments with rough times (each becomes a chapter) and anything the AI must get right.',
 						'Pick <strong>Gemini</strong> or <strong>ChatGPT</strong> next to <strong>Generate with AI</strong>, then generate. Or click <strong>Fill in by hand</strong>. The draft stays on this page, under your notes. Generate asks before it overwrites the current description. It does not save to YouTube, and you can undo. A busy model is not the YouTube sign-in.',
 					)
@@ -513,10 +514,12 @@ class TW_Admin {
 					</select>
 					<button type="button" class="button button-hero" id="tw-manual">Fill in by hand</button>
 				</p>
-				<p id="tw-replace-warn" class="tw-draft-note" hidden>
-					Careful: Generate will replace the current description. It will not save to YouTube, and you can undo.
-					<button type="button" class="button button-primary" id="tw-replace-go">Replace the description</button>
-					<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
+				<p id="tw-replace-warn" class="tw-draft-note" hidden role="status" aria-live="polite">
+					<span>Careful: Generate will replace the current description. It will not save to YouTube, and you can undo.</span>
+					<span class="tw-draft-note-actions">
+						<button type="button" class="button button-primary" id="tw-replace-go">Replace the description</button>
+						<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
+					</span>
 				</p>
 				<p class="description">Switching models only changes who writes the draft. YouTube sign-in is separate. If the Gemini model in Settings is busy or does not answer, TubeWriter tries gemini-3.5-flash-lite, then gemini-flash-lite-latest. You can also pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
 			</section>
@@ -524,7 +527,12 @@ class TW_Admin {
 			<!-- STEP 2 (same page as the source, so the draft can be compared with what it came from) -->
 			<section class="tw-card tw-step" data-step="2">
 				<h2>Step 2: Details</h2>
-				<p id="tw-draft-undo" class="tw-draft-note" hidden>Generate replaced the description in this draft. Nothing was saved to YouTube. <button type="button" class="button" id="tw-undo-generate">Undo</button></p>
+				<p id="tw-draft-undo" class="tw-draft-note" hidden>
+					<span>Generate replaced the description in this draft. Nothing was saved to YouTube.</span>
+					<span class="tw-draft-note-actions">
+						<button type="button" class="button" id="tw-undo-generate">Undo</button>
+					</span>
+				</p>
 				<?php
 				$help(
 					'The title, description, tags, category and language that will be published. They stay on this page with your starting title, description and notes so you can see where the draft came from. Editing here only changes the draft.',
@@ -597,10 +605,10 @@ class TW_Admin {
 				$help(
 					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
 					array(
-						'Press <strong>Ctrl+V</strong> to paste a screenshot. It is saved in the Media Library for this video. Look, copy, or delete a saved one below.',
+						'Press <strong>Ctrl+V</strong> to paste a screenshot. First paste is the main background. Second paste is the picture-in-picture. Saved in the Media Library for this video.',
 						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and GG logo, and the game logo. The hook does not repeat the title.',
 						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
-						'Or click <strong>Choose from Media Library</strong> to select or upload a finished PNG or JPEG. Use <strong>Remove</strong> to clear it.',
+						'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below. Use <strong>Remove logo</strong> or <strong>Remove thumbnail</strong> to clear the wrong one.',
 						'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Download or Open in Studio only if you will finish the upload yourself. Skip this step anytime with Next.',
 					)
 				);
@@ -608,7 +616,7 @@ class TW_Admin {
 				<p class="description" id="tw-thumb-provider">Image provider: <strong><?php echo esc_html( TW_Settings::image_provider_label() ); ?></strong>. Change it in Settings.</p>
 				<div id="tw-thumb-zone" class="tw-thumb-zone" tabindex="0" role="button" aria-label="Paste screenshot area">
 					<p class="tw-thumb-zone-title">Paste screenshots here</p>
-					<p class="description">Press Ctrl+V while this box is focused, or click Add image to open the Media Library. Max two.</p>
+					<p class="description">Press Ctrl+V while this box is focused, or click Add image. First image is the main background. Second is the picture-in-picture. Max two.</p>
 					<div id="tw-thumb-shots" class="tw-thumb-shots"></div>
 					<div class="tw-inline">
 						<button type="button" class="button" id="tw-thumb-add">Add image</button>
@@ -642,7 +650,10 @@ class TW_Admin {
 				<label for="tw-thumb-desc">Thumbnail description</label>
 				<textarea id="tw-thumb-desc" rows="22" class="large-text" placeholder="The numbered 16:9 concept appears here. Edit any line, then create the thumbnail."></textarea>
 
-				<div class="tw-two tw-logo-fields">
+				<div class="tw-thumb-block tw-thumb-logos">
+					<p class="tw-thumb-zone-title">1. Corner logos</p>
+					<p class="description">Optional. Transparent PNG badges for the corners only. Do not put a finished 16:9 thumbnail here.</p>
+					<div class="tw-two tw-logo-fields">
 					<div>
 						<label for="tw-game-logo-pos">Game logo</label>
 						<select id="tw-game-logo-pos">
@@ -658,10 +669,16 @@ class TW_Admin {
 						</p>
 						<div id="tw-game-logo-suggestions" class="tw-logo-suggestions"></div>
 						<p class="tw-inline">
-							<button type="button" class="button" id="tw-game-logo-pick">Choose from Media Library</button>
-							<button type="button" class="button-link" id="tw-game-logo-clear" hidden>Remove</button>
+							<button type="button" class="button" id="tw-game-logo-pick">Choose logo PNG</button>
 						</p>
-						<img id="tw-game-logo-preview" class="tw-logo-preview" alt="" hidden>
+						<div id="tw-game-logo-selected" class="tw-logo-selected" hidden>
+							<p class="tw-logo-selected-kicker">Selected game logo</p>
+							<p class="description">Corner badge only. Use a transparent game logo PNG, not a finished thumbnail.</p>
+							<img id="tw-game-logo-preview" class="tw-logo-preview" alt="" hidden>
+							<p class="tw-inline">
+								<button type="button" class="button" id="tw-game-logo-clear" hidden>Remove logo</button>
+							</p>
+						</div>
 					</div>
 					<div>
 						<label for="tw-channel-logo-pos">Channel logo</label>
@@ -673,30 +690,43 @@ class TW_Admin {
 							<option value="none">Don't place it</option>
 						</select>
 						<p class="tw-inline">
-							<button type="button" class="button" id="tw-channel-logo-pick">Choose from Media Library</button>
-							<button type="button" class="button-link" id="tw-channel-logo-clear" hidden>Remove</button>
+							<button type="button" class="button" id="tw-channel-logo-pick">Choose logo PNG</button>
 						</p>
-						<img id="tw-channel-logo-preview" class="tw-logo-preview" alt="" hidden>
+						<div id="tw-channel-logo-selected" class="tw-logo-selected" hidden>
+							<p class="tw-logo-selected-kicker">Selected channel logo</p>
+							<p class="description">Corner badge only. Not the finished thumbnail.</p>
+							<img id="tw-channel-logo-preview" class="tw-logo-preview" alt="" hidden>
+							<p class="tw-inline">
+								<button type="button" class="button" id="tw-channel-logo-clear" hidden>Remove logo</button>
+							</p>
+						</div>
 					</div>
+					</div>
+					<p class="description">Headline stays top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. With two screenshots, the first is always the main background and the second is always the picture-in-picture in the top right, so the game logo moves to the bottom right.</p>
 				</div>
-				<p class="description">Headline is always top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. A second screenshot becomes a picture-in-picture in the top right, and the game logo moves to the bottom right. The lower-left character comes from the screenshot for that video. Search for a real game logo PNG in the Media Library, or upload one and pick it.</p>
 
-				<p class="tw-actions-left tw-inline">
-					<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
-					<button type="button" class="button button-hero" id="tw-thumb-pick">Choose from Media Library</button>
-				</p>
-
-				<div id="tw-thumb-result" class="tw-thumb-result" hidden>
-					<label>Thumbnail</label>
-					<img id="tw-thumb-preview" alt="Thumbnail">
-					<p id="tw-thumb-status" class="description tw-thumb-status" hidden></p>
-					<p class="tw-inline">
-						<button type="button" class="button button-primary" id="tw-thumb-upload">Upload to YouTube</button>
-						<a class="button" id="tw-thumb-download" download="thumbnail.png" href="#">Download PNG</a>
-						<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
-						<button type="button" class="button" id="tw-thumb-remove">Remove</button>
+				<div class="tw-thumb-block tw-thumb-build">
+					<p class="tw-thumb-zone-title">2. Finished thumbnail</p>
+					<p class="description">Create the full 16:9 YouTube card from the brief above, or pick one you already made. This is separate from the corner logos.</p>
+					<p class="tw-actions-left tw-inline">
+						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
+						<button type="button" class="button button-hero" id="tw-thumb-pick">Choose finished thumbnail</button>
 					</p>
-					<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated files sit in <code>uploads/tubewriter/generated</code> and unused ones are removed after 7 days.</p>
+
+					<div id="tw-thumb-result" class="tw-thumb-result" hidden>
+						<p class="tw-thumb-result-kicker">Selected 16:9 card</p>
+						<label for="tw-thumb-preview">YouTube thumbnail</label>
+						<p class="description">This is the full thumbnail, separate from the game and channel logos above.</p>
+						<img id="tw-thumb-preview" alt="Finished thumbnail">
+						<p id="tw-thumb-status" class="description tw-thumb-status" hidden></p>
+						<p class="tw-inline">
+							<button type="button" class="button button-primary" id="tw-thumb-upload">Upload to YouTube</button>
+							<a class="button" id="tw-thumb-download" download="thumbnail.png" href="#">Download PNG</a>
+							<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
+							<button type="button" class="button" id="tw-thumb-remove">Remove thumbnail</button>
+						</p>
+						<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated files sit in <code>uploads/tubewriter/generated</code> and unused ones are removed after 7 days.</p>
+					</div>
 				</div>
 			</section>
 
@@ -769,6 +799,7 @@ class TW_Admin {
 							<button type="button" class="button" id="tw-cal-prev">&larr;</button>
 							<strong id="tw-cal-title"></strong>
 							<button type="button" class="button" id="tw-cal-next">&rarr;</button>
+							<button type="button" class="button-link" id="tw-cal-next-open">Next available</button>
 							<button type="button" class="button-link" id="tw-cal-refresh">Refresh from YouTube</button>
 						</div>
 						<div class="tw-cal-grid" id="tw-cal-grid"></div>
@@ -967,19 +998,34 @@ class TW_Admin {
 		$this->ajax_guard();
 		$channel_id  = absint( $this->post( 'channel_logo_id' ) );
 		$game_id     = absint( $this->post( 'game_logo_id' ) );
+		$forget_id   = absint( $this->post( 'forget_logo_id' ) );
 		$channel_pos = $this->logo_pos( $this->post( 'channel_logo_pos' ), 'lower-left' );
 		$game_pos    = $this->logo_pos( $this->post( 'game_logo_pos' ), 'upper-right' );
 		$game_name   = sanitize_text_field( $this->post( 'game_name' ) );
 		TW_Store::set( 'channel_logo_id', $channel_id );
 		TW_Store::set( 'channel_logo_pos', $channel_pos );
+		$map = TW_Store::get( 'game_logos', array() );
+		if ( ! is_array( $map ) ) {
+			$map = array();
+		}
 		if ( $game_id && '' !== $game_name ) {
 			update_post_meta( $game_id, '_tw_game_logo', '1' );
 			update_post_meta( $game_id, '_tw_game_logo_name', $game_name );
-			$map = TW_Store::get( 'game_logos', array() );
-			if ( ! is_array( $map ) ) {
-				$map = array();
-			}
 			$map[ $this->game_logo_key( $game_name ) ] = $game_id;
+			TW_Store::set( 'game_logos', $map );
+		} elseif ( ! $game_id ) {
+			if ( '' !== $game_name ) {
+				unset( $map[ $this->game_logo_key( $game_name ) ] );
+			}
+			if ( $forget_id ) {
+				foreach ( $map as $key => $id ) {
+					if ( (int) $id === $forget_id ) {
+						unset( $map[ $key ] );
+					}
+				}
+				delete_post_meta( $forget_id, '_tw_game_logo' );
+				delete_post_meta( $forget_id, '_tw_game_logo_name' );
+			}
 			TW_Store::set( 'game_logos', $map );
 		}
 		$this->save_state(
@@ -1448,10 +1494,16 @@ class TW_Admin {
 			wp_send_json_error( $result->get_error_message() );
 		}
 
-		$thumb_url = $result['items'][0]['high']['url']
-			?? $result['items'][0]['medium']['url']
-			?? $result['items'][0]['default']['url']
+		$sizes = $result['items'][0] ?? array();
+		// Editor preview can use high. List cards cache the smaller medium/default.
+		$thumb_url = $sizes['high']['url']
+			?? $sizes['medium']['url']
+			?? $sizes['default']['url']
 			?? (string) ( $resolved['url'] ?: ( $state['thumb_url'] ?? '' ) );
+		$list_url  = $sizes['medium']['url']
+			?? $sizes['default']['url']
+			?? $sizes['high']['url']
+			?? $thumb_url;
 
 		$this->save_state(
 			$video_id,
@@ -1461,13 +1513,17 @@ class TW_Admin {
 			)
 		);
 
-		TW_Index::refresh_one( $video_id );
+		// Seed the list cache from the file we just uploaded first. videos.list can
+		// lag behind thumbnails.set and would otherwise pull the old CDN image.
+		TW_Index::replace_thumbnail( $video_id, $list_url, $file );
+		TW_Index::refresh_one( $video_id, false );
 
 		wp_send_json_success(
 			array(
 				'ok'       => true,
 				'message'  => 'Thumbnail uploaded to YouTube.',
 				'url'      => $thumb_url,
+				'list_url' => TW_Index::local_thumb_url( $video_id ) ?: $list_url,
 				'uploaded' => time(),
 				'quota'    => TW_YouTube::quota_used(),
 			)
@@ -1624,6 +1680,50 @@ class TW_Admin {
 		$result['indexed'] = TW_Index::count_all();
 		$result['quota']   = TW_YouTube::quota_used();
 		wp_send_json_success( $result );
+	}
+
+	/**
+	 * Re-fetch one video from YouTube and update the local index (about 1 unit).
+	 * Does not write to YouTube. Used by the editor Refresh from YouTube control.
+	 */
+	public function ajax_refresh() {
+		$this->ajax_guard();
+		$video_id = $this->post( 'video' );
+		if ( ! $video_id ) {
+			wp_send_json_error( 'Missing video id.' );
+		}
+
+		$video = TW_YouTube::get_video( $video_id );
+		if ( is_wp_error( $video ) ) {
+			wp_send_json_error( $video->get_error_message() );
+		}
+
+		TW_Index::refresh_one( $video_id, true );
+
+		$snap          = TW_YouTube::snapshot( $video );
+		$secs          = TW_Transcript::duration_seconds( $video['contentDetails']['duration'] ?? '' );
+		$index_privacy = TW_Index::privacy_of( $video_id );
+		$badge_privacy = ( 'draft' === $index_privacy ) ? 'draft' : $snap['privacyStatus'];
+		$thumb         = TW_Index::local_thumb_url( $video_id );
+		$thumb         = $thumb ? TW_Index::thumb_url_with_version( $video_id, $thumb ) : '';
+		$publish_at    = $snap['publishAt'];
+
+		wp_send_json_success(
+			array(
+				'current'        => $snap,
+				'privacy'        => $badge_privacy,
+				'duration'       => $secs,
+				'duration_label' => $secs ? TW_Transcript::fmt( $secs ) : '',
+				'thumb'          => $thumb,
+				'publishAtLocal' => $publish_at
+					? array(
+						'date' => wp_date( 'Y-m-d', strtotime( $publish_at ) ),
+						'time' => wp_date( 'H:i', strtotime( $publish_at ) ),
+					)
+					: null,
+				'quota'          => TW_YouTube::quota_used(),
+			)
+		);
 	}
 
 	public function ajax_review() {

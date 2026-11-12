@@ -4,6 +4,12 @@ WordPress plugin that writes and publishes YouTube video metadata for the Gregat
 
 Runs on a LocalWP site (or a private hosted WP). Each install connects ONE YouTube channel with the user's own Google Cloud OAuth client and Gemini API key ("bring your own credentials"). There is no server of ours in the loop.
 
+## Naming
+
+- **UploadWriter** (`TW_BRAND`, uploadwriter.com): public product name shown on the front app.
+- **TubeWriter** / `tubewriter`: working title and everything under the hood. Plugin slug, WP admin menu, role, text domain, upload dirs, and front routes (`/tubewriter/`, `/tubewriter/account/`, etc.) stay as-is so the path can host more than tube-upload helpers later.
+- Do not rename classes, options, tables, or routes for branding.
+
 ## Prime directive: never lose the user's data
 
 The owner is nervous about overwriting or deleting YouTube data. Every change must keep these guarantees:

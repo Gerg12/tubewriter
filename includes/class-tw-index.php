@@ -100,8 +100,11 @@ class TW_Index {
 
 		// Private/scheduled thumbs are signed i9.ytimg URLs that expire. Download
 		// while the API URL is fresh so the Videos list never hotlinks YouTube.
+		// Only force-redownload when asked (or missing). Forcing every sync row
+		// re-fetches hundreds of ytimg files and makes Quick sync look stuck.
 		$remote_thumb = self::remote_thumb_from_snippet( $sn );
-		$thumb        = self::cache_thumbnail( $v['id'], $remote_thumb, ! self::has_local_thumb( $v['id'] ) );
+		$force_thumb  = ! empty( $opts['force_thumb'] ) || ! self::has_local_thumb( $v['id'] );
+		$thumb        = self::cache_thumbnail( $v['id'], $remote_thumb, $force_thumb );
 		$row          = array(
 			'id'           => $v['id'],
 			'title'        => (string) ( $sn['title'] ?? '' ),
@@ -129,12 +132,84 @@ class TW_Index {
 		}
 	}
 
-	/** Refresh one row after TubeWriter changed the video (1 unit). */
-	public static function refresh_one( $video_id ) {
+	/**
+	 * Refresh one row after TubeWriter changed the video (1 unit).
+	 *
+	 * @param string $video_id
+	 * @param bool   $force_thumb Re-download the list thumb even when a local file exists.
+	 */
+	public static function refresh_one( $video_id, $force_thumb = true ) {
 		$video = TW_YouTube::get_video( $video_id );
 		if ( ! is_wp_error( $video ) ) {
-			self::upsert( $video );
+			self::upsert( $video, '', array( 'force_thumb' => (bool) $force_thumb ) );
 		}
+	}
+
+	/**
+	 * Force-update the Videos-list thumb cache from a YouTube URL (or a local file).
+	 * Prefer a medium/default size for the card. Returns the local URL when possible.
+	 *
+	 * @param string $video_id
+	 * @param string $remote_url Fresh YouTube CDN URL (medium is ideal).
+	 * @param string $local_fallback Absolute path to a staged PNG/JPEG if the CDN fetch fails.
+	 */
+	public static function replace_thumbnail( $video_id, $remote_url, $local_fallback = '' ) {
+		global $wpdb;
+		$video_id   = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		$remote_url = esc_url_raw( (string) $remote_url );
+		if ( ! $video_id ) {
+			return '';
+		}
+
+		$thumb = '';
+		// Prefer the staged file we just uploaded (CDN can lag after thumbnails.set).
+		// Always overwrite the list cache so an older AI thumb cannot stick.
+		if ( $local_fallback && is_readable( (string) $local_fallback ) ) {
+			$thumb = self::cache_thumbnail_from_file( $video_id, $local_fallback );
+		}
+		if ( ! $thumb && $remote_url ) {
+			$thumb = self::cache_thumbnail( $video_id, $remote_url, true );
+		}
+		if ( ! $thumb ) {
+			$thumb = self::local_thumb_url( $video_id );
+		}
+		if ( $thumb ) {
+			$wpdb->update( self::table(), array( 'thumb' => $thumb ), array( 'user_id' => self::uid(), 'id' => $video_id ) );
+		}
+		return $thumb;
+	}
+
+	/**
+	 * Write uploads/tubewriter/thumbs/{id}.jpg from a local PNG/JPEG (list-card size).
+	 *
+	 * @param string $video_id
+	 * @param string $source Absolute path.
+	 */
+	public static function cache_thumbnail_from_file( $video_id, $source ) {
+		$paths = self::local_thumb_paths( $video_id );
+		$source = (string) $source;
+		if ( ! $paths || ! $source || ! file_exists( $source ) ) {
+			return '';
+		}
+		if ( ! wp_mkdir_p( $paths['dir'] ) ) {
+			return '';
+		}
+
+		$editor = wp_get_image_editor( $source );
+		if ( is_wp_error( $editor ) ) {
+			return '';
+		}
+		$size = $editor->get_size();
+		$w    = (int) ( $size['width'] ?? 0 );
+		$h    = (int) ( $size['height'] ?? 0 );
+		if ( $w > 320 ) {
+			$editor->resize( 320, 180, true );
+		}
+		$saved = $editor->save( $paths['file'], 'image/jpeg' );
+		if ( is_wp_error( $saved ) || ! self::has_local_thumb( $video_id ) ) {
+			return '';
+		}
+		return $paths['url'];
 	}
 
 	public static function set_tw_status( $video_id, $status ) {
@@ -189,6 +264,9 @@ class TW_Index {
 		$pages  = 'quick' === $mode ? self::QUICK_PAGES : self::BATCH_PAGES;
 		$synced = 0;
 		$total  = 0;
+		// Quick sync: refresh list thumbs for the newest handful only, so a Studio
+		// or Media Library replace shows up without re-downloading the whole channel.
+		$force_thumbs_left = ( 'quick' === $mode && '' === (string) $token ) ? 12 : 0;
 
 		for ( $i = 0; $i < $pages; $i++ ) {
 			$page = TW_YouTube::uploads_page( $token );
@@ -196,7 +274,18 @@ class TW_Index {
 				return $page;
 			}
 			foreach ( $page['videos'] as $v ) {
-				self::upsert( $v, $run, array( 'from_uploads' => true ) );
+				$force_one = $force_thumbs_left > 0;
+				if ( $force_one ) {
+					$force_thumbs_left--;
+				}
+				self::upsert(
+					$v,
+					$run,
+					array(
+						'from_uploads' => true,
+						'force_thumb'  => $force_one,
+					)
+				);
 				$synced++;
 			}
 			$total = $page['total'];
@@ -585,7 +674,7 @@ class TW_Index {
 		$response = wp_remote_get(
 			$url,
 			array(
-				'timeout'     => 15,
+				'timeout'     => 8,
 				'redirection' => 3,
 				'user-agent'  => 'TubeWriter/' . TW_VERSION . '; ' . home_url( '/' ),
 			)
@@ -690,6 +779,25 @@ class TW_Index {
 			return '';
 		}
 		return $paths['url'];
+	}
+
+	/**
+	 * Bust browser cache when uploads/tubewriter/thumbs/{id}.jpg is replaced
+	 * after a custom thumbnail upload (same path, new bytes).
+	 */
+	public static function thumb_url_with_version( $video_id, $url ) {
+		$url = (string) $url;
+		if ( '' === $url ) {
+			return '';
+		}
+		$paths = self::local_thumb_paths( $video_id );
+		if ( ! $paths || ! self::has_local_thumb( $video_id ) ) {
+			return $url;
+		}
+		if ( false === strpos( $url, '/tubewriter/thumbs/' ) ) {
+			return $url;
+		}
+		return add_query_arg( 'v', (string) filemtime( $paths['file'] ), $paths['url'] );
 	}
 
 	/** Scheduled and published uploads for the editor calendar, from the index (no API calls). */

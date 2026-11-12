@@ -30,6 +30,50 @@ window.TWAjax = window.TWAjax || {
 	}
 };
 
+/* TubeWriter Videos page: refresh one indexed row from YouTube (~1 unit). */
+(function () {
+	'use strict';
+	if (typeof TW === 'undefined' || !TW.ajax) {
+		return;
+	}
+	document.addEventListener('click', function (ev) {
+		var btn = ev.target.closest ? ev.target.closest('[data-refresh-video]') : null;
+		if (!btn) {
+			return;
+		}
+		ev.preventDefault();
+		var id = btn.getAttribute('data-refresh-video');
+		if (!id) {
+			return;
+		}
+		if (!window.confirm('Refresh this video from YouTube? About 1 API unit. Nothing on YouTube changes.')) {
+			return;
+		}
+		var label = btn.textContent;
+		btn.disabled = true;
+		btn.textContent = 'Refreshing...';
+		var fd = new FormData();
+		fd.append('action', 'tw_refresh');
+		fd.append('nonce', TW.nonce);
+		fd.append('video', id);
+		TWAjax.stamp(fd);
+		fetch(TW.ajax, { method: 'POST', body: fd, credentials: 'same-origin' })
+			.then(function (r) { return r.json(); })
+			.then(function (j) {
+				if (!j.success) {
+					throw new Error(typeof j.data === 'string' ? j.data : 'Refresh failed.');
+				}
+				TWAjax.notifyUsage(j.data);
+				window.location.reload();
+			})
+			.catch(function (err) {
+				window.alert(err.message || 'Refresh failed.');
+				btn.disabled = false;
+				btn.textContent = label;
+			});
+	});
+})();
+
 /* TubeWriter Videos page: index sync, batched so big channels never time out. */
 (function () {
 	'use strict';
@@ -45,29 +89,38 @@ window.TWAjax = window.TWAjax || {
 
 	function setBusy(on) {
 		box.classList.toggle('tw-sync--busy', on);
+		box.classList.toggle('tw-sync--indeterminate', on);
 		box.setAttribute('aria-busy', on ? 'true' : 'false');
 		if (spinner) {
 			spinner.classList.toggle('is-active', on);
+			spinner.setAttribute('aria-hidden', on ? 'false' : 'true');
 		}
 		if (progress) {
 			progress.hidden = !on;
 		}
+		if (progressBar && on) {
+			progressBar.style.width = '35%';
+		}
 		if (!on && progressBar) {
 			progressBar.style.width = '0%';
+			box.classList.remove('tw-sync--indeterminate');
 		}
 	}
 
 	function setProgress(done, total) {
-		if (!progressBar || !total || total < 1) {
-			if (progress) {
-				progress.hidden = true;
-			}
+		if (!progressBar) {
 			return;
 		}
 		if (progress) {
 			progress.hidden = false;
 		}
-		var pct = Math.min(100, Math.round((done / total) * 100));
+		if (!total || total < 1) {
+			box.classList.add('tw-sync--indeterminate');
+			progressBar.style.width = '35%';
+			return;
+		}
+		box.classList.remove('tw-sync--indeterminate');
+		var pct = Math.min(100, Math.max(8, Math.round((done / total) * 100)));
 		progressBar.style.width = pct + '%';
 	}
 
@@ -774,8 +827,12 @@ window.TWAjax = window.TWAjax || {
 		if (note) {
 			note.hidden = !on;
 			if (on) {
+				clearTip();
 				softReveal(note);
-				tipNear(note, 'Confirm below if you want to replace the current draft description.', 'warn');
+				var go = $('tw-replace-go');
+				if (go) {
+					go.focus();
+				}
 			} else {
 				clearTip();
 			}
@@ -869,6 +926,84 @@ window.TWAjax = window.TWAjax || {
 		tipNear($('tw-manual'), 'Details are filled in below. Review them, then click Next.', 'success');
 		hintNext(3);
 	});
+
+	function applyLiveHeader(d) {
+		var titleEl = $('tw-head-title');
+		if (titleEl && d.current && typeof d.current.title === 'string') {
+			titleEl.textContent = d.current.title;
+		}
+		var badge = $('tw-head-badge');
+		if (badge && d.privacy) {
+			badge.className = 'tw-badge tw-badge-' + d.privacy;
+			badge.textContent = d.privacy;
+		}
+		var dur = $('tw-head-duration');
+		if (dur) {
+			dur.textContent = d.duration_label || '';
+		}
+		var img = $('tw-head-thumb-img');
+		if (img && d.thumb) {
+			img.src = d.thumb;
+		}
+	}
+
+	(function () {
+		var refreshBtn = $('tw-refresh');
+		if (!refreshBtn) {
+			return;
+		}
+		refreshBtn.addEventListener('click', function () {
+			var label = refreshBtn.textContent;
+			refreshBtn.disabled = true;
+			refreshBtn.textContent = 'Refreshing...';
+			tipNear(refreshBtn, 'Refreshing from YouTube. Stay here.', 'working');
+			call('refresh', {}).then(function (d) {
+				cur = d.current || {};
+				boot.current = cur;
+				boot.duration = typeof d.duration === 'number' ? d.duration : boot.duration;
+				boot.publishAtLocal = d.publishAtLocal || null;
+				applyLiveHeader(d);
+				staleReview();
+
+				var notes = ['Updated the local list and header from YouTube.'];
+				var dirty = false;
+				var liveTitle = cur.title || '';
+				var liveDesc = cur.description || '';
+				if (el.seedTitle.value !== liveTitle || el.seedDesc.value !== liveDesc) {
+					if (window.confirm('Replace the starting title and description with what is on YouTube now?')) {
+						el.seedTitle.value = liveTitle;
+						el.seedDesc.value = liveDesc;
+						dirty = true;
+						notes.push('Starting title and description were replaced.');
+					}
+				}
+				if (S.hasDetails && !draftMatchesYoutube()) {
+					if (window.confirm('Replace the draft Details with what is on YouTube right now?')) {
+						S.undoPkg = null;
+						showUndo(false);
+						fillDetails(youtubePkg());
+						dirty = true;
+						notes.push('Draft Details were replaced.');
+					}
+				} else if (!S.hasDetails && (liveTitle || liveDesc)) {
+					fillDetails(youtubePkg());
+					dirty = true;
+				}
+
+				say(notes.join(' '), 'success', null, true);
+				tipNear(refreshBtn, 'Live details loaded. About 1 API unit.', 'success');
+				if (dirty) {
+					return saveDraft(true);
+				}
+			}).catch(function (err) {
+				tipNear(refreshBtn, err.message, 'error');
+				say(err.message, 'error', null, true);
+			}).finally(function () {
+				refreshBtn.disabled = false;
+				refreshBtn.textContent = label;
+			});
+		});
+	})();
 
 	/* ================================================================ step 2 */
 
@@ -1012,7 +1147,10 @@ window.TWAjax = window.TWAjax || {
 			card.className = 'tw-thumb-shot';
 			var img = document.createElement('img');
 			img.src = shot.url;
-			img.alt = 'Screenshot ' + (i + 1);
+			img.alt = i === 0 ? 'Screenshot 1, main background' : 'Screenshot 2, picture-in-picture';
+			var role = document.createElement('p');
+			role.className = 'description tw-thumb-shot-role';
+			role.textContent = i === 0 ? '1. Main background' : '2. Picture-in-picture';
 			var rm = document.createElement('button');
 			rm.type = 'button';
 			rm.className = 'button-link tw-thumb-remove';
@@ -1023,6 +1161,7 @@ window.TWAjax = window.TWAjax || {
 				renderShots();
 			});
 			card.appendChild(img);
+			card.appendChild(role);
 			card.appendChild(rm);
 			el.thumbShots.appendChild(card);
 		});
@@ -1054,9 +1193,9 @@ window.TWAjax = window.TWAjax || {
 		}
 		if (note) {
 			if (S.shots.length > 1 && game.pos === 'upper-left') {
-				note.textContent = 'The second screenshot is the picture-in-picture in the top right. The game logo stays top left.';
+				note.textContent = 'First screenshot is the main background. Second is the picture-in-picture in the top right. The game logo stays top left.';
 			} else if (S.shots.length > 1) {
-				note.textContent = 'The second screenshot is the picture-in-picture in the top right, so the game logo moves to the bottom right.';
+				note.textContent = 'First screenshot is the main background. Second is the picture-in-picture in the top right, so the game logo moves to the bottom right.';
 			} else {
 				note.textContent = 'Headline stays top left. With one screenshot the game logo sits top right, or top left if you pick that.';
 			}
@@ -1112,7 +1251,7 @@ window.TWAjax = window.TWAjax || {
 		return readImageFile(file).then(function (shot) {
 			S.shots.push(shot);
 			renderShots();
-			say(S.shots.length === 1 ? 'Screenshot 1 ready. Paste another or write the description.' : 'Both screenshots ready.', 'success');
+			say(S.shots.length === 1 ? 'Main background ready. Paste a second shot for picture-in-picture, or write the description.' : 'Background and picture-in-picture ready.', 'success');
 		});
 	}
 
@@ -1524,22 +1663,27 @@ window.TWAjax = window.TWAjax || {
 		var img = $('tw-' + which + '-logo-preview');
 		var pos = $('tw-' + which + '-logo-pos');
 		var clear = $('tw-' + which + '-logo-clear');
+		var wrap = $('tw-' + which + '-logo-selected');
+		var has = !!(logo && logo.id && logo.url);
 		if (pos && logo) {
 			pos.value = logo.pos || (which === 'game' ? 'upper-right' : 'lower-left');
 			logo.pos = pos.value;
 		}
+		if (wrap) {
+			wrap.hidden = !has;
+		}
 		if (img) {
-			if (logo && logo.url && logo.pos !== 'none') {
+			if (has) {
 				img.src = logo.url;
-				img.hidden = false;
-				img.alt = which === 'game' ? 'Game logo' : 'Channel logo';
+				img.hidden = logo.pos === 'none';
+				img.alt = which === 'game' ? 'Selected game logo' : 'Selected channel logo';
 			} else {
 				img.removeAttribute('src');
 				img.hidden = true;
 			}
 		}
 		if (clear) {
-			clear.hidden = !(logo && logo.id);
+			clear.hidden = !has;
 		}
 	}
 
@@ -1553,14 +1697,20 @@ window.TWAjax = window.TWAjax || {
 		return (cut[0] || title).trim();
 	}
 
-	function saveLogos() {
-		return call('thumb_logos_save', {
+	function saveLogos(extra) {
+		var payload = {
 			game_logo_id: S.logos.game.id || 0,
 			game_logo_pos: S.logos.game.pos,
 			channel_logo_id: S.logos.channel.id || 0,
 			channel_logo_pos: S.logos.channel.pos,
 			game_name: guessGameName()
-		}).catch(function (err) { say(err.message, 'error'); });
+		};
+		if (extra && typeof extra === 'object') {
+			Object.keys(extra).forEach(function (key) {
+				payload[key] = extra[key];
+			});
+		}
+		return call('thumb_logos_save', payload).catch(function (err) { say(err.message, 'error'); });
 	}
 
 	function setGameLogo(item) {
@@ -1569,10 +1719,29 @@ window.TWAjax = window.TWAjax || {
 		}
 		S.logos.game.id = item.id;
 		S.logos.game.url = item.url;
+		S.logos.game.cleared = false;
 		renderLogo('game');
 		renderLogoSuggestions(S.logoSuggestions || []);
 		saveLogos();
-		say('Game logo set. Create thumbnail will send this PNG with the screenshot.', 'success');
+		say('Game logo set. Create thumbnail will place this PNG in the corner, not as the finished card.', 'success');
+	}
+
+	function clearLogo(which) {
+		var prevId = S.logos[which].id || 0;
+		S.logos[which].id = 0;
+		S.logos[which].url = '';
+		if (which === 'game') {
+			S.logos.game.cleared = true;
+			S.logoSuggestions = (S.logoSuggestions || []).filter(function (item) {
+				return parseInt(item.id, 10) !== prevId;
+			});
+			renderLogoSuggestions(S.logoSuggestions);
+		}
+		renderLogo(which);
+		var extra = which === 'game' && prevId ? { forget_logo_id: prevId } : {};
+		saveLogos(extra).then(function () {
+			say(which === 'game' ? 'Game logo removed. It will not be remembered for this game name.' : 'Channel logo removed.', 'success');
+		});
 	}
 
 	function renderLogoSuggestions(items) {
@@ -1585,7 +1754,7 @@ window.TWAjax = window.TWAjax || {
 		if (!S.logoSuggestions.length) {
 			var empty = document.createElement('p');
 			empty.className = 'description';
-			empty.textContent = 'No matching logos yet. Upload a transparent PNG to the Media Library, then Find or Choose.';
+			empty.textContent = 'No matching logos yet. Upload a transparent PNG to the Media Library, then Find or Choose logo PNG.';
 			box.appendChild(empty);
 			return;
 		}
@@ -1619,7 +1788,7 @@ window.TWAjax = window.TWAjax || {
 		}
 		return call('thumb_logo_search', { q: query, game_name: query }).then(function (d) {
 			renderLogoSuggestions(d.items || []);
-			if ((d.items || []).length === 1 && !S.logos.game.id) {
+			if ((d.items || []).length === 1 && !S.logos.game.id && !S.logos.game.cleared) {
 				setGameLogo(d.items[0]);
 			} else if (!(d.items || []).length) {
 				say('No logo found for that name. Upload the PNG to the Media Library, then search again.', 'info');
@@ -1691,15 +1860,7 @@ window.TWAjax = window.TWAjax || {
 				pick.addEventListener('click', function () { pickLogo(which); });
 			}
 			if (clear) {
-				clear.addEventListener('click', function () {
-					S.logos[which].id = 0;
-					S.logos[which].url = '';
-					renderLogo(which);
-					saveLogos();
-					if (which === 'game') {
-						renderLogoSuggestions(S.logoSuggestions || []);
-					}
-				});
+				clear.addEventListener('click', function () { clearLogo(which); });
 			}
 		});
 		syncLogoForShots();
@@ -2047,6 +2208,11 @@ window.TWAjax = window.TWAjax || {
 		return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 	}
 
+	function addDaysYmd(key, n) {
+		var p = key.split('-');
+		return ymd(new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10) + n));
+	}
+
 	function loadCalendar(force) {
 		if (!S.calMonth) {
 			var base = el.schedDate.value || boot.today;
@@ -2099,22 +2265,48 @@ window.TWAjax = window.TWAjax || {
 		$('tw-cal-grid').innerHTML = html;
 	}
 
-	$('tw-cal-grid').addEventListener('click', function (e) {
-		var cell = e.target.closest('.tw-cal-day');
-		if (!cell || !cell.dataset.date || cell.classList.contains('is-past')) {
-			return;
-		}
+	function pickScheduleDate(key) {
 		if (!canSchedule) {
 			say('This video is not private, so it cannot be scheduled.', 'error');
 			return;
 		}
 		setRadio('tw-sched-mode', 'set');
-		el.schedDate.value = cell.dataset.date;
+		el.schedDate.value = key;
 		if (!el.schedTime.value) {
 			el.schedTime.value = boot.defaults.time;
 		}
+		var p = key.split('-');
+		S.calMonth = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
 		staleReview();
 		toggleSchedule();
+	}
+
+	/** First empty day on or after today, or after the current pick when one is set. */
+	function findNextOpenDate() {
+		var occupied = {};
+		(S.events || []).forEach(function (e) {
+			occupied[e.date] = true;
+		});
+		var start = boot.today;
+		if (radio('tw-sched-mode') === 'set' && el.schedDate.value && el.schedDate.value >= boot.today) {
+			start = addDaysYmd(el.schedDate.value, 1);
+		}
+		var key = start;
+		for (var i = 0; i < 730; i++) {
+			if (!occupied[key]) {
+				return key;
+			}
+			key = addDaysYmd(key, 1);
+		}
+		return null;
+	}
+
+	$('tw-cal-grid').addEventListener('click', function (e) {
+		var cell = e.target.closest('.tw-cal-day');
+		if (!cell || !cell.dataset.date || cell.classList.contains('is-past')) {
+			return;
+		}
+		pickScheduleDate(cell.dataset.date);
 	});
 	$('tw-cal-prev').addEventListener('click', function () {
 		S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() - 1, 1);
@@ -2123,6 +2315,25 @@ window.TWAjax = window.TWAjax || {
 	$('tw-cal-next').addEventListener('click', function () {
 		S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + 1, 1);
 		renderCalendar();
+	});
+	$('tw-cal-next-open').addEventListener('click', function () {
+		if (!canSchedule) {
+			say('This video is not private, so it cannot be scheduled.', 'error');
+			return;
+		}
+		function jump() {
+			var next = findNextOpenDate();
+			if (!next) {
+				say('No open day found in the next two years.', 'error');
+				return;
+			}
+			pickScheduleDate(next);
+		}
+		if (!S.events) {
+			loadCalendar(false).then(jump);
+		} else {
+			jump();
+		}
 	});
 	wire($('tw-cal-refresh'), 'Refreshing...', function () { return loadCalendar(true); });
 

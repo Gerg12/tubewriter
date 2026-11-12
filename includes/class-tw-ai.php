@@ -53,9 +53,9 @@ TXT;
 === OUTPUT FORMAT (required, do not ignore) ===
 Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
 {
-  "composition": "Picture-in-Picture composite layout pairing Image 1 as the [hero role] with Image 2 as a [inset role] in the upper right.",
-  "base_imagery": "Two or three sentences. Start with The main background features. First screenshot only.",
-  "inset": "No inset, or a short phrase for a second screenshot that shows a different moment. No border sentence.",
+  "composition": "Picture-in-Picture composite. Image 1 is the full-bleed main background. Image 2 is the upper-right picture-in-picture.",
+  "base_imagery": "Two or three sentences. Start with The main background features. Image 1 only. Never describe Image 2 here.",
+  "inset": "No inset when only one screenshot is attached. When Image 2 is attached, a short phrase describing that second shot only. No border sentence.",
   "game_name": "Full official game name only, no word logo",
   "line_1": "2 to 4 word hook, not copied from the title",
   "line_2": "2 to 4 word stake"
@@ -153,9 +153,10 @@ TXT;
 
 		$title = trim( (string) ( $pkg['title'] ?? '' ) );
 		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
-		$shots = count( $images ) > 1
-			? 'Image 1 is the hero background. Polish that exact shot. Do not invent a new foreground character. Use Image 2 as an inset only when it shows a different moment. Otherwise set inset to "No inset". Look at the lower left of Image 1. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.'
-			: 'Only one screenshot is attached. It is the full-bleed hero. Polish that exact shot. Do not invent a new foreground character. Set inset to "No inset". Look at the lower left. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.';
+		$shot_count = count( $images );
+		$shots      = $shot_count > 1
+			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Image 2 is always the picture-in-picture card in the upper right. Never swap them. Never set inset to "No inset". base_imagery describes Image 1 only. inset describes Image 2 only. Do not invent a new foreground character. Look at the lower left of Image 1. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.'
+			: 'Only one screenshot is attached. It is the full-bleed main background. Set inset to "No inset". Do not invent a new foreground character. Look at the lower left. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.';
 		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
 			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
 			. self::context( $input ) . "\n\n"
@@ -178,7 +179,7 @@ TXT;
 		if ( is_wp_error( $json ) ) {
 			return $json;
 		}
-		$desc = self::format_thumb_concept( $json );
+		$desc = self::format_thumb_concept( $json, $shot_count );
 		if ( is_wp_error( $desc ) ) {
 			return $desc;
 		}
@@ -189,22 +190,28 @@ TXT;
 	 * Print the description box in the fixed Gregatron concept shape.
 	 * The model only supplies the per-video facts.
 	 *
-	 * @param array $json Decoded model object.
+	 * @param array $json       Decoded model object.
+	 * @param int   $shot_count Attached screenshot count.
 	 * @return string|WP_Error
 	 */
-	private static function format_thumb_concept( array $json ) {
+	private static function format_thumb_concept( array $json, $shot_count = 1 ) {
 		$composition = self::thumb_prose( $json, 'composition', '/^composition style:\s*/i' );
 		$base        = self::thumb_prose( $json, 'base_imagery', '/^base imagery\s*\(image 1\):\s*/i' );
 		$inset       = self::thumb_prose( $json, 'inset', '/^tactical inset\s*\(image 2\):\s*/i' );
 		$game        = self::thumb_prose( $json, 'game_name', '/^(the\s+authentic\s+official\s+|authentic\s+official\s+)/i' );
 		$line1       = self::thumb_line( $json, 'line_1' );
 		$line2       = self::thumb_line( $json, 'line_2' );
+		$shot_count  = (int) $shot_count;
 
 		$game = preg_replace( '/\s+(transparent\s+png\s+)?logo$/i', '', $game );
 		$game = trim( (string) $game, " ." );
 
 		if ( '' === $composition || '' === $base || '' === $inset || '' === $game || '' === $line1 || '' === $line2 ) {
 			return new WP_Error( 'tw_ai', 'The thumbnail concept came back incomplete. Try Write thumbnail description again.' );
+		}
+
+		if ( $shot_count > 1 && preg_match( '/^no inset\b/i', $inset ) ) {
+			$inset = 'the second attached screenshot';
 		}
 
 		if ( preg_match( '/^no inset\b/i', $inset ) ) {
@@ -218,20 +225,28 @@ TXT;
 				$inset = 'Positioned in the upper right as a small action card, showcasing ' . $subject;
 			}
 			if ( false === stripos( $inset, 'thin dark military border' ) ) {
-				$inset = rtrim( $inset, " ." ) . '. Thin dark military border. Keep it small enough that every letter of the headline stays fully on the canvas.';
+				$inset = rtrim( $inset, " ." ) . '. Thin dark military border. Keep it inside the central 84 percent of the canvas, never flush to the top or right edge, and small enough that every letter of the headline stays fully on the canvas.';
+			}
+			if ( $shot_count > 1 && false === stripos( $inset, 'Image 2' ) ) {
+				$inset = rtrim( $inset, " ." ) . '. This card is Image 2 only. Never use Image 2 as the main background.';
 			}
 		}
 
+		$roles = $shot_count > 1
+			? "Image 1 is the full-bleed main background. Image 2 is only the picture-in-picture card. Never swap them.\n\n"
+			: "Only Image 1 is attached. It is the full-bleed main background. No picture-in-picture.\n\n";
+
 		return "7. Custom 16:9 Thumbnail Concept\n"
-			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. Safe zone: keep the headline, logos, and any corner character at least 140px from every edge, prefer 180px from the top and bottom. Every letter of the headline stays fully inside that safe zone. Never crop a word.\n"
+			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. Gameplay may fill the frame. Headline, logos, any corner character, and any inset stay inside the central 84 percent (about 8 percent empty gameplay from every edge). Place them in inset boxes, not against the rim. Never crop a word. Flush edges are a failed thumbnail.\n"
 			. "\n"
+			. $roles
 			. 'Composition Style: ' . $composition . "\n"
 			. "\n"
 			. 'Base Imagery (Image 1): ' . $base . "\n"
 			. "\n"
 			. "Main Subject:\n"
 			. "\n"
-			. "Polish Image 1. The hero is whatever that screenshot already shows. Do not invent a new foreground character, Pixar redesign, fan-art face, or franchise look-alike that is not in the shot.\n"
+			. "Polish Image 1 as the main background. The hero is whatever that screenshot already shows. Do not invent a new foreground character, Pixar redesign, fan-art face, or franchise look-alike that is not in the shot.\n"
 			. "\n"
 			. 'Tactical Inset (Image 2): ' . $inset . "\n"
 			. "\n"
@@ -239,15 +254,15 @@ TXT;
 			. "\n"
 			. "Look at the lower left of the screenshot. That corner changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If the lower left is empty gameplay, leave it for the GG logo only. Do not invent a face, anime figure, cat, or mascot.\n"
 			. "\n"
-			. "The channel logo sits in the bottom left: large orange GG, then GREGATRON GAMES in white block letters. Fully inside the safe zone, smaller than the headline.\n"
+			. "The channel logo sits in the bottom-left content box: large orange GG, then GREGATRON GAMES in white block letters. About 8 percent in from the left and bottom. Smaller than the headline.\n"
 			. "\n"
 			. "Official Game Logo (exactly one):\n"
 			. "\n"
-			. 'Place exactly one authentic official ' . $game . " logo. Never two copies. Never a large logo plus a small duplicate. Top right when there is no inset. If Image 2 is a picture-in-picture in the top right, move this single logo to the bottom right, raised above the YouTube duration badge. If the creator set the game logo to top left, leave it there. Fully inside the safe zone, smaller than the headline. If a logo file is attached, use that file once and do not paint another logo from memory.\n"
+			. 'Place exactly one authentic official ' . $game . " logo. Never two copies. Never a large logo plus a small duplicate. Top right when there is no inset. If Image 2 is a picture-in-picture in the top right, move this single logo to the bottom right, raised above the YouTube duration badge. If the creator set the game logo to top left, leave it there. Keep it inside the central 84 percent, smaller than the headline. If a logo file is attached, use that file once and do not paint another logo from memory.\n"
 			. "\n"
 			. "Headline Typography (Top-Left):\n"
 			. "\n"
-			. "Line 1 is larger than Line 2. Both lines sit in the upper left inside the safe zone. No letter is cut off.\n"
+			. "Line 1 is larger than Line 2. Both lines sit in the upper-left headline box, about 8 percent in from the top and left. No letter is cut off.\n"
 			. "\n"
 			. 'Line 1: ' . $line1 . "\n"
 			. "\n"
@@ -316,10 +331,97 @@ TXT;
 		}
 		$fitted = self::fit_16x9( $image['data'] );
 		if ( is_string( $fitted ) && '' !== $fitted ) {
-			$image['data'] = $fitted;
+			$backdrop = isset( $images[0]['data'] ) ? (string) $images[0]['data'] : '';
+			$padded   = self::apply_edge_breathing( $fitted, $backdrop );
+			$image['data'] = ( is_string( $padded ) && '' !== $padded ) ? $padded : $fitted;
 			$image['mime'] = 'image/png';
 		}
 		return $image;
+	}
+
+	/**
+	 * Guarantee edge breathing room after the model paints. Image models often
+	 * ignore safe-zone prose and pin text or logos to the rim. Scale the finished
+	 * card into the central ~88 percent and fill the border from Image 1 so
+	 * gameplay still reaches the frame with no black bars.
+	 *
+	 * @param string $b64          Fitted 16:9 thumbnail, raw base64.
+	 * @param string $backdrop_b64 First screenshot base64, or empty.
+	 * @return string Base64 PNG, or the original string when GD cannot run.
+	 */
+	private static function apply_edge_breathing( $b64, $backdrop_b64 = '' ) {
+		if ( ! function_exists( 'imagecreatefromstring' ) || ! function_exists( 'imagepng' ) ) {
+			return $b64;
+		}
+		$bin = base64_decode( (string) $b64, true );
+		if ( false === $bin || '' === $bin ) {
+			return $b64;
+		}
+		$src = imagecreatefromstring( $bin );
+		if ( ! $src ) {
+			return $b64;
+		}
+
+		$out_w = 1920;
+		$out_h = 1080;
+		// ~6 percent empty rim on each side. Enough to read as padding, not a letterbox.
+		$inset = 0.06;
+		$card_w = (int) round( $out_w * ( 1 - ( 2 * $inset ) ) );
+		$card_h = (int) round( $out_h * ( 1 - ( 2 * $inset ) ) );
+		$card_x = (int) floor( ( $out_w - $card_w ) / 2 );
+		$card_y = (int) floor( ( $out_h - $card_h ) / 2 );
+
+		$dst = imagecreatetruecolor( $out_w, $out_h );
+		if ( ! $dst ) {
+			imagedestroy( $src );
+			return $b64;
+		}
+
+		$backdrop = null;
+		$back_bin = base64_decode( (string) $backdrop_b64, true );
+		if ( false !== $back_bin && '' !== $back_bin ) {
+			$backdrop = imagecreatefromstring( $back_bin );
+		}
+		if ( $backdrop ) {
+			self::cover_copy( $backdrop, $dst, $out_w, $out_h );
+			imagedestroy( $backdrop );
+		} else {
+			self::cover_copy( $src, $dst, $out_w, $out_h );
+		}
+
+		imagecopyresampled( $dst, $src, $card_x, $card_y, 0, 0, $card_w, $card_h, imagesx( $src ), imagesy( $src ) );
+		imagedestroy( $src );
+
+		ob_start();
+		imagepng( $dst );
+		$out = ob_get_clean();
+		imagedestroy( $dst );
+		if ( ! is_string( $out ) || '' === $out ) {
+			return $b64;
+		}
+		return base64_encode( $out );
+	}
+
+	/**
+	 * Scale-and-cover paste: fill the destination, cropping overflow from the center.
+	 *
+	 * @param resource|\GdImage $src
+	 * @param resource|\GdImage $dst
+	 * @param int               $out_w
+	 * @param int               $out_h
+	 */
+	private static function cover_copy( $src, $dst, $out_w, $out_h ) {
+		$sw = imagesx( $src );
+		$sh = imagesy( $src );
+		if ( $sw < 2 || $sh < 2 ) {
+			return;
+		}
+		$scale  = max( $out_w / $sw, $out_h / $sh );
+		$copy_w = (int) round( $out_w / $scale );
+		$copy_h = (int) round( $out_h / $scale );
+		$src_x  = (int) floor( ( $sw - $copy_w ) / 2 );
+		$src_y  = (int) floor( ( $sh - $copy_h ) / 2 );
+		imagecopyresampled( $dst, $src, 0, 0, max( 0, $src_x ), max( 0, $src_y ), $out_w, $out_h, $copy_w, $copy_h );
 	}
 
 	/**
@@ -403,18 +505,20 @@ TXT;
 	private static function render_prompt( $description, $shot_count, array $logos = array() ) {
 		$standing = trim( (string) TW_Settings::get( 'thumb_render_prompt' ) );
 		$shots    = (int) $shot_count > 1
-			? 'Two screenshots are attached, in order. Image 1 fills the 16:9 frame. Polish that exact shot. Do not invent a new foreground hero. Image 2 is a picture-in-picture card in the top right. The headline stays top left inside the safe zone. The channel logo stays bottom left. Exactly one game logo moves to the bottom right so it does not cover the inset. Keep a lower-left character only if one is already drawn in Image 1. If that corner is empty, GG logo only.'
-			: 'One screenshot is attached. It fills the 16:9 frame. Polish that exact shot. Do not invent a new foreground hero. No picture-in-picture. The headline is top left inside the safe zone. The channel logo is bottom left. Exactly one game logo is top right, or top left if the logo instruction says top left. Keep a lower-left character only if one is already drawn in the screenshot. If that corner is empty, GG logo only.';
+			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. Image 2 is always the picture-in-picture card in the top-right content box, inside the central 84 percent, never flush to the top or right edge. Never swap Image 1 and Image 2. Never paint Image 2 as the background. Never paint Image 1 as the inset. The headline stays in the upper-left content box. The channel logo stays in the lower-left content box. Exactly one game logo moves to the bottom-right content box so it does not cover the inset. Keep a lower-left character only if one is already drawn in Image 1. If that corner is empty, GG logo only.'
+			: 'One screenshot is attached. It is the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. No picture-in-picture. The headline is in the upper-left content box. The channel logo is in the lower-left content box. Exactly one game logo is in the upper-right content box, or top left if the logo instruction says top left. Keep a lower-left character only if one is already drawn in the screenshot. If that corner is empty, GG logo only.';
 		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
 		$frame = ( '1536x1024' === $size )
-			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep the headline, the single game logo, any corner character, and the GG logo at least 200px from the top and bottom, and at least 140px from the left and right, so that trim does not cut them.'
-			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep the headline, the single game logo, any corner character, and the GG logo at least 140px from every edge. Prefer 180px from the top and bottom.';
+			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep every graphic inside the central 80 percent of this taller canvas so the trim still leaves about 8 percent padding on the final 16:9 frame.'
+			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep every graphic inside the central 84 percent. About 8 percent empty gameplay from every edge.';
 		$logo_block = self::logo_block( (int) $shot_count, $logos );
+		$edge_safe  = '[EDGE-SAFE] All headlines, logos, corner characters, inset cards, and wordmarks must fit within the central 84 percent of the canvas (about 8 percent padding from every edge). Background gameplay may bleed to the rim. Text and focal graphics may NOT touch or extend off any edge. If a graphic does not fit, scale it DOWN. Never crop a headline. Never let a letter, logo, helmet, or inset border kiss the frame.';
 		return $standing . "\n\n"
-			. $frame . " Keep every letter fully inside the safe zone. Do not clip a letter.\n\n"
+			. $frame . " Keep every letter inside its content box. Do not clip a letter.\n\n"
 			. $shots . "\n\n"
 			. "APPROVED THUMBNAIL BRIEF:\n" . trim( (string) $description )
-			. ( '' !== $logo_block ? "\n\n" . $logo_block : '' );
+			. ( '' !== $logo_block ? "\n\n" . $logo_block : '' )
+			. "\n\n" . $edge_safe;
 	}
 
 	/**
@@ -435,7 +539,7 @@ TXT;
 			$n++;
 			$where = trim( (string) ( $logo['pos'] ?? '' ) );
 			$label = trim( (string) ( $logo['label'] ?? 'logo' ) );
-			$lines[] = 'Attached image ' . $n . ' is the exact ' . $label . ' file. Place that artwork unchanged once in the ' . $where . ' corner, inside the safe zone. Do not redraw it, recolor it, or typeset a new logo.';
+			$lines[] = 'Attached image ' . $n . ' is the exact ' . $label . ' file. Place that artwork unchanged once in the ' . $where . ' content box, inside the central 84 percent. Do not redraw it, recolor it, or typeset a new logo.';
 			if ( false !== stripos( $label, 'game' ) ) {
 				$has_game = true;
 			}
@@ -447,7 +551,7 @@ TXT;
 			? "\nExactly one game logo in the whole image. Use the attached game logo file once. Do not paint a second game logo from memory."
 			: '';
 		return "LOGO FILES (these override the brief)\n" . implode( "\n", $lines )
-			. "\nKeep each logo fully inside the safe zone, smaller than the headline, and clear of the other logo."
+			. "\nKeep each logo inside its content box, smaller than the headline, and clear of the other logo."
 			. $extra;
 	}
 

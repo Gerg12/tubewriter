@@ -7,13 +7,14 @@
 	margin: 16px 0;
 }
 .tw-wrap .tw-card h2 { margin-top: 0; }
-.tw-wrap label { display: block; font-weight: 600; margin: 14px 0 4px; }
+.tw-wrap { font-size: 16px; }
+.tw-wrap label { display: block; font-weight: 600; font-size: 16px; margin: 14px 0 4px; }
 .tw-wrap .tw-titles label,
-.tw-wrap .tw-schedule label { font-weight: 400; margin: 4px 0; }
+.tw-wrap .tw-schedule label { font-weight: 400; font-size: 16px; margin: 4px 0; }
 .tw-ok { color: #00a32a; font-weight: 600; }
 .tw-steps li { margin-bottom: 12px; }
 .tw-inline-form { display: flex; gap: 8px; align-items: center; }
-.tw-prompt { font-size: 12px; line-height: 1.5; }
+.tw-prompt { font-size: 16px; line-height: 1.5; }
 .tw-danger-link { color: #b32d2e !important; }
 
 .tw-videos td { vertical-align: middle; }
@@ -35,6 +36,25 @@
 .tw-head-thumb:hover,
 .tw-head-thumb:focus { opacity: .85; outline: none; }
 .tw-head h1 { margin: 0 0 6px; }
+.tw-head .button-link {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: #2271b1;
+	cursor: pointer;
+	text-decoration: underline;
+	font-size: inherit;
+	line-height: inherit;
+	vertical-align: baseline;
+}
+.tw-head .button-link:hover,
+.tw-head .button-link:focus {
+	color: #135e96;
+}
+.tw-head .button-link:disabled {
+	opacity: .6;
+	cursor: wait;
+}
 
 .tw-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 20px; align-items: start; }
 @media (max-width: 1100px) { .tw-cols { grid-template-columns: 1fr; } }
@@ -45,7 +65,7 @@
 .tw-pull-wrap { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .tw-pull-status {
 	max-width: 28rem;
-	font-size: 12px;
+	font-size: 16px;
 	line-height: 1.35;
 	color: #646970;
 	text-align: right;
@@ -93,7 +113,7 @@
 	max-height: 220px;
 	overflow: auto;
 	font-family: inherit;
-	font-size: 12px;
+	font-size: 16px;
 }
 .tw-tweak, .tw-schedule {
 	margin-top: 18px;
@@ -121,8 +141,8 @@
 @keyframes tw-spin { to { transform: rotate(360deg); } }
 
 .tw-action-tip {
-	margin: 10px 0 0;
-	padding: 10px 14px;
+	margin: 16px 0;
+	padding: 12px 14px;
 	border-left: 4px solid #72aee6;
 	background: #f0f6fc;
 	border-radius: 4px;
@@ -172,22 +192,39 @@
 .tw-help p { margin: 2px 0; }
 .tw-help ol { margin: 4px 0 0 20px; }
 .tw-help li { margin-bottom: 3px; }
-.tw-actions-left { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+.tw-actions-left {
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	flex-wrap: wrap;
+	margin: 24px 0 16px;
+}
 .tw-provider-label { margin: 0; font-weight: 600; }
-.tw-actions-left select { max-width: 320px; }
+.tw-actions-left select { max-width: 320px; min-height: 42px; }
 .tw-reconnect { margin: 12px 0; }
 .tw-reconnect summary { cursor: pointer; font-weight: 600; }
 .tw-draft-note {
-	margin: 0 0 12px;
-	padding: 10px 14px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px 14px;
+	margin: 16px 0 20px;
+	padding: 14px 16px;
 	background: #fcf9e8;
 	border-left: 4px solid #dba617;
 	border-radius: 4px;
+	line-height: 1.5;
 }
-.tw-draft-note .button { margin-left: 8px; vertical-align: baseline; }
+.tw-draft-note-actions {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.tw-draft-note .button { margin: 0; }
 .tw-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .tw-two select { width: 100%; }
-.tw-wrap label.tw-radio { font-weight: 400; display: inline; margin: 0; }
+.tw-wrap label.tw-radio { font-weight: 400; font-size: 16px; display: inline; margin: 0; }
 .tw-sub { margin: 4px 0 12px 26px; padding: 10px 14px; border-left: 3px solid #dcdcde; }
 .tw-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .tw-inline label { display: inline; margin: 0; }
@@ -200,8 +237,9 @@
 .tw-footer-mid { display: flex; gap: 10px; align-items: center; }
 
 .tw-cal { margin-top: 16px; }
-.tw-cal-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-.tw-cal-head strong { min-width: 150px; text-align: center; font-size: 15px; }
+.tw-cal-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.tw-cal-head strong { min-width: 150px; text-align: center; font-size: 16px; }
+.tw-cal-head #tw-cal-next-open { margin-left: auto; }
 .tw-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .tw-cal-dow { font-size: 11px; font-weight: 600; color: #646970; text-align: center; padding: 2px 0; }
 .tw-cal-day {
@@ -233,16 +271,16 @@
 .tw-badge-changed { background: #fcf9e8; color: #6b5300; }
 .tw-badge-error { background: #fcf0f1; color: #8a2424; }
 .tw-sched-layout { margin-top: 8px; }
-.tw-cell { white-space: pre-wrap; max-height: 260px; overflow: auto; font-size: 12px; }
-.tw-action-list li { font-size: 14px; margin-bottom: 4px; }
+.tw-cell { white-space: pre-wrap; max-height: 260px; overflow: auto; font-size: 16px; }
+.tw-action-list li { font-size: 16px; margin-bottom: 4px; }
 .tw-backup-note { background: #edfaef; padding: 8px 12px; border-radius: 4px; }
 .tw-result-list { list-style: none; margin: 8px 0; }
-.tw-result-list li { font-size: 14px; }
+.tw-result-list li { font-size: 16px; }
 .tw-result-list li.ok { color: #1a5e2a; }
 .tw-result-list li.bad { color: #b32d2e; font-weight: 600; }
 .tw-manual, .tw-history { margin-top: 24px; padding-top: 12px; border-top: 1px solid #f0f0f1; }
 .tw-mini { margin: 0 0 0 16px; list-style: disc; }
-.tw-mini li { margin: 0; font-size: 12px; }
+.tw-mini li { margin: 0; font-size: 16px; }
 @media (max-width: 900px) { .tw-two { grid-template-columns: 1fr; } .tw-cal-day { min-height: 54px; } }
 
 /* ---------- v2.1 video list ---------- */
@@ -293,6 +331,27 @@
 .tw-wrap .wp-list-table .column-date { width: 150px; }
 .tw-wrap .wp-list-table .column-tw { width: 110px; }
 .tw-wrap .wp-list-table .column-action { width: 70px; text-align: right; }
+.tw-wrap .wp-list-table .row-actions .tw-row-refresh {
+	padding: 0;
+	border: 0;
+	background: none;
+	color: #2271b1;
+	cursor: pointer;
+	text-decoration: none;
+	font-size: inherit;
+	line-height: inherit;
+	vertical-align: baseline;
+}
+.tw-wrap .wp-list-table .row-actions .tw-row-refresh:hover,
+.tw-wrap .wp-list-table .row-actions .tw-row-refresh:focus {
+	color: #135e96;
+	text-decoration: underline;
+}
+.tw-wrap .wp-list-table .row-actions .tw-row-refresh:disabled {
+	opacity: .6;
+	cursor: wait;
+}
+
 .tw-wrap .wp-list-table tr:hover .row-actions,
 .tw-wrap .wp-list-table .row-actions.visible,
 .tw-wrap .wp-list-table .row-actions:focus-within {
@@ -355,6 +414,30 @@
 .tw-thumb-remove {
 	margin-top: 4px;
 }
+.tw-thumb-block {
+	margin: 18px 0 0;
+	padding: 14px 16px;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	background: #f6f7f7;
+}
+.tw-thumb-block .tw-thumb-zone-title {
+	margin-bottom: 2px;
+}
+.tw-thumb-block > .description:first-of-type {
+	margin-top: 0;
+}
+.tw-thumb-logos {
+	border-style: dashed;
+}
+.tw-thumb-build {
+	background: #fff;
+	border-color: #c3c4c7;
+}
+.tw-thumb-build .tw-actions-left {
+	margin-top: 10px;
+	margin-bottom: 0;
+}
 .tw-logo-fields {
 	margin: 8px 0 4px;
 }
@@ -362,16 +445,45 @@
 	max-width: 220px;
 	margin-bottom: 8px;
 }
+.tw-logo-selected {
+	margin-top: 12px;
+	padding: 12px;
+	border: 1px dashed #8c8f94;
+	border-radius: 6px;
+	background: #f6f7f7;
+	max-width: 280px;
+}
+.tw-logo-selected-kicker,
+.tw-thumb-result-kicker {
+	margin: 0 0 4px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: #646970;
+}
+.tw-logo-selected .description {
+	margin-top: 0;
+}
 .tw-logo-preview {
 	display: block;
-	max-width: 180px;
-	max-height: 84px;
+	max-width: 160px;
+	max-height: 72px;
 	width: auto;
 	height: auto;
-	margin-top: 8px;
-	padding: 6px;
-	background: #1d2327;
+	margin: 8px 0;
+	padding: 10px;
+	object-fit: contain;
+	border: 1px solid #c3c4c7;
 	border-radius: 4px;
+	background-color: #fff;
+	background-image:
+		linear-gradient(45deg, #dcdcde 25%, transparent 25%),
+		linear-gradient(-45deg, #dcdcde 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, #dcdcde 75%),
+		linear-gradient(-45deg, transparent 75%, #dcdcde 75%);
+	background-size: 16px 16px;
+	background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
 .tw-logo-suggestions {
 	display: flex;
@@ -396,6 +508,14 @@
 	width: 100%;
 	height: 56px;
 	object-fit: contain;
+	background-color: #111;
+	background-image:
+		linear-gradient(45deg, #2c3338 25%, transparent 25%),
+		linear-gradient(-45deg, #2c3338 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, #2c3338 75%),
+		linear-gradient(-45deg, transparent 75%, #2c3338 75%);
+	background-size: 12px 12px;
+	background-position: 0 0, 0 6px, 6px -6px, -6px 0;
 }
 .tw-logo-suggestion span {
 	display: block;
@@ -455,9 +575,14 @@
 	background: #111;
 }
 .tw-thumb-result {
-	margin-top: 18px;
-	padding-top: 14px;
-	border-top: 1px solid #f0f0f1;
+	margin-top: 16px;
+	padding: 14px;
+	border: 1px solid #c3c4c7;
+	border-radius: 6px;
+	background: #f6f7f7;
+}
+.tw-thumb-result-kicker {
+	color: #1d2327;
 }
 .tw-thumb-result img {
 	display: block;

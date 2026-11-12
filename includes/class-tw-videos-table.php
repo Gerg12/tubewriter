@@ -149,7 +149,7 @@ class TW_Videos_Table extends WP_List_Table {
 	protected function column_default( $item, $col ) {
 		switch ( $col ) {
 			case 'thumb':
-				$src = (string) ( $item['thumb'] ?? '' );
+				$src = TW_Index::thumb_url_with_version( $item['id'] ?? '', (string) ( $item['thumb'] ?? '' ) );
 				if ( ! $src ) {
 					return '';
 				}
@@ -197,9 +197,10 @@ class TW_Videos_Table extends WP_List_Table {
 		$out = '<a class="row-title" href="' . esc_url( $this->edit_url( $id ) ) . '">' . esc_html( $item['title'] ) . '</a>';
 		$out .= $this->row_actions(
 			array(
-				'edit'   => '<a href="' . esc_url( $this->edit_url( $id ) ) . '">Edit</a>',
-				'watch'  => '<a href="' . esc_url( 'https://www.youtube.com/watch?v=' . rawurlencode( $id ) ) . '" target="_blank" rel="noopener">Watch</a>',
-				'studio' => '<a href="' . esc_url( 'https://studio.youtube.com/video/' . rawurlencode( $id ) . '/edit' ) . '" target="_blank" rel="noopener">YouTube Studio</a>',
+				'edit'    => '<a href="' . esc_url( $this->edit_url( $id ) ) . '">Edit</a>',
+				'refresh' => '<button type="button" class="button-link tw-row-refresh" data-refresh-video="' . esc_attr( $id ) . '" title="About 1 API unit">Refresh</button>',
+				'watch'   => '<a href="' . esc_url( 'https://www.youtube.com/watch?v=' . rawurlencode( $id ) ) . '" target="_blank" rel="noopener">Watch</a>',
+				'studio'  => '<a href="' . esc_url( 'https://studio.youtube.com/video/' . rawurlencode( $id ) . '/edit' ) . '" target="_blank" rel="noopener">YouTube Studio</a>',
 			)
 		);
 		if ( '' !== trim( (string) $item['excerpt'] ) ) {
