@@ -65,7 +65,7 @@ Open **TubeWriter > Videos** and click **Edit** on a video. The editor walks you
 2. **Details.** Title, description, chapters, hashtags, tags, category and language. Use **Tweak it with AI** for changes.
 3. **Thumbnail (optional).** Paste up to two screenshots with Ctrl+V, let Gemini write a thumbnail brief, edit it, then **Create thumbnail** with OpenAI or Gemini (set the provider and API key in Settings). **Upload to YouTube** pushes it live (about 50 API units, needs a verified channel), or download and upload in Studio. Skip with Next if you do not need one.
 4. **Playlist.** Don't add, add to an existing playlist, or create a new one (**Polish for SEO** writes the title and description).
-5. **Schedule.** Click a day on the calendar. Orange is already scheduled, green is already published, empty days are open. Private videos only.
+5. **Go live.** Choose **Publish now** to make it public when you confirm in step 7, **Schedule it** and click a day on the calendar, or **Leave as is** to keep it private and only update the details. Orange is already scheduled, green is already published. Private videos only.
 6. **Review.** What is on YouTube now next to what it will be after publishing. Red errors block publishing.
 7. **Publish.** Read the list of changes, tick the box, click **Publish changes**, confirm the pop-up. Then set the game title and end screen in Studio (YouTube's API can't set those). Thumbnails can be uploaded from step 3.
 

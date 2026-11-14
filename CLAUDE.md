@@ -18,7 +18,7 @@ The owner is nervous about overwriting or deleting YouTube data. Every change mu
 2. **Backup before write.** `TW_Plan::publish()` saves a `TW_History` entry with a snapshot of the live video BEFORE any API write. If the backup fails, it stops.
 3. **Stale review guard.** Review returns a fingerprint of the live video. Publish re-fetches and refuses if the fingerprint changed (someone edited in Studio in between).
 4. **Never delete.** No calls to `videos.delete`, `playlists.delete` or `playlistItems.delete`. Only update and insert. Do not add delete features without the owner asking.
-5. **videos.update wipes omitted fields.** Any writable field left out of a part you send gets cleared. `TW_YouTube::write_video()` always sends every writable field (ours or the live value). Only send the `status` part when changing the schedule, and copy all writable status fields (including `selfDeclaredMadeForKids`).
+5. **videos.update wipes omitted fields.** Any writable field left out of a part you send gets cleared. `TW_YouTube::write_video()` always sends every writable field (ours or the live value). Only send the `status` part when changing visibility or schedule (`now` / `set` / `clear`), and copy all writable status fields (including `selfDeclaredMadeForKids`).
 6. **Undo works both ways.** `TW_Plan::restore()` backs up the live version first, then writes the old one. Playlists are never touched by restore.
 
 ## Layout
@@ -64,7 +64,7 @@ Do not add per-row API calls to the list page.
 2. Details: title options, description body, chapters, hashtags, tags, category, language (sets both defaultLanguage and defaultAudioLanguage).
 3. Thumbnail (optional): paste up to 2 screenshots (Ctrl+V), Gemini writes a brief, user approves, OpenAI or Gemini creates a 16:9 PNG under `uploads/tubewriter/generated/`. Standing style rules live in `thumb_render_prompt`. Optional **Upload to YouTube** (`thumbnails.set`, ~50 units, confirm required). Advancing past step 3 with a staged unuploaded thumb soft-confirms. Daily cron deletes orphan generated files older than 7 days. Skippable.
 4. Playlist: none, existing, or new (AI "Polish for SEO"). Created only at publish.
-5. Schedule: month calendar of scheduled (orange) and published (green) uploads, click a day, default time from Settings. Private videos only.
+5. Go live: Publish now (public on confirm in step 7), Schedule it (month calendar, orange scheduled / green published, default time from Settings), or Leave as is (stay private / keep schedule, metadata only). Private videos only.
 6. Review: server builds the plan against the live video, field-by-field diff, errors block publishing.
 7. Publish: action list, checkbox, confirm pop-up, results, Undo, manual Studio checklist, version history.
 

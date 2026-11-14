@@ -4,7 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Public UploadWriter app (route prefix /tubewriter/): home, login, register, account.
+ * Public UploadWriter app (route prefix /tubewriter/): home, login, register, account, schedule.
  */
 class TW_Frontend {
 
@@ -45,6 +45,7 @@ class TW_Frontend {
 		add_rewrite_rule( '^tubewriter/login/?$', 'index.php?' . self::QUERY . '=login', 'top' );
 		add_rewrite_rule( '^tubewriter/register/?$', 'index.php?' . self::QUERY . '=register', 'top' );
 		add_rewrite_rule( '^tubewriter/account/?$', 'index.php?' . self::QUERY . '=account', 'top' );
+		add_rewrite_rule( '^tubewriter/schedule/?$', 'index.php?' . self::QUERY . '=schedule', 'top' );
 		add_rewrite_rule( '^tubewriter/oauth/?$', 'index.php?' . self::QUERY . '=oauth', 'top' );
 	}
 
@@ -89,7 +90,7 @@ class TW_Frontend {
 			return;
 		}
 
-		if ( in_array( $view, array( 'account' ), true ) && ! is_user_logged_in() ) {
+		if ( in_array( $view, array( 'account', 'schedule' ), true ) && ! is_user_logged_in() ) {
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}
@@ -126,9 +127,9 @@ class TW_Frontend {
 		wp_enqueue_style( 'tubewriter-front', TW_URL . 'assets/front.css', array(), TW_VERSION );
 		wp_enqueue_style( 'tubewriter-admin', TW_URL . 'assets/admin.css', array( 'tubewriter-front' ), TW_VERSION );
 		wp_enqueue_script( 'tubewriter-front', TW_URL . 'assets/front.js', array(), TW_VERSION, true );
-		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, TW_VERSION, true );
+		// Localize onto front.js so TW exists before that file runs (Schedule calendar, etc.).
 		wp_localize_script(
-			'tubewriter',
+			'tubewriter-front',
 			'TW',
 			array(
 				'ajax'               => admin_url( 'admin-ajax.php' ),
@@ -138,8 +139,10 @@ class TW_Frontend {
 				'imageProviderLabel' => is_user_logged_in() ? TW_Settings::image_provider_label() : '',
 				'settingsUrl'        => self::url( 'account' ) . '#tw-keys',
 				'accountUrl'         => self::url( 'account' ),
+				'scheduleUrl'        => self::url( 'schedule' ),
 			)
 		);
+		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, TW_VERSION, true );
 	}
 
 	private function render( $view ) {
@@ -166,6 +169,8 @@ class TW_Frontend {
 			$this->view_register();
 		} elseif ( 'account' === $view ) {
 			$this->view_account();
+		} elseif ( 'schedule' === $view ) {
+			$this->view_schedule();
 		} else {
 			$this->view_home();
 		}
@@ -242,23 +247,10 @@ class TW_Frontend {
 	private function view_account() {
 		TW_Context::set_user( get_current_user_id() );
 		TW_Index::maybe_install();
-		$user    = wp_get_current_user();
 		$video   = isset( $_GET['video'] ) ? sanitize_text_field( wp_unslash( $_GET['video'] ) ) : ''; // phpcs:ignore
 		$channel = TW_Store::get( 'channel', array() );
+		$this->render_topbar( $video ? 'editor' : 'videos' );
 		?>
-		<header class="tw-topbar">
-			<a class="tw-brand tw-brand--link" href="<?php echo esc_url( self::url( 'account' ) ); ?>"><?php echo esc_html( TW_BRAND ); ?></a>
-			<nav class="tw-topnav">
-				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a>
-				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys>Keys</a>
-				<span class="tw-userpill"><span class="tw-userpill-dot" aria-hidden="true"></span><?php echo esc_html( $user->display_name ? $user->display_name : $user->user_login ); ?></span>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline">
-					<?php wp_nonce_field( 'tw_front_logout' ); ?>
-					<input type="hidden" name="action" value="tw_front_logout">
-					<button type="submit" class="tw-btn tw-btn--ghost tw-btn--small">Log out</button>
-				</form>
-			</nav>
-		</header>
 		<main class="tw-shell tw-shell--account">
 			<?php
 			if ( $video ) {
@@ -268,6 +260,105 @@ class TW_Frontend {
 			}
 			?>
 		</main>
+		<?php
+	}
+
+	private function view_schedule() {
+		TW_Context::set_user( get_current_user_id() );
+		TW_Index::maybe_install();
+		$this->render_topbar( 'schedule' );
+		$connected = TW_OAuth::is_connected();
+		$ready     = TW_Settings::user_has_ai_key() && $connected;
+		$indexed   = TW_Index::count_all();
+		$scheduled = TW_Index::count_scheduled();
+		$boot      = array(
+			'today'     => wp_date( 'Y-m-d' ),
+			'tz'        => wp_timezone_string(),
+			'editBase'  => self::url( 'account' ),
+			'scheduled' => $scheduled,
+		);
+		?>
+		<main class="tw-shell tw-shell--account tw-shell--schedule">
+			<section class="tw-panel tw-workspace-head">
+				<div class="tw-panel-head">
+					<h1>Schedule</h1>
+					<p>Browse scheduled and published uploads by day. Click a day to drill into those posts, then open one to edit.</p>
+				</div>
+			</section>
+
+			<?php if ( ! $ready ) : ?>
+				<section class="tw-panel">
+					<div class="tw-card-ui">
+						<p>Save an AI key and connect YouTube on <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys">Keys</a>, then sync your videos before using the schedule calendar.</p>
+					</div>
+				</section>
+			<?php elseif ( ! $indexed ) : ?>
+				<section class="tw-panel">
+					<div class="tw-card-ui">
+						<p>No videos in the local index yet. Go to <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a> and run Full sync or Quick sync first.</p>
+					</div>
+				</section>
+			<?php else : ?>
+				<section class="tw-panel" id="tw-schedule" data-boot="<?php echo esc_attr( wp_json_encode( $boot ) ); ?>">
+					<div class="tw-help">
+						<p><strong>What this page does:</strong> Shows when your uploads go public, from the local index (zero YouTube units until you refresh).</p>
+						<p><strong>What to do:</strong></p>
+						<ol>
+							<li>Click a day. <span class="tw-key tw-key-sched">Orange</span> is scheduled, <span class="tw-key tw-key-pub">green</span> is already published.</li>
+							<li>Use the day panel to open a post in the editor.</li>
+							<li>Times use your site timezone (<?php echo esc_html( wp_timezone_string() ); ?>).</li>
+						</ol>
+					</div>
+
+					<div class="tw-sched-page-layout">
+						<div class="tw-cal tw-sched-cal">
+							<div class="tw-cal-head">
+								<button type="button" class="tw-btn tw-btn--small" id="tw-sched-prev" aria-label="Previous month">&larr;</button>
+								<strong id="tw-sched-title"></strong>
+								<button type="button" class="tw-btn tw-btn--small" id="tw-sched-next" aria-label="Next month">&rarr;</button>
+								<button type="button" class="tw-btn tw-btn--ghost tw-btn--small" id="tw-sched-refresh">Refresh from YouTube</button>
+							</div>
+							<div class="tw-cal-grid" id="tw-sched-grid" role="grid" aria-label="Publishing calendar">
+								<p class="tw-muted">Loading schedule…</p>
+							</div>
+							<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+						</div>
+
+						<aside class="tw-sched-day" id="tw-sched-day" aria-live="polite">
+							<h2 id="tw-sched-day-heading">Pick a day</h2>
+							<p class="tw-muted" id="tw-sched-day-empty">Click a day on the calendar to see its posts.</p>
+							<div class="tw-sched-day-list" id="tw-sched-day-list" hidden></div>
+						</aside>
+					</div>
+				</section>
+			<?php endif; ?>
+		</main>
+		<?php
+	}
+
+	/**
+	 * Shared app chrome for logged-in views.
+	 *
+	 * @param string $active videos|schedule|editor|keys.
+	 */
+	private function render_topbar( $active = 'videos' ) {
+		$user = wp_get_current_user();
+		$label = $user->display_name ? $user->display_name : $user->user_login;
+		?>
+		<header class="tw-topbar">
+			<a class="tw-brand tw-brand--link" href="<?php echo esc_url( self::url( 'account' ) ); ?>"><?php echo esc_html( TW_BRAND ); ?></a>
+			<nav class="tw-topnav">
+				<a class="<?php echo 'videos' === $active || 'editor' === $active ? 'is-active' : ''; ?>" href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a>
+				<a class="<?php echo 'schedule' === $active ? 'is-active' : ''; ?>" href="<?php echo esc_url( self::url( 'schedule' ) ); ?>">Schedule</a>
+				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys>Keys</a>
+				<span class="tw-userpill"><span class="tw-userpill-dot" aria-hidden="true"></span><?php echo esc_html( $label ); ?></span>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline">
+					<?php wp_nonce_field( 'tw_front_logout' ); ?>
+					<input type="hidden" name="action" value="tw_front_logout">
+					<button type="submit" class="tw-btn tw-btn--ghost tw-btn--small">Log out</button>
+				</form>
+			</nav>
+		</header>
 		<?php
 	}
 

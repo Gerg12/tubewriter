@@ -800,13 +800,13 @@ class TW_Index {
 		return add_query_arg( 'v', (string) filemtime( $paths['file'] ), $paths['url'] );
 	}
 
-	/** Scheduled and published uploads for the editor calendar, from the index (no API calls). */
+	/** Scheduled and published uploads for the editor / Schedule calendars, from the index (no API calls). */
 	public static function calendar_events() {
 		global $wpdb;
 		$t    = self::table();
 		$rows = $wpdb->get_results( // phpcs:ignore
 			$wpdb->prepare(
-				"SELECT id, title, privacy, publish_at, published_at FROM {$t}
+				"SELECT id, title, privacy, publish_at, published_at, thumb FROM {$t}
 				WHERE user_id = %d AND ((privacy = 'private' AND publish_at IS NOT NULL) OR (privacy IN ('public','unlisted') AND published_at IS NOT NULL))",
 				self::uid()
 			),
@@ -820,6 +820,7 @@ class TW_Index {
 				'title' => $r['title'],
 				'type'  => $sched ? 'scheduled' : 'published',
 				'at'    => str_replace( ' ', 'T', $sched ? $r['publish_at'] : $r['published_at'] ) . 'Z',
+				'thumb' => (string) ( $r['thumb'] ?? '' ),
 			);
 		}
 		return $out;

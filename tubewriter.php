@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'TW_VERSION', '2.6.10' );
+define( 'TW_VERSION', '2.6.12' );
 define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TW_URL', plugin_dir_url( __FILE__ ) );
 // Public product name (uploadwriter.com). Working title and code stay TubeWriter / tubewriter.

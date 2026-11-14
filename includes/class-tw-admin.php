@@ -451,7 +451,7 @@ class TW_Admin {
 				<li><button type="button" data-go="2">2. Details</button></li>
 				<li><button type="button" data-go="3">3. Thumbnail</button></li>
 				<li><button type="button" data-go="4">4. Playlist</button></li>
-				<li><button type="button" data-go="5">5. Schedule</button></li>
+				<li><button type="button" data-go="5">5. Go live</button></li>
 				<li><button type="button" data-go="6">6. Review</button></li>
 				<li><button type="button" data-go="7">7. Publish</button></li>
 			</ol>
@@ -463,12 +463,12 @@ class TW_Admin {
 				<h2>Step 1: Source material</h2>
 				<?php
 				$help(
-					'Gathers what the AI writes from: the transcript, a starting title and description, and your notes.',
+					'Gathers what the AI writes from: the transcript, a starting title and description, and your notes. These boxes are not the listing that goes on YouTube.',
 					array(
 						'Click <strong>Pull YouTube captions</strong>, or paste a transcript. Skip it if there are no captions.',
-						'Check the <strong>starting title and description</strong>. They are filled in from YouTube. If you changed them in Studio after opening this page, click <strong>Refresh from YouTube</strong> in the header (about 1 unit).',
+						'Check the <strong>starting title and description</strong>. They are filled in from YouTube as ideas for the AI, not the finished listing. If you changed them in Studio after opening this page, click <strong>Refresh from YouTube</strong> in the header (about 1 unit).',
 						'Add <strong>notes</strong>: key moments with rough times (each becomes a chapter) and anything the AI must get right.',
-						'Pick <strong>Gemini</strong> or <strong>ChatGPT</strong> next to <strong>Generate with AI</strong>, then generate. Or click <strong>Fill in by hand</strong>. The draft stays on this page, under your notes. Generate asks before it overwrites the current description. It does not save to YouTube, and you can undo. A busy model is not the YouTube sign-in.',
+						'Pick <strong>Gemini</strong> or <strong>ChatGPT</strong> next to <strong>Generate with AI</strong>, then generate. Or click <strong>Fill in by hand</strong>. The real draft appears in step 2 below. Generate asks before it overwrites that draft. It does not save to YouTube, and you can undo. A busy model is not the YouTube sign-in.',
 					)
 				);
 				?>
@@ -484,10 +484,10 @@ class TW_Admin {
 
 				<div class="tw-guide" id="tw-guide">
 					<strong>No transcript? Skim the video and fill in the boxes below.</strong>
-					<p>The AI only knows what you tell it. A few honest lines beat a long vague paragraph.</p>
+					<p>Those boxes are raw material for the AI, not the finished YouTube listing. A few honest lines beat a long vague paragraph.</p>
 					<ol>
 						<li><strong>Starting title:</strong> what the video is in a few words. <em>Gates of Hell, stole their 88 with a Churchill</em></li>
-						<li><strong>Starting description:</strong> 2 or 3 sentences. The game and mode, who you played with, how it went and how it ended.</li>
+						<li><strong>Starting description:</strong> 2 or 3 sentences of facts for the AI to rewrite. The game and mode, who you played with, how it went and how it ended. Do not polish the final description here.</li>
 						<li><strong>Notes:</strong> the best moments with rough times, one per line. Each one becomes a chapter.
 							<br><code>2:30 Mike drives the supply truck into an open field</code>
 							<br><code>11:15 we capture their 88 and turn it on them</code>
@@ -496,14 +496,22 @@ class TW_Admin {
 					</ol>
 				</div>
 
-				<label for="tw-seed-title">Starting title</label>
-				<input type="text" id="tw-seed-title" class="large-text" placeholder="Short idea, e.g. Stole their 88 with a Churchill">
+				<div class="tw-seed">
+					<h3>What the AI writes from</h3>
+					<p class="description">Not the published title or description. Generate rewrites these into the draft in step 2. Edit the finished listing there.</p>
 
-				<label for="tw-seed-desc">Starting description</label>
-				<textarea id="tw-seed-desc" rows="5" class="large-text" placeholder="A line or two about what happens. Any links in here get kept."></textarea>
+					<label for="tw-seed-title">Starting title</label>
+					<input type="text" id="tw-seed-title" class="large-text" placeholder="Short idea, e.g. Stole their 88 with a Churchill">
+					<p class="description">Idea for the AI. Filled from YouTube when available. The title that gets published is chosen in step 2.</p>
 
-				<label for="tw-notes">Notes for the AI</label>
-				<textarea id="tw-notes" rows="5" class="large-text" placeholder="Key moments with rough times, one per line (2:30 truck dies). Anything the AI should know or get right. The AI trusts these over everything else."></textarea>
+					<label for="tw-seed-desc">Starting description</label>
+					<textarea id="tw-seed-desc" rows="5" class="large-text" placeholder="A line or two about what happens. Any links in here get kept."></textarea>
+					<p class="description">Idea for the AI, not where the finished description goes. Generate turns this into the draft in step 2. Links and credits in this box are kept.</p>
+
+					<label for="tw-notes">Notes for the AI</label>
+					<textarea id="tw-notes" rows="5" class="large-text" placeholder="Key moments with rough times, one per line (2:30 truck dies). Anything the AI should know or get right. The AI trusts these over everything else."></textarea>
+					<p class="description">Extra facts and timed moments the AI must get right. Still source material, not the published listing.</p>
+				</div>
 
 				<p class="tw-actions-left">
 					<button type="button" class="button button-primary button-hero" id="tw-generate">Generate with AI</button>
@@ -535,11 +543,11 @@ class TW_Admin {
 				</p>
 				<?php
 				$help(
-					'The title, description, tags, category and language that will be published. They stay on this page with your starting title, description and notes so you can see where the draft came from. Editing here only changes the draft.',
+					'This is the draft that gets published: title, description, tags, category and language. The starting title, description and notes above are only what the AI wrote from. Editing here only changes the draft.',
 					array(
-						'Compare the draft with the <strong>starting title, description and notes</strong> above.',
+						'Compare this draft with the <strong>starting title, description and notes</strong> above (those stay as source material).',
 						'Pick a <strong>title</strong> from the AI options, type your own, or keep what is on YouTube.',
-						'Read the <strong>description</strong> and <strong>chapters</strong>. Fix anything that is wrong.',
+						'Read the <strong>description</strong> and <strong>chapters</strong>. This description box is the one that goes on YouTube. Fix anything that is wrong.',
 						'Check <strong>tags</strong>, <strong>hashtags</strong>, <strong>category</strong> and <strong>language</strong>.',
 						'Want a change from the AI? Type it in <strong>Tweak it</strong>. Then click <strong>Next</strong>.',
 					)
@@ -549,6 +557,7 @@ class TW_Admin {
 					<label>Title</label>
 					<p class="tw-count" data-for="tw-title" data-max="100"></p>
 				</div>
+				<p class="description">The published title. The starting title above was only an idea for the AI.</p>
 				<div id="tw-titles" class="tw-titles"></div>
 				<input type="text" id="tw-title" class="large-text">
 
@@ -556,6 +565,7 @@ class TW_Admin {
 					<label for="tw-body">Description</label>
 					<p class="tw-count" id="tw-desc-count"></p>
 				</div>
+				<p class="description">The published description. This is where the finished write-up goes, not the starting description above.</p>
 				<textarea id="tw-body" rows="18" class="large-text"></textarea>
 				<p class="description">YouTube allows 5,000 characters for the full description, including the chapter breakdown and hashtags. The first ~100 characters show in search, so lead with the game and what happens.</p>
 
@@ -767,23 +777,24 @@ class TW_Admin {
 
 			<!-- STEP 5 -->
 			<section class="tw-card tw-step" data-step="5" hidden>
-				<h2>Step 5: Schedule</h2>
+				<h2>Step 5: Go live</h2>
 				<?php
 				$help(
-					'Picks when the video goes public. Only private videos can be scheduled.',
+					'Picks when the video goes public. Step 7 still needs your confirm before anything changes on YouTube.',
 					array(
-						'Choose <strong>Leave as is</strong> to keep the current schedule, or <strong>Schedule it</strong>.',
+						'Choose <strong>Publish now</strong> to make it public as soon as you confirm in step 7.',
+						'Choose <strong>Schedule it</strong> to pick a future date and time, or <strong>Leave as is</strong> to keep it private (or keep the current schedule) and only update the details.',
 						'Click a day on the calendar. <span class="tw-key tw-key-sched">Orange</span> is already scheduled, <span class="tw-key tw-key-pub">green</span> is already published, empty days are open.',
-						'Check the time. It starts at your default from Settings (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( wp_timezone_string() ) . ').',
+						'Scheduled times start at your default from Settings (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( wp_timezone_string() ) . ').',
 					)
 				);
 				?>
 				<div class="tw-sched-layout">
 					<div class="tw-sched-side">
 						<p id="tw-sched-current" class="tw-current-line"></p>
-						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so its schedule can't be changed here.</p></div>
+						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so visibility can't be changed here. You can still update the title, description and other details.</p></div>
 						<div id="tw-sched-controls">
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="now"> Publish now</label><br><span class="description">Goes public when you confirm in step 7.</span></p>
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> Schedule it</label></p>
 							<div class="tw-sub" id="tw-sched-set" hidden>
 								<div class="tw-inline">
@@ -792,6 +803,7 @@ class TW_Admin {
 									<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
 								</div>
 							</div>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label><br><span class="description">Stays private (or keeps the current schedule). Only the details change.</span></p>
 						</div>
 					</div>
 					<div class="tw-cal">
@@ -1658,12 +1670,14 @@ class TW_Admin {
 		$out = array();
 		foreach ( TW_YouTube::calendar_events() as $e ) {
 			$ts    = strtotime( $e['at'] );
+			$thumb = (string) ( $e['thumb'] ?? '' );
 			$out[] = array(
 				'id'    => $e['id'],
 				'title' => $e['title'],
 				'type'  => $e['type'],
 				'date'  => wp_date( 'Y-m-d', $ts ),
 				'time'  => wp_date( 'g:ia', $ts ),
+				'thumb' => $thumb ? TW_Index::thumb_url_with_version( $e['id'], $thumb ) : '',
 			);
 		}
 		wp_send_json_success( $out );
@@ -1870,7 +1884,7 @@ class TW_Admin {
 				'privacy'   => sanitize_text_field( $pl['privacy'] ?? 'public' ),
 			),
 			'schedule' => array(
-				'mode' => 'set' === ( $sc['mode'] ?? '' ) ? 'set' : 'keep',
+				'mode' => in_array( $sc['mode'] ?? '', array( 'keep', 'set', 'now' ), true ) ? $sc['mode'] : 'keep',
 				'date' => preg_match( '/^\d{4}-\d{2}-\d{2}$/', (string) ( $sc['date'] ?? '' ) ) ? $sc['date'] : '',
 				'time' => preg_match( '/^\d{2}:\d{2}$/', (string) ( $sc['time'] ?? '' ) ) ? $sc['time'] : '',
 			),

@@ -46,12 +46,20 @@ class TW_Plan {
 			'defaultAudioLanguage' => $lang,
 		);
 
-		// Schedule.
+		// Go live: keep, schedule for later, or publish now.
 		$schedule = array( 'mode' => 'keep', 'at' => '', 'label' => '' );
 		$sched_in = (array) ( $opts['schedule'] ?? array() );
-		if ( 'set' === ( $sched_in['mode'] ?? 'keep' ) ) {
+		$sched_mode = (string) ( $sched_in['mode'] ?? 'keep' );
+		if ( 'now' === $sched_mode ) {
 			if ( 'private' !== $current['privacyStatus'] ) {
-				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be scheduled. Set Schedule to "Leave as is".';
+				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be published now from here. Set Go live to "Leave as is".';
+			} else {
+				$schedule['mode']  = 'now';
+				$schedule['label'] = 'Public now';
+			}
+		} elseif ( 'set' === $sched_mode ) {
+			if ( 'private' !== $current['privacyStatus'] ) {
+				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be scheduled. Set Go live to "Leave as is".';
 			} else {
 				try {
 					$dt = new DateTime( trim( ( $sched_in['date'] ?? '' ) . ' ' . ( $sched_in['time'] ?? '' ) ), wp_timezone() );
@@ -102,7 +110,13 @@ class TW_Plan {
 		$cat_name = function ( $id ) {
 			return TW_Settings::CATEGORIES[ $id ] ?? ( 'Category ' . $id );
 		};
-		$current_sched = $current['publishAt'] ? wp_date( 'D M j, Y g:ia T', strtotime( $current['publishAt'] ) ) : ( 'private' === $current['privacyStatus'] ? 'Not scheduled' : ucfirst( $current['privacyStatus'] ) );
+		$current_sched = $current['publishAt'] ? wp_date( 'D M j, Y g:ia T', strtotime( $current['publishAt'] ) ) : ( 'private' === $current['privacyStatus'] ? 'Private, not scheduled' : ucfirst( $current['privacyStatus'] ) );
+		$next_sched    = $current_sched;
+		if ( 'now' === $schedule['mode'] ) {
+			$next_sched = 'Public now';
+		} elseif ( 'set' === $schedule['mode'] ) {
+			$next_sched = 'Goes public ' . $schedule['label'];
+		}
 
 		$rows = array(
 			self::row( 'title', 'Title', $current['title'], $details['title'] ),
@@ -111,7 +125,7 @@ class TW_Plan {
 			self::row( 'category', 'Category', $cat_name( $current['categoryId'] ), $cat_name( $cat ) ),
 			self::row( 'language', 'Video language', $lang_name( $current['defaultLanguage'] ), $lang_name( $lang ) ),
 			self::row( 'audio', 'Audio language', $lang_name( $current['defaultAudioLanguage'] ), $lang_name( $lang ) ),
-			self::row( 'schedule', 'Schedule', $current_sched, 'set' === $schedule['mode'] ? 'Goes public ' . $schedule['label'] : $current_sched ),
+			self::row( 'schedule', 'Go live', $current_sched, $next_sched ),
 		);
 		$pl_text = 'Not added to a playlist';
 		if ( 'existing' === $playlist['mode'] ) {
@@ -153,7 +167,9 @@ class TW_Plan {
 					$actions[] = 'Set audio language to ' . $lang_name( $lang );
 					break;
 				case 'schedule':
-					$actions[] = 'Schedule it to go public ' . $schedule['label'];
+					$actions[] = 'now' === $schedule['mode']
+						? 'Make it public now'
+						: 'Schedule it to go public ' . $schedule['label'];
 					break;
 				case 'playlist':
 					$actions[] = $pl_text;
@@ -226,7 +242,9 @@ class TW_Plan {
 			$ok        = false;
 		} else {
 			$results[] = array( 'ok' => true, 'text' => 'Title, description, tags, category and language updated' );
-			if ( 'set' === $plan['schedule']['mode'] ) {
+			if ( 'now' === $plan['schedule']['mode'] ) {
+				$results[] = array( 'ok' => true, 'text' => 'Made public on YouTube' );
+			} elseif ( 'set' === $plan['schedule']['mode'] ) {
 				$results[] = array( 'ok' => true, 'text' => 'Scheduled to go public ' . $plan['schedule']['label'] );
 			}
 		}
@@ -304,13 +322,23 @@ class TW_Plan {
 			} else {
 				$notes[] = 'The old schedule time has already passed, so the current schedule was left alone.';
 			}
+		} elseif ( 'private' === $before['privacyStatus'] && in_array( $live['privacyStatus'], array( 'public', 'unlisted' ), true ) ) {
+			// Undo a "Publish now". YouTube will not let a once-public video be scheduled again.
+			$schedule = 'clear';
+			if ( $before['publishAt'] ) {
+				$notes[] = 'Made it private again. The old schedule was not put back, because YouTube will not schedule a video that has already been public.';
+			}
 		} elseif ( $live['privacyStatus'] !== $before['privacyStatus'] ) {
 			$notes[] = 'The video is ' . $live['privacyStatus'] . ' now, so its visibility and schedule were left alone.';
 		}
 
 		$changes = array( 'Restore the title, description, tags, category and language from ' . wp_date( 'M j g:ia', $entry['time'] ) );
 		if ( 'clear' === $schedule ) {
-			$changes[] = 'Remove the schedule (back to private, not scheduled)';
+			if ( in_array( $live['privacyStatus'], array( 'public', 'unlisted' ), true ) ) {
+				$changes[] = 'Make it private again (not scheduled)';
+			} else {
+				$changes[] = 'Remove the schedule (back to private, not scheduled)';
+			}
 		} elseif ( 'set' === $schedule ) {
 			$changes[] = 'Put the old schedule back';
 		}

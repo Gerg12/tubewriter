@@ -139,14 +139,14 @@ class TW_YouTube {
 	}
 
 	/**
-	 * Write details and optionally the schedule. videos.update, 50 units.
+	 * Write details and optionally visibility / schedule. videos.update, 50 units.
 	 *
 	 * videos.update wipes any writable field left out of a part you send, so every writable
 	 * field is sent back: ours where we change it, the live value everywhere else.
 	 *
 	 * @param array  $video    Live video resource (snippet, status) fetched just before.
 	 * @param array  $details  title, description, tags, categoryId, defaultLanguage, defaultAudioLanguage.
-	 * @param string $schedule 'keep', 'set' (with $publish_at) or 'clear' (private, unscheduled).
+	 * @param string $schedule 'keep', 'set' (with $publish_at), 'clear' (private, unscheduled), or 'now' (public immediately).
 	 */
 	public static function write_video( array $video, array $details, $schedule = 'keep', $publish_at = '' ) {
 		$current = $video['snippet'] ?? array();
@@ -167,13 +167,23 @@ class TW_YouTube {
 		$parts = array( 'snippet' );
 
 		if ( 'keep' !== $schedule ) {
-			$status = $video['status'] ?? array();
-			if ( 'private' !== ( $status['privacyStatus'] ?? '' ) ) {
-				return new WP_Error( 'tw_schedule', 'Only private videos can be scheduled. This one is ' . ( $status['privacyStatus'] ?? 'unknown' ) . '.' );
-			}
-			$new_status = array( 'privacyStatus' => 'private' );
-			if ( 'set' === $schedule ) {
-				$new_status['publishAt'] = $publish_at;
+			$status  = $video['status'] ?? array();
+			$privacy = (string) ( $status['privacyStatus'] ?? '' );
+			if ( 'now' === $schedule ) {
+				if ( 'private' !== $privacy ) {
+					return new WP_Error( 'tw_schedule', 'Only private videos can be published now this way. This one is ' . ( $privacy ?: 'unknown' ) . '.' );
+				}
+				$new_status = array( 'privacyStatus' => 'public' );
+			} elseif ( 'private' === $privacy ) {
+				$new_status = array( 'privacyStatus' => 'private' );
+				if ( 'set' === $schedule ) {
+					$new_status['publishAt'] = $publish_at;
+				}
+			} elseif ( 'clear' === $schedule && in_array( $privacy, array( 'public', 'unlisted' ), true ) ) {
+				// Undo publish-now: back to private, not scheduled.
+				$new_status = array( 'privacyStatus' => 'private' );
+			} else {
+				return new WP_Error( 'tw_schedule', 'Only private videos can be scheduled. This one is ' . ( $privacy ?: 'unknown' ) . '.' );
 			}
 			foreach ( array( 'embeddable', 'license', 'publicStatsViewable', 'selfDeclaredMadeForKids', 'containsSyntheticMedia' ) as $key ) {
 				if ( array_key_exists( $key, $status ) ) {

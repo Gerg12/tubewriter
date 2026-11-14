@@ -103,6 +103,19 @@
 .tw-guide ol { margin: 0 0 0 18px; }
 .tw-guide li { margin-bottom: 6px; }
 .tw-guide code { font-size: 11px; }
+.tw-seed {
+	margin-top: 16px;
+	padding: 14px 14px 10px;
+	background: #f0f6fc;
+	border-left: 4px solid #2271b1;
+	border-radius: 4px;
+}
+.tw-seed h3 {
+	margin: 0 0 4px;
+	font-size: 14px;
+}
+.tw-seed > .description { margin-top: 0; }
+.tw-seed label { margin-top: 12px; display: inline-block; }
 .tw-current { margin-top: 14px; }
 .tw-current summary { cursor: pointer; font-weight: 600; }
 .tw-current pre {
