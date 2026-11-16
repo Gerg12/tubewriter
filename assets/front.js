@@ -42,21 +42,24 @@
 		});
 
 		var setup = document.getElementById('tw-keys');
-		function openKeysPanel(scroll) {
+		function openKeysPanel(scrollTo) {
 			if (!setup) {
 				return false;
 			}
 			setup.open = true;
-			if (scroll) {
+			if (scrollTo) {
 				requestAnimationFrame(function () {
-					setup.scrollIntoView({ block: 'start', behavior: 'smooth' });
+					var target = typeof scrollTo === 'string' ? document.getElementById(scrollTo) : null;
+					(target || setup).scrollIntoView({ block: 'start', behavior: 'smooth' });
 				});
 			}
 			return true;
 		}
 		function openSetupIfNeeded() {
 			if (location.hash === '#tw-keys') {
-				openKeysPanel(true);
+				openKeysPanel('tw-keys');
+			} else if (location.hash === '#tw-voice') {
+				openKeysPanel('tw-voice');
 			}
 		}
 		openSetupIfNeeded();
@@ -75,7 +78,7 @@
 				if (location.hash !== '#tw-keys') {
 					history.replaceState(null, '', '#tw-keys');
 				}
-				openKeysPanel(true);
+				openKeysPanel('tw-keys');
 			});
 		});
 

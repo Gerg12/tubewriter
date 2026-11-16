@@ -273,16 +273,21 @@ class TW_Validator {
 
 		$body = trim( (string) ( $pkg['body'] ?? '' ) );
 		if ( '' !== $body ) {
-			$start = ltrim( $body );
-			if ( preg_match( '/^⚠️\s*THE GG ALGORITHM WARNING/u', $start ) || 0 === stripos( $start, 'THE GG ALGORITHM WARNING' ) ) {
-				$warnings[] = 'Description opens with the warning block. Lead with the game and what happens.';
+			$start   = ltrim( $body );
+			$id      = TW_Settings::identity();
+			$warning = trim( (string) ( $id['warning_title'] ?? '' ) );
+			$close   = trim( (string) ( $id['warning_close'] ?? '' ) );
+			if ( '' !== $warning ) {
+				$warn_re = '/^⚠️\s*' . preg_quote( $warning, '/' ) . '/ui';
+				if ( preg_match( $warn_re, $start ) || 0 === stripos( $start, $warning ) ) {
+					$warnings[] = 'Description opens with the warning block. Lead with the game and what happens.';
+				}
+				if ( false !== stripos( $body, $warning ) && '' !== $close && false === stripos( $body, $close ) ) {
+					$warnings[] = 'The warning block looks truncated. It must end with "' . $close . '". Generate again or paste the rest.';
+				}
 			}
 			if ( preg_match( '/^(https?:\/\/|www\.)/i', $start ) ) {
 				$warnings[] = 'Description opens with a link. Lead with the game and what happens.';
-			}
-			if ( false !== stripos( $body, 'THE GG ALGORITHM WARNING' )
-				&& false === stripos( $body, 'The slop will continue until morale improves' ) ) {
-				$warnings[] = 'The GG Algorithm Warning looks truncated. It must end with "The slop will continue until morale improves." Generate again or paste the rest.';
 			}
 			foreach ( preg_split( '/\R/', $body ) as $line ) {
 				if ( substr_count( $line, ',' ) >= 8 ) {

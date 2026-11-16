@@ -203,21 +203,55 @@ class TW_Admin {
 					</table>
 				</div>
 
+				<?php
+				$id = TW_Settings::identity();
+				$identity_fields = array(
+					'channel_name'       => 'Channel name',
+					'channel_short'      => 'Short name / initials',
+					'creator_name'       => 'Creator first name (first-person voice)',
+					'brand_tag'          => 'Brand tag (last YouTube tag)',
+					'brand_hashtag'      => 'Brand hashtag',
+					'warning_title'      => 'Description warning title',
+					'warning_close'      => 'Warning closing line (exact)',
+					'chapters_heading'   => 'Chapters heading',
+					'channel_logo_brief' => 'Channel logo description (for thumbnails)',
+				);
+				?>
+				<div class="tw-card" id="tw-channel-identity">
+					<h2>4. Channel identity <?php echo TW_Settings::identity_complete() ? '' : '<span class="tw-chip">Required</span>'; ?></h2>
+					<p class="description">Required before Generate. Front-end users set this on their own account. Site-level values here are for the WordPress admin workflow only. Example placeholders show Gregatron Games so you can see the shape.</p>
+					<table class="form-table">
+						<?php foreach ( $identity_fields as $key => $label ) : ?>
+							<tr>
+								<th><label for="tw_<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $label ); ?></label></th>
+								<td>
+									<?php if ( 'channel_logo_brief' === $key ) : ?>
+										<textarea id="tw_<?php echo esc_attr( $key ); ?>" name="tw_<?php echo esc_attr( $key ); ?>" rows="3" class="large-text" placeholder="<?php echo esc_attr( TW_Settings::identity_example( $key ) ); ?>"><?php echo esc_textarea( $id[ $key ] ); ?></textarea>
+									<?php else : ?>
+										<input type="text" id="tw_<?php echo esc_attr( $key ); ?>" name="tw_<?php echo esc_attr( $key ); ?>" class="large-text" value="<?php echo esc_attr( $id[ $key ] ); ?>" placeholder="<?php echo esc_attr( TW_Settings::identity_example( $key ) ); ?>">
+									<?php endif; ?>
+									<p class="description">Example: <?php echo esc_html( TW_Settings::identity_example( $key ) ); ?></p>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</table>
+				</div>
+
 				<div class="tw-card">
-					<h2>4. Channel voice prompt</h2>
-					<p class="description">This is what the AI follows for tone, the warning text, chapter style, tags and hashtags. The JSON output rules are added automatically, so you only describe the voice and content.</p>
+					<h2>5. Channel voice prompt</h2>
+					<p class="description">Tone, warning skeleton, chapter style, tags and hashtags. Use <code>{{channel_name}}</code>, <code>{{warning_title}}</code>, <code>{{brand_hashtag}}</code>, and the other identity tokens. JSON output rules are added automatically.</p>
 					<textarea name="tw_prompt" rows="28" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'prompt' ) ); ?></textarea>
 				</div>
 
 				<div class="tw-card">
-					<h2>5. Thumbnail brief prompt</h2>
-					<p class="description">Gemini reads the title, description, transcript and screenshots, then writes a Gregatron thumbnail concept: hook text, picture-in-picture, avatar, GG logo and game logo. JSON rules are added automatically.</p>
+					<h2>6. Thumbnail brief prompt</h2>
+					<p class="description">Gemini reads the title, description, transcript and screenshots, then writes a thumbnail concept: hook text, picture-in-picture, avatar, channel logo and game logo. JSON rules are added automatically.</p>
 					<textarea name="tw_thumb_prompt" rows="24" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_prompt' ) ); ?></textarea>
 				</div>
 
 				<div class="tw-card">
-					<h2>6. Thumbnail render instructions</h2>
-					<p class="description">Standing layout sent with every Create thumbnail, before the approved brief. This is the stencil headline, inset card, avatar, GG logo, game logo and safe zones. Per-video specifics stay in the brief on step 3.</p>
+					<h2>7. Thumbnail render instructions</h2>
+					<p class="description">Standing layout sent with every Create thumbnail, before the approved brief. This is the stencil headline, inset card, avatar, channel logo, game logo and safe zones. Per-video specifics stay in the brief on step 3.</p>
 					<textarea name="tw_thumb_render_prompt" rows="22" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_render_prompt' ) ); ?></textarea>
 				</div>
 
@@ -225,7 +259,7 @@ class TW_Admin {
 				<?php submit_button( 'Save settings' ); ?>
 			</form>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your prompt with the default GG prompt?');">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your prompt with the packaged template?');">
 				<?php wp_nonce_field( 'tw_reset_prompt' ); ?>
 				<input type="hidden" name="action" value="tw_reset_prompt">
 				<button class="button-link tw-danger-link">Reset voice prompt to default</button>
@@ -313,7 +347,14 @@ class TW_Admin {
 		}
 
 		if ( ! TW_Settings::is_configured() || ! TW_OAuth::is_connected() ) {
-			echo '<div class="tw-card"><p>Finish setup first: add your credentials and connect YouTube in <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a>.</p></div></div>';
+			$settings = esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) );
+			echo '<div class="tw-card"><p>';
+			if ( ! TW_Settings::identity_complete() ) {
+				echo 'Finish setup first: fill in <strong>Channel identity</strong>, credentials, and connect YouTube in <a href="' . $settings . '">Settings</a>.';
+			} else {
+				echo 'Finish setup first: add your credentials and connect YouTube in <a href="' . $settings . '">Settings</a>.';
+			}
+			echo '</p></div></div>';
 			return;
 		}
 
@@ -616,7 +657,7 @@ class TW_Admin {
 					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
 					array(
 						'Press <strong>Ctrl+V</strong> to paste a screenshot. First paste is the main background. Second paste is the picture-in-picture. Saved in the Media Library for this video.',
-						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and GG logo, and the game logo. The hook does not repeat the title.',
+						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and channel logo, and the game logo. The hook does not repeat the title.',
 						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
 						'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below. Use <strong>Remove logo</strong> or <strong>Remove thumbnail</strong> to clear the wrong one.',
 						'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Download or Open in Studio only if you will finish the upload yourself. Skip this step anytime with Next.',
@@ -962,6 +1003,7 @@ class TW_Admin {
 
 	public function ajax_generate() {
 		$this->ajax_guard();
+		$this->require_identity();
 		$input = $this->input();
 		if ( '' === trim( $input['transcript'] ) && '' === trim( $input['notes'] ) && '' === trim( $input['current_description'] ) ) {
 			wp_send_json_error( 'Nothing to work from yet. Add a transcript, a starting description or some notes.' );
@@ -972,6 +1014,7 @@ class TW_Admin {
 
 	public function ajax_revise() {
 		$this->ajax_guard();
+		$this->require_identity();
 		$input       = $this->input();
 		$instruction = $this->post( 'instruction', true );
 		if ( '' === trim( $instruction ) ) {
@@ -1373,6 +1416,7 @@ class TW_Admin {
 
 	public function ajax_thumb_describe() {
 		$this->ajax_guard();
+		$this->require_identity();
 		$input  = $this->input();
 		$images = $this->images_from_post();
 		if ( is_wp_error( $images ) ) {
@@ -1405,6 +1449,7 @@ class TW_Admin {
 
 	public function ajax_thumb_generate() {
 		$this->ajax_guard();
+		$this->require_identity();
 		$input       = $this->input();
 		$description = $this->post( 'thumb_description', true );
 		$images      = $this->images_from_post();
@@ -1640,6 +1685,7 @@ class TW_Admin {
 
 	public function ajax_playlist_suggest() {
 		$this->ajax_guard();
+		$this->require_identity();
 		$pkg   = $this->pkg_from_post();
 		$check = TW_Validator::check( $pkg, 0 );
 		$out   = TW_AI::playlist(
@@ -1947,7 +1993,7 @@ class TW_Admin {
 	private function logos_from_post( $shot_count = 1 ) {
 		$specs = array(
 			array( 'game_logo_id', 'game_logo_pos', 'official game logo', 'upper-right' ),
-			array( 'channel_logo_id', 'channel_logo_pos', 'GG channel logo', 'lower-left' ),
+			array( 'channel_logo_id', 'channel_logo_pos', 'Channel logo', 'lower-left' ),
 		);
 		$out = array();
 		foreach ( $specs as $spec ) {
@@ -2270,6 +2316,17 @@ class TW_Admin {
 			wp_send_json_error( 'Not allowed.', 403 );
 		}
 		TW_Context::clear();
+	}
+
+	/** Block AI calls until Channel identity is saved. */
+	private function require_identity() {
+		if ( TW_Settings::identity_complete() ) {
+			return;
+		}
+		$url = TW_Context::is_user()
+			? home_url( '/tubewriter/account/#tw-voice' )
+			: admin_url( 'admin.php?page=tubewriter-settings#tw-channel-identity' );
+		wp_send_json_error( 'Set up your channel identity first: ' . $url );
 	}
 
 	private function guard( $action, $method = 'POST' ) {

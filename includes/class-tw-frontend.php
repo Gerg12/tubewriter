@@ -21,6 +21,10 @@ class TW_Frontend {
 		add_action( 'admin_post_tw_front_register', array( $this, 'handle_register' ) );
 		add_action( 'admin_post_tw_front_logout', array( $this, 'handle_logout' ) );
 		add_action( 'admin_post_tw_front_save_keys', array( $this, 'handle_save_keys' ) );
+		add_action( 'admin_post_tw_front_save_identity', array( $this, 'handle_save_identity' ) );
+		add_action( 'admin_post_tw_front_reset_prompt', array( $this, 'handle_reset_prompt' ) );
+		add_action( 'admin_post_tw_front_reset_thumb_prompt', array( $this, 'handle_reset_thumb_prompt' ) );
+		add_action( 'admin_post_tw_front_reset_thumb_render_prompt', array( $this, 'handle_reset_thumb_render_prompt' ) );
 		add_action( 'admin_post_tw_front_connect', array( $this, 'handle_connect' ) );
 		add_action( 'admin_post_tw_front_complete', array( $this, 'handle_complete' ) );
 		add_action( 'admin_post_tw_front_disconnect', array( $this, 'handle_disconnect' ) );
@@ -139,7 +143,7 @@ class TW_Frontend {
 				'front'              => 1,
 				'imageProvider'      => is_user_logged_in() ? TW_Settings::get( 'image_provider' ) : TW_DEFAULT_IMAGE_PROVIDER,
 				'imageProviderLabel' => is_user_logged_in() ? TW_Settings::image_provider_label() : '',
-				'settingsUrl'        => self::url( 'account' ) . '#tw-keys',
+				'settingsUrl'        => self::url( 'account' ) . ( TW_Settings::identity_complete() ? '#tw-keys' : '#tw-voice' ),
 				'accountUrl'         => self::url( 'account' ),
 				'scheduleUrl'        => self::url( 'schedule' ),
 			)
@@ -261,7 +265,7 @@ class TW_Frontend {
 		TW_Index::maybe_install();
 		$this->render_topbar( 'schedule' );
 		$connected = TW_OAuth::is_connected();
-		$ready     = TW_Settings::user_has_ai_key() && $connected;
+		$ready     = TW_Settings::user_has_ai_key() && $connected && TW_Settings::identity_complete();
 		$indexed   = TW_Index::count_all();
 		$scheduled = TW_Index::count_scheduled();
 		$boot      = array(
@@ -282,7 +286,7 @@ class TW_Frontend {
 			<?php if ( ! $ready ) : ?>
 				<section class="tw-panel">
 					<div class="tw-card-ui">
-						<p>Save an AI key and connect YouTube on <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys">Keys</a>, then sync your videos before using the schedule calendar.</p>
+						<p>Finish setup on <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys">Keys &amp; voice</a> (channel identity, AI key, YouTube), then sync your videos before using the schedule calendar.</p>
 					</div>
 				</section>
 			<?php elseif ( ! $indexed ) : ?>
@@ -344,7 +348,7 @@ class TW_Frontend {
             <nav class="uw-workspace-tabs" aria-label="Workspace navigation">
                 <a data-uw-workspace-tab="videos" class="<?php echo in_array( $active, array( 'videos', 'editor' ), true ) ? 'is-active' : ''; ?>" <?php echo in_array( $active, array( 'videos', 'editor' ), true ) ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos"><span aria-hidden="true">▤</span> Videos</a>
                 <a data-uw-workspace-tab="schedule" class="<?php echo 'schedule' === $active ? 'is-active' : ''; ?>" <?php echo 'schedule' === $active ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url( self::url( 'schedule' ) ); ?>"><span aria-hidden="true">▦</span> Schedule</a>
-                <a data-uw-workspace-tab="keys" href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys><span aria-hidden="true">⚙</span> Keys &amp; connections</a>
+                <a data-uw-workspace-tab="keys" href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys><span aria-hidden="true">⚙</span> Keys &amp; voice</a>
             </nav>
             <span class="uw-workspace-label">YOUR CHANNEL, IN FOCUS <span aria-hidden="true">✦</span></span>
         </div>
@@ -355,14 +359,19 @@ class TW_Frontend {
 		$has_openai = TW_Store::has( 'openai_key' );
 		$connected  = TW_OAuth::is_connected();
 		$site_ok    = TW_Settings::get( 'client_id' ) && TW_Settings::get( 'client_secret' );
-		$ready      = TW_Settings::user_has_ai_key() && $connected;
+		$voice_ok   = TW_Settings::identity_complete();
+		$ready      = TW_Settings::user_has_ai_key() && $connected && $voice_ok;
+		$setup_open = ! $ready;
 		$channel_label = ( is_array( $channel ) && ! empty( $channel['title'] ) ) ? (string) $channel['title'] : '';
+		$id = TW_Settings::identity();
 		?>
 		<section class="tw-panel tw-workspace-head">
 			<div class="tw-panel-head">
 				<p class="uw-workspace-eyebrow">YOUR CREATIVE CONTROL ROOM</p><h1>Your video workspace.</h1>
 				<?php if ( $ready ) : ?>
 					<p>A clearer view of your channel. Find a video, polish the details, and make your next move.</p>
+				<?php elseif ( ! $voice_ok ) : ?>
+					<p>First, tell UploadWriter who this channel is. Then save an AI key and connect YouTube.</p>
 				<?php else : ?>
 					<p>Save an AI key, connect YouTube, then sync your videos and compare AI drafts in one place.</p>
 				<?php endif; ?>
@@ -374,17 +383,22 @@ class TW_Frontend {
             <div class="uw-stat"><span>ON THE SCHEDULE</span><strong><?php echo esc_html( number_format_i18n( TW_Index::count_scheduled() ) ); ?></strong></div>
             <div class="uw-stat"><span>CHANNEL CONNECTION</span><strong><?php echo $connected ? 'Connected' : 'Let’s get set up'; ?></strong></div>
         </div>
-		<details class="tw-setup tw-panel" id="tw-keys"<?php echo $ready ? '' : ' open'; ?>>
+		<details class="tw-setup tw-panel" id="tw-keys"<?php echo $setup_open ? ' open' : ''; ?>>
 			<summary class="tw-setup-summary">
-				<span class="tw-setup-title"><?php echo $ready ? 'Keys &amp; YouTube' : 'Set up your workspace'; ?></span>
+				<span class="tw-setup-title"><?php echo $ready ? 'Keys &amp; voice' : 'Set up your workspace'; ?></span>
 				<span class="tw-setup-meta">
 					<?php if ( $ready ) : ?>
-						<?php echo $channel_label ? esc_html( $channel_label ) . ' · ' : ''; ?>Connected. Open to change keys or reconnect.
+						<?php echo $channel_label ? esc_html( $channel_label ) . ' · ' : ''; ?>Connected. Open to change voice, keys, or reconnect.
+					<?php elseif ( ! $voice_ok ) : ?>
+						Channel identity required before Generate will run.
 					<?php else : ?>
 						Save an AI key and connect YouTube to start.
 					<?php endif; ?>
 				</span>
 			</summary>
+
+			<?php $this->render_identity_form( $id, $voice_ok ); ?>
+
 			<div class="tw-grid-2">
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form">
 					<?php wp_nonce_field( 'tw_front_save_keys' ); ?>
@@ -407,8 +421,8 @@ class TW_Frontend {
 					</div>
 					<label for="tw_image_provider">Thumbnail image provider</label>
 					<select id="tw_image_provider" name="tw_image_provider">
-						<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id => $label ) : ?>
-							<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id_key => $label ) : ?>
+							<option value="<?php echo esc_attr( $id_key ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id_key ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 					</select>
 					<button type="submit" class="tw-btn tw-btn--primary">Save keys</button>
@@ -449,12 +463,107 @@ class TW_Frontend {
 			</div>
 			<?php
 			if ( ! $ready ) {
-				echo '<div class="tw-card-ui"><h3>Your videos will feel right at home here.</h3><p>Add your AI key and connect YouTube above. Then sync your channel to start shaping your next upload.</p></div></section>';
+				echo '<div class="tw-card-ui">';
+				if ( ! $voice_ok ) {
+					echo '<h3>Set up your channel voice first.</h3><p>Fill in Channel identity &amp; voice above, then add an AI key and connect YouTube.</p>';
+				} else {
+					echo '<h3>Your videos will feel right at home here.</h3><p>Add your AI key and connect YouTube above. Then sync your channel to start shaping your next upload.</p>';
+				}
+				echo '</div></section>';
 				return;
 			}
 			$this->render_video_list();
 			?>
 		</section>
+		<?php
+	}
+
+	/**
+	 * Onboarding + dial-in form for channel identity and the three prompts.
+	 *
+	 * @param array $id       Current identity values.
+	 * @param bool  $voice_ok Whether required identity is already saved.
+	 */
+	private function render_identity_form( array $id, $voice_ok ) {
+		$fields = array(
+			'channel_name'       => array( 'Channel name', 'text' ),
+			'channel_short'      => array( 'Short name / initials', 'text' ),
+			'creator_name'       => array( 'Creator first name (first-person voice)', 'text' ),
+			'brand_tag'          => array( 'Brand tag (last YouTube tag)', 'text' ),
+			'brand_hashtag'      => array( 'Brand hashtag', 'text' ),
+			'warning_title'      => array( 'Description warning title', 'text' ),
+			'warning_close'      => array( 'Warning closing line (exact)', 'text' ),
+			'chapters_heading'   => array( 'Chapters heading', 'text' ),
+			'channel_logo_brief' => array( 'Channel logo description (for thumbnails)', 'textarea' ),
+		);
+		?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form tw-identity" id="tw-voice">
+			<?php wp_nonce_field( 'tw_front_save_identity' ); ?>
+			<input type="hidden" name="action" value="tw_front_save_identity">
+			<h2>Channel identity &amp; voice <?php echo $voice_ok ? '<span class="tw-chip tw-chip--ok">Saved</span>' : '<span class="tw-chip">Required</span>'; ?></h2>
+			<?php if ( ! $voice_ok ) : ?>
+				<p class="tw-warn">Tell UploadWriter who this channel is before Generate can run. Example values below are from Gregatron Games so you can see the shape; replace them with your channel.</p>
+			<?php else : ?>
+				<p class="tw-muted">These fields drive titles, tags, the description warning, chapters heading, and thumbnail channel-logo language. <code>{{channel_name}}</code> and other tokens in the prompts below pull from here.</p>
+			<?php endif; ?>
+
+			<div class="tw-identity-grid">
+				<?php foreach ( $fields as $key => $meta ) : ?>
+					<?php
+					list( $label, $type ) = $meta;
+					$example = TW_Settings::identity_example( $key );
+					$input_id = 'tw_' . $key;
+					$value = (string) ( $id[ $key ] ?? '' );
+					?>
+					<div class="tw-identity-field<?php echo 'textarea' === $type ? ' tw-identity-field--wide' : ''; ?>">
+						<label for="<?php echo esc_attr( $input_id ); ?>"><?php echo esc_html( $label ); ?></label>
+						<?php if ( 'textarea' === $type ) : ?>
+							<textarea id="<?php echo esc_attr( $input_id ); ?>" name="<?php echo esc_attr( $input_id ); ?>" rows="3" placeholder="<?php echo esc_attr( $example ); ?>"><?php echo esc_textarea( $value ); ?></textarea>
+						<?php else : ?>
+							<input type="text" id="<?php echo esc_attr( $input_id ); ?>" name="<?php echo esc_attr( $input_id ); ?>" value="<?php echo esc_attr( $value ); ?>" placeholder="<?php echo esc_attr( $example ); ?>">
+						<?php endif; ?>
+						<?php if ( '' !== $example ) : ?>
+							<p class="tw-field-example">Example: <?php echo esc_html( $example ); ?></p>
+						<?php endif; ?>
+					</div>
+				<?php endforeach; ?>
+			</div>
+
+			<details class="tw-prompt-dial"<?php echo $voice_ok ? '' : ' open'; ?>>
+				<summary>Dial in prompts (advanced)</summary>
+				<p class="tw-muted">Same control as the old Settings prompts. Tokens like <code>{{channel_name}}</code>, <code>{{warning_title}}</code>, and <code>{{channel_logo_brief}}</code> expand from the identity fields above when Generate runs.</p>
+
+				<label for="tw_prompt">Channel voice prompt</label>
+				<textarea id="tw_prompt" name="tw_prompt" rows="16" class="tw-prompt-box code"><?php echo esc_textarea( TW_Settings::get( 'prompt' ) ); ?></textarea>
+
+				<label for="tw_thumb_prompt">Thumbnail brief prompt</label>
+				<textarea id="tw_thumb_prompt" name="tw_thumb_prompt" rows="12" class="tw-prompt-box code"><?php echo esc_textarea( TW_Settings::get( 'thumb_prompt' ) ); ?></textarea>
+
+				<label for="tw_thumb_render_prompt">Thumbnail render instructions</label>
+				<textarea id="tw_thumb_render_prompt" name="tw_thumb_render_prompt" rows="12" class="tw-prompt-box code"><?php echo esc_textarea( TW_Settings::get( 'thumb_render_prompt' ) ); ?></textarea>
+			</details>
+
+			<button type="submit" class="tw-btn tw-btn--primary"><?php echo $voice_ok ? 'Save channel voice' : 'Save and continue'; ?></button>
+		</form>
+		<?php if ( $voice_ok ) : ?>
+			<div class="tw-identity-resets">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline" onsubmit="return confirm('Replace your voice prompt with the packaged template?');">
+					<?php wp_nonce_field( 'tw_front_reset_prompt' ); ?>
+					<input type="hidden" name="action" value="tw_front_reset_prompt">
+					<button type="submit" class="tw-btn tw-btn--link">Reset voice prompt</button>
+				</form>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline" onsubmit="return confirm('Replace your thumbnail brief prompt with the packaged template?');">
+					<?php wp_nonce_field( 'tw_front_reset_thumb_prompt' ); ?>
+					<input type="hidden" name="action" value="tw_front_reset_thumb_prompt">
+					<button type="submit" class="tw-btn tw-btn--link">Reset thumbnail brief</button>
+				</form>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline" onsubmit="return confirm('Replace your thumbnail render instructions with the packaged template?');">
+					<?php wp_nonce_field( 'tw_front_reset_thumb_render_prompt' ); ?>
+					<input type="hidden" name="action" value="tw_front_reset_thumb_render_prompt">
+					<button type="submit" class="tw-btn tw-btn--link">Reset thumbnail render</button>
+				</form>
+			</div>
+		<?php endif; ?>
 		<?php
 	}
 
@@ -849,6 +958,63 @@ class TW_Frontend {
 
 		$this->flash( 'Keys saved.', 'success' );
 		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+		exit;
+	}
+
+	public function handle_save_identity() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_save_identity' );
+		TW_Context::set_user( get_current_user_id() );
+
+		$ok = TW_Settings::save_identity_from_post( $_POST, true ); // phpcs:ignore WordPress.Security.NonceVerification
+		if ( $ok ) {
+			$this->flash( 'Channel voice saved. Generate will use these identity fields and prompts.', 'success' );
+		} else {
+			$this->flash( 'Saved what you entered, but required identity fields are still missing.', 'error' );
+		}
+		wp_safe_redirect( self::url( 'account' ) . '#tw-voice' );
+		exit;
+	}
+
+	public function handle_reset_prompt() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_reset_prompt' );
+		TW_Context::set_user( get_current_user_id() );
+		TW_Settings::set( 'prompt', TW_Settings::default_prompt() );
+		$this->flash( 'Voice prompt reset to the packaged template.', 'success' );
+		wp_safe_redirect( self::url( 'account' ) . '#tw-voice' );
+		exit;
+	}
+
+	public function handle_reset_thumb_prompt() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_reset_thumb_prompt' );
+		TW_Context::set_user( get_current_user_id() );
+		TW_Settings::set( 'thumb_prompt', TW_Settings::default_thumb_prompt() );
+		$this->flash( 'Thumbnail brief prompt reset to the packaged template.', 'success' );
+		wp_safe_redirect( self::url( 'account' ) . '#tw-voice' );
+		exit;
+	}
+
+	public function handle_reset_thumb_render_prompt() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_reset_thumb_render_prompt' );
+		TW_Context::set_user( get_current_user_id() );
+		TW_Settings::set( 'thumb_render_prompt', TW_Settings::default_thumb_render_prompt() );
+		$this->flash( 'Thumbnail render instructions reset to the packaged template.', 'success' );
+		wp_safe_redirect( self::url( 'account' ) . '#tw-voice' );
 		exit;
 	}
 

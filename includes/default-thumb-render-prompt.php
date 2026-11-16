@@ -1,12 +1,12 @@
 <?php
-// Standing instructions for the image model (editable in TubeWriter > Settings).
+// Standing instructions for the image model (editable in Settings / account onboarding).
 // This is the "custom instructions" layer. The approved per-video brief is appended after it.
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 return <<<'PROMPT'
-You polish one Gregatron Games YouTube thumbnail from the supplied gameplay screenshot. The screenshot stays the foundation. Do not replace it with a new illustration.
+You polish one {{channel_name}} YouTube thumbnail from the supplied gameplay screenshot. The screenshot stays the foundation. Do not replace it with a new illustration.
 
 CANVAS AND EDGE SAFETY
 - Exact 16:9 widescreen. The saved file is 1920x1080.
@@ -26,7 +26,7 @@ Match this arrangement:
 - Do not invent a new foreground hero. No Pixar face, no fan-art Link, no new soldier, no new mascot standing in front of the gameplay. The people and creatures in Image 1 are the only characters allowed in the main frame.
 - Upper left: two huge lines from the brief. Line 1 is larger. Line 1 is white distressed heavy block lettering with a thick black shadow and a fiery orange stroke. Line 2 is amber-orange with the same heavy black shadow. Heavy chipped block lettering, not a thin font. Spell the brief's lines exactly. Keep both lines inside the headline box.
 - Upper right: exactly one official game logo when there is no inset, inside the game logo box, smaller than the headline.
-- Lower left: only a character that is already drawn in the screenshot, plus the GG Gregatron Games logo, grouped, inside the channel box.
+- Lower left: only a character that is already drawn in the screenshot, plus the {{channel_short}} {{channel_name}} logo, grouped, inside the channel box.
 - Lower right: empty unless the game logo moved here because of a picture-in-picture. YouTube covers that corner with a duration badge.
 - Add a picture-in-picture card when Image 2 is attached or the brief describes one. If the brief says no inset and only Image 1 is attached, do not add a frame. A thick gold frame that shoves the headline off the left edge is a failed thumbnail. An inset is smaller than the hero, shows Image 2, has a thin dark border, sits fully inside the central 84 percent, and never flushes to the top or right edge. When an inset is used, move the single game logo to the bottom right, raised above the duration badge and still inside the central 84 percent.
 
@@ -39,11 +39,11 @@ MAIN SUBJECT FROM THE SCREENSHOT
 LOWER-LEFT CHARACTER
 Look at the lower left of the gameplay screenshot. That corner changes from video to video.
 - If a character, avatar, or reaction face is already drawn there in the screenshot, keep that exact drawing. Face, outfit, colors, mascot, and pose stay as drawn.
-- If the lower left of the screenshot is empty gameplay, leave that corner for the GG logo only. Do not invent a face, anime figure, cat, or mascot.
+- If the lower left of the screenshot is empty gameplay, leave that corner for the channel logo only. Do not invent a face, anime figure, cat, or mascot.
 - Do not invent a different person. Do not import a character from another video.
 
-GG LOGO
-Stacked mark in the lower left: large orange GG with a heavy black outline, and GREGATRON GAMES in smaller white block letters underneath. If a channel logo file is attached, use that exact file. Keep it fully inside the channel box and smaller than the headline.
+CHANNEL LOGO
+{{channel_logo_brief}} If a channel logo file is attached, use that exact file. Keep it fully inside the channel box and smaller than the headline.
 
 GAME LOGO (EXACTLY ONE)
 - Place exactly one official game logo. Never two. Never a large logo plus a small copy.

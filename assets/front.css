@@ -585,6 +585,71 @@ body.tw-app a.tw-btn--primary:active {
 	padding: 0;
 }
 
+.tw-setup > .tw-identity {
+	margin: 0 0 18px;
+}
+
+.tw-identity-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px 18px;
+	margin: 0 0 18px;
+}
+
+.tw-identity-field--wide {
+	grid-column: 1 / -1;
+}
+
+.tw-field-example {
+	margin: 4px 0 0;
+	font-size: 0.875rem;
+	color: var(--tw-muted-soft);
+}
+
+.tw-prompt-dial {
+	margin: 0 0 18px;
+	padding: 12px 0 0;
+	border-top: 1px solid var(--tw-glass-edge);
+}
+
+.tw-prompt-dial > summary {
+	cursor: pointer;
+	font-weight: 600;
+	margin-bottom: 10px;
+}
+
+.tw-prompt-box {
+	width: 100%;
+	min-height: 10rem;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.85rem;
+	line-height: 1.45;
+	margin-bottom: 14px;
+}
+
+.tw-identity-resets {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 16px;
+	margin: 0 0 18px;
+}
+
+.tw-btn--link {
+	background: transparent;
+	border: 0;
+	padding: 0;
+	color: var(--tw-accent-deep);
+	text-decoration: underline;
+	cursor: pointer;
+	font: inherit;
+}
+
+@media (max-width: 720px) {
+	.tw-identity-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
 .tw-setup[open] .tw-card-ui {
 	background: var(--tw-panel-strong);
 }

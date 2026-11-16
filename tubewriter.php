@@ -2,7 +2,7 @@
 /**
  * Plugin Name: UploadWriter
  * Description: Pulls a YouTube video's transcript, writes the title, description, chapters, tags and hashtags with Gemini, and pushes them back to YouTube. Bring your own Google and Gemini credentials.
- * Version: 2.7.0
+ * Version: 2.8.0
  * Author: Gregory S Johnson LLC
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'TW_VERSION', '2.7.0' );
+define( 'TW_VERSION', '2.8.0' );
 define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TW_URL', plugin_dir_url( __FILE__ ) );
 // Public product name (uploadwriter.com). Working title and code stay TubeWriter / tubewriter.

@@ -30,23 +30,26 @@ class TW_AI {
 		'gemini-flash-lite-latest',
 	);
 
-	const OUTPUT_CONTRACT = <<<'TXT'
-
-=== OUTPUT FORMAT (required, do not ignore) ===
-Respond with ONLY a JSON object, no markdown fences, using exactly these keys:
-{
-  "titles": ["5 title options"],
-  "suggested_title": "the best of the five",
-  "body": "the full opening walkthrough plus the complete GG Algorithm Warning, with a blank line between them. Write the whole video, not a short summary. Include the warning through the exact closing line 'The slop will continue until morale improves.' Do NOT put chapters or hashtags in here. The assembled description (body + chapters + hashtags) may use up to 5000 characters. Do not cut the walkthrough short to save space.",
-  "chapters_heading": "the heading line that goes above the chapter list, or an empty string",
-  "chapters": [{"time": "0:00", "label": "Chapter label"}],
-  "tags": ["4 to 6 tags, max 8, no # symbols"],
-  "hashtags": ["#Game", "#Topic", "#Brand"]
-}
-Rules: the first chapter time MUST be "0:00". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return "chapters": [] and never invent times. No < or > characters anywhere. Never use an em dash or en dash (– or —); use a comma, period, colon, or hyphen instead.
-The STARTING TITLE and STARTING DESCRIPTION are the creator's starting point. If the starting title is just a date or filename (like "2026 10 01 19 19 26"), ignore it. When there is no transcript, build the package from the starting title, starting description and notes, and stay close to what they say.
-The STARTING DESCRIPTION is also context. Keep any links, social handles, sponsor or affiliate lines, credits and "watch next" lines from it in the new body (near the end of the body) unless the creator notes say to drop them. Use its facts about the match when there is no transcript.
-TXT;
+	/** JSON contract appended after the channel voice prompt. Built from identity. */
+	private static function output_contract() {
+		$id      = TW_Settings::identity();
+		$warning = $id['warning_title'] !== '' ? $id['warning_title'] : 'channel warning block';
+		$close   = $id['warning_close'] !== '' ? $id['warning_close'] : 'the configured closing line';
+		return "\n\n=== OUTPUT FORMAT (required, do not ignore) ===\n"
+			. "Respond with ONLY a JSON object, no markdown fences, using exactly these keys:\n"
+			. "{\n"
+			. "  \"titles\": [\"5 title options\"],\n"
+			. "  \"suggested_title\": \"the best of the five\",\n"
+			. "  \"body\": \"the full opening walkthrough plus the complete {$warning}, with a blank line between them. Write the whole video, not a short summary. Include the warning through the exact closing line '{$close}'. Do NOT put chapters or hashtags in here. The assembled description (body + chapters + hashtags) may use up to 5000 characters. Do not cut the walkthrough short to save space.\",\n"
+			. "  \"chapters_heading\": \"the heading line that goes above the chapter list, or an empty string\",\n"
+			. "  \"chapters\": [{\"time\": \"0:00\", \"label\": \"Chapter label\"}],\n"
+			. "  \"tags\": [\"4 to 6 tags, max 8, no # symbols\"],\n"
+			. "  \"hashtags\": [\"#Game\", \"#Topic\", \"#Brand\"]\n"
+			. "}\n"
+			. "Rules: the first chapter time MUST be \"0:00\". Times use m:ss (or h:mm:ss past one hour). Chapters must come from real timestamps in the transcript, the starting description or the creator notes, and stay inside the video length. If none of those contain timestamps, return \"chapters\": [] and never invent times. No < or > characters anywhere. Never use an em dash or en dash (– or —); use a comma, period, colon, or hyphen instead.\n"
+			. "The STARTING TITLE and STARTING DESCRIPTION are the creator's starting point. If the starting title is just a date or filename (like \"2026 10 01 19 19 26\"), ignore it. When there is no transcript, build the package from the starting title, starting description and notes, and stay close to what they say.\n"
+			. "The STARTING DESCRIPTION is also context. Keep any links, social handles, sponsor or affiliate lines, credits and \"watch next\" lines from it in the new body (near the end of the body) unless the creator notes say to drop them. Use its facts about the match when there is no transcript.";
+	}
 
 	const THUMB_DESCRIBE_CONTRACT = <<<'TXT'
 
@@ -155,15 +158,15 @@ TXT;
 		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
 		$shot_count = count( $images );
 		$shots      = $shot_count > 1
-			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Image 2 is always the picture-in-picture card in the upper right. Never swap them. Never set inset to "No inset". base_imagery describes Image 1 only. inset describes Image 2 only. Do not invent a new foreground character. Look at the lower left of Image 1. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.'
-			: 'Only one screenshot is attached. It is the full-bleed main background. Set inset to "No inset". Do not invent a new foreground character. Look at the lower left. Keep a character there only if one is already drawn. If that corner is empty, say GG logo only. Exactly one game logo for the whole thumbnail.';
+			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Image 2 is always the picture-in-picture card in the upper right. Never swap them. Never set inset to "No inset". base_imagery describes Image 1 only. inset describes Image 2 only. Do not invent a new foreground character. Look at the lower left of Image 1. Keep a character there only if one is already drawn. If that corner is empty, say channel logo only. Exactly one game logo for the whole thumbnail.'
+			: 'Only one screenshot is attached. It is the full-bleed main background. Set inset to "No inset". Do not invent a new foreground character. Look at the lower left. Keep a character there only if one is already drawn. If that corner is empty, say channel logo only. Exactly one game logo for the whole thumbnail.';
 		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
 			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
 			. self::context( $input ) . "\n\n"
 			. $shots . "\n\n"
 			. 'Fill the six JSON fields for this video.';
 
-		$system = TW_Settings::get( 'thumb_prompt' ) . "\n" . self::THUMB_DESCRIBE_CONTRACT;
+		$system = TW_Settings::prompt_for_ai( 'thumb_prompt' ) . "\n" . self::THUMB_DESCRIBE_CONTRACT;
 		$parts  = array_merge( array( array( 'text' => $user ) ), self::image_parts( $images ) );
 		$json   = self::request(
 			TW_Settings::get( 'model' ),
@@ -187,7 +190,7 @@ TXT;
 	}
 
 	/**
-	 * Print the description box in the fixed Gregatron concept shape.
+	 * Print the description box in the fixed channel concept shape.
 	 * The model only supplies the per-video facts.
 	 *
 	 * @param array $json       Decoded model object.
@@ -202,6 +205,10 @@ TXT;
 		$line1       = self::thumb_line( $json, 'line_1' );
 		$line2       = self::thumb_line( $json, 'line_2' );
 		$shot_count  = (int) $shot_count;
+		$id          = TW_Settings::identity();
+		$logo_brief  = $id['channel_logo_brief'] !== ''
+			? $id['channel_logo_brief']
+			: 'Use the channel logo mark for this creator.';
 
 		$game = preg_replace( '/\s+(transparent\s+png\s+)?logo$/i', '', $game );
 		$game = trim( (string) $game, " ." );
@@ -252,9 +259,9 @@ TXT;
 			. "\n"
 			. "Lower-Left Character:\n"
 			. "\n"
-			. "Look at the lower left of the screenshot. That corner changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If the lower left is empty gameplay, leave it for the GG logo only. Do not invent a face, anime figure, cat, or mascot.\n"
+			. "Look at the lower left of the screenshot. That corner changes per video. If someone is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If the lower left is empty gameplay, leave it for the channel logo only. Do not invent a face, anime figure, cat, or mascot.\n"
 			. "\n"
-			. "The channel logo sits in the bottom-left content box: large orange GG, then GREGATRON GAMES in white block letters. About 8 percent in from the left and bottom. Smaller than the headline.\n"
+			. 'The channel logo sits in the bottom-left content box: ' . $logo_brief . " About 8 percent in from the left and bottom. Smaller than the headline.\n"
 			. "\n"
 			. "Official Game Logo (exactly one):\n"
 			. "\n"
@@ -503,10 +510,10 @@ TXT;
 
 	/** Standing render instructions + the approved per-video brief. */
 	private static function render_prompt( $description, $shot_count, array $logos = array() ) {
-		$standing = trim( (string) TW_Settings::get( 'thumb_render_prompt' ) );
+		$standing = trim( (string) TW_Settings::prompt_for_ai( 'thumb_render_prompt' ) );
 		$shots    = (int) $shot_count > 1
-			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. Image 2 is always the picture-in-picture card in the top-right content box, inside the central 84 percent, never flush to the top or right edge. Never swap Image 1 and Image 2. Never paint Image 2 as the background. Never paint Image 1 as the inset. The headline stays in the upper-left content box. The channel logo stays in the lower-left content box. Exactly one game logo moves to the bottom-right content box so it does not cover the inset. Keep a lower-left character only if one is already drawn in Image 1. If that corner is empty, GG logo only.'
-			: 'One screenshot is attached. It is the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. No picture-in-picture. The headline is in the upper-left content box. The channel logo is in the lower-left content box. Exactly one game logo is in the upper-right content box, or top left if the logo instruction says top left. Keep a lower-left character only if one is already drawn in the screenshot. If that corner is empty, GG logo only.';
+			? 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. Image 2 is always the picture-in-picture card in the top-right content box, inside the central 84 percent, never flush to the top or right edge. Never swap Image 1 and Image 2. Never paint Image 2 as the background. Never paint Image 1 as the inset. The headline stays in the upper-left content box. The channel logo stays in the lower-left content box. Exactly one game logo moves to the bottom-right content box so it does not cover the inset. Keep a lower-left character only if one is already drawn in Image 1. If that corner is empty, channel logo only.'
+			: 'One screenshot is attached. It is the full-bleed main background. Polish that exact shot. Do not invent a new foreground hero. No picture-in-picture. The headline is in the upper-left content box. The channel logo is in the lower-left content box. Exactly one game logo is in the upper-right content box, or top left if the logo instruction says top left. Keep a lower-left character only if one is already drawn in the screenshot. If that corner is empty, channel logo only.';
 		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
 		$frame = ( '1536x1024' === $size )
 			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep every graphic inside the central 80 percent of this taller canvas so the trim still leaves about 8 percent padding on the final 16:9 frame.'
@@ -775,7 +782,7 @@ TXT;
 	 */
 	private static function call( $user_text, $system = null, $raw = false, $provider = 'gemini' ) {
 		if ( null === $system ) {
-			$system = TW_Settings::get( 'prompt' ) . "\n" . self::OUTPUT_CONTRACT;
+			$system = TW_Settings::prompt_for_ai( 'prompt' ) . self::output_contract();
 		}
 		if ( 'openai' === self::text_provider( $provider ) ) {
 			$result = self::openai_chat( TW_Settings::get( 'openai_model' ), $system, $user_text, $raw );

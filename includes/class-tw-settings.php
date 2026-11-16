@@ -5,6 +5,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 /**
  * Option storage. Everything lives in wp_options on the user's own local site.
+ * Front-end accounts store identity and prompts in user meta via TW_Store.
  */
 class TW_Settings {
 
@@ -25,6 +26,16 @@ class TW_Settings {
 		'default_time',
 		'default_language',
 		'default_category',
+		'channel_name',
+		'channel_short',
+		'creator_name',
+		'brand_tag',
+		'brand_hashtag',
+		'warning_title',
+		'warning_close',
+		'chapters_heading',
+		'channel_logo_brief',
+		'identity_complete',
 	);
 
 	const DEFAULTS = array(
@@ -32,6 +43,41 @@ class TW_Settings {
 		'default_language'     => 'en',
 		'default_category'     => '20',
 		'openai_image_quality' => 'high',
+	);
+
+	/** Example values shown in onboarding (Gregatron). Not auto-saved for new users. */
+	const IDENTITY_EXAMPLES = array(
+		'channel_name'       => 'Gregatron Games',
+		'channel_short'      => 'GG',
+		'creator_name'       => 'Greg',
+		'brand_tag'          => 'Gregatron Games',
+		'brand_hashtag'      => '#GregatronGames',
+		'warning_title'      => 'THE GG ALGORITHM WARNING',
+		'warning_close'      => 'The slop will continue until morale improves.',
+		'chapters_heading'   => '🛑 THE CERTIFIED CHRONO SLOP BREAKDOWN 🛑',
+		'channel_logo_brief' => 'Stacked mark: large orange GG with a heavy black outline, and GREGATRON GAMES in smaller white block letters underneath.',
+	);
+
+	const IDENTITY_REQUIRED = array(
+		'channel_name',
+		'creator_name',
+		'brand_hashtag',
+		'warning_title',
+		'warning_close',
+		'chapters_heading',
+		'channel_logo_brief',
+	);
+
+	const IDENTITY_KEYS = array(
+		'channel_name',
+		'channel_short',
+		'creator_name',
+		'brand_tag',
+		'brand_hashtag',
+		'warning_title',
+		'warning_close',
+		'chapters_heading',
+		'channel_logo_brief',
 	);
 
 	const IMAGE_PROVIDERS = array(
@@ -136,7 +182,7 @@ class TW_Settings {
 
 	/**
 	 * Replace the stock "plain screenshot, little or no text" thumbnail prompts
-	 * with the packaged Gregatron card. Leave a prompt alone once it has been edited
+	 * with the packaged card template. Leave a prompt alone once it has been edited
 	 * away from those stock lines.
 	 */
 	public static function maybe_upgrade_thumb_prompts() {
@@ -183,6 +229,165 @@ class TW_Settings {
 		return include TW_DIR . 'includes/default-thumb-render-prompt.php';
 	}
 
+	/** Saved identity map (empty strings until the user finishes onboarding). */
+	public static function identity() {
+		$out = array();
+		foreach ( self::IDENTITY_KEYS as $key ) {
+			$out[ $key ] = self::normalize_identity_value( $key, (string) TW_Store::get( $key, '' ) );
+		}
+		if ( '' === $out['channel_short'] && '' !== $out['channel_name'] ) {
+			$out['channel_short'] = self::guess_short( $out['channel_name'] );
+		}
+		if ( '' === $out['brand_tag'] && '' !== $out['channel_name'] ) {
+			$out['brand_tag'] = $out['channel_name'];
+		}
+		return $out;
+	}
+
+	/** True when required identity fields were saved. */
+	public static function identity_complete() {
+		if ( '1' === (string) TW_Store::get( 'identity_complete', '' ) ) {
+			return true;
+		}
+		// Treat a fully filled identity as complete even if the flag was never set.
+		$id = self::identity();
+		foreach ( self::IDENTITY_REQUIRED as $key ) {
+			if ( '' === trim( (string) ( $id[ $key ] ?? '' ) ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Example hint for a field (Gregatron sample for onboarding UI). */
+	public static function identity_example( $key ) {
+		return (string) ( self::IDENTITY_EXAMPLES[ $key ] ?? '' );
+	}
+
+	/**
+	 * Replace {{channel_name}} style tokens with the saved identity.
+	 *
+	 * @param string $text
+	 * @return string
+	 */
+	public static function expand_prompt( $text ) {
+		$text = (string) $text;
+		$id   = self::identity();
+		$map  = array(
+			'{{channel_name}}'       => $id['channel_name'],
+			'{{channel_short}}'      => $id['channel_short'],
+			'{{creator_name}}'       => $id['creator_name'],
+			'{{brand_tag}}'          => $id['brand_tag'],
+			'{{brand_hashtag}}'      => $id['brand_hashtag'],
+			'{{warning_title}}'      => $id['warning_title'],
+			'{{warning_close}}'      => $id['warning_close'],
+			'{{chapters_heading}}'   => $id['chapters_heading'],
+			'{{channel_logo_brief}}' => $id['channel_logo_brief'],
+		);
+		return strtr( $text, $map );
+	}
+
+	/** Voice / thumb prompt with identity tokens expanded for the model. */
+	public static function prompt_for_ai( $key ) {
+		return self::expand_prompt( self::get( $key ) );
+	}
+
+	/**
+	 * Save identity (+ optional prompts) from a POST array.
+	 * Returns true when required fields are present and identity_complete is set.
+	 *
+	 * @param array $post
+	 * @param bool  $include_prompts Also save the three prompt textareas when present.
+	 * @return bool
+	 */
+	public static function save_identity_from_post( array $post, $include_prompts = true ) {
+		$channel_name = sanitize_text_field( wp_unslash( $post['tw_channel_name'] ?? '' ) );
+		$channel_short = sanitize_text_field( wp_unslash( $post['tw_channel_short'] ?? '' ) );
+		$creator_name = sanitize_text_field( wp_unslash( $post['tw_creator_name'] ?? '' ) );
+		$brand_tag = sanitize_text_field( wp_unslash( $post['tw_brand_tag'] ?? '' ) );
+		$brand_hashtag = sanitize_text_field( wp_unslash( $post['tw_brand_hashtag'] ?? '' ) );
+		$warning_title = sanitize_text_field( wp_unslash( $post['tw_warning_title'] ?? '' ) );
+		$warning_close = sanitize_text_field( wp_unslash( $post['tw_warning_close'] ?? '' ) );
+		$chapters_heading = wp_check_invalid_utf8( (string) wp_unslash( $post['tw_chapters_heading'] ?? '' ) );
+		$chapters_heading = sanitize_text_field( $chapters_heading );
+		$logo_brief = wp_check_invalid_utf8( (string) wp_unslash( $post['tw_channel_logo_brief'] ?? '' ) );
+		$logo_brief = sanitize_textarea_field( $logo_brief );
+
+		if ( '' !== $brand_hashtag && '#' !== substr( $brand_hashtag, 0, 1 ) ) {
+			$brand_hashtag = '#' . ltrim( $brand_hashtag, '#' );
+		}
+		if ( '' === $channel_short && '' !== $channel_name ) {
+			$channel_short = self::guess_short( $channel_name );
+		}
+		if ( '' === $brand_tag && '' !== $channel_name ) {
+			$brand_tag = $channel_name;
+		}
+
+		self::set( 'channel_name', $channel_name );
+		self::set( 'channel_short', $channel_short );
+		self::set( 'creator_name', $creator_name );
+		self::set( 'brand_tag', $brand_tag );
+		self::set( 'brand_hashtag', $brand_hashtag );
+		self::set( 'warning_title', $warning_title );
+		self::set( 'warning_close', $warning_close );
+		self::set( 'chapters_heading', $chapters_heading );
+		self::set( 'channel_logo_brief', $logo_brief );
+
+		if ( $include_prompts ) {
+			if ( array_key_exists( 'tw_prompt', $post ) ) {
+				$prompt = wp_check_invalid_utf8( (string) wp_unslash( $post['tw_prompt'] ) );
+				self::set( 'prompt', $prompt );
+			}
+			if ( array_key_exists( 'tw_thumb_prompt', $post ) ) {
+				$thumb = wp_check_invalid_utf8( (string) wp_unslash( $post['tw_thumb_prompt'] ) );
+				self::set( 'thumb_prompt', $thumb );
+			}
+			if ( array_key_exists( 'tw_thumb_render_prompt', $post ) ) {
+				$render = wp_check_invalid_utf8( (string) wp_unslash( $post['tw_thumb_render_prompt'] ) );
+				self::set( 'thumb_render_prompt', $render );
+			}
+		}
+
+		$complete = '' !== $channel_name
+			&& '' !== $creator_name
+			&& '' !== $brand_hashtag
+			&& '' !== $warning_title
+			&& '' !== $warning_close
+			&& '' !== $chapters_heading
+			&& '' !== $logo_brief;
+
+		self::set( 'identity_complete', $complete ? '1' : '' );
+		return $complete;
+	}
+
+	private static function guess_short( $channel_name ) {
+		$words = preg_split( '/\s+/', trim( (string) $channel_name ) );
+		if ( ! $words ) {
+			return '';
+		}
+		if ( count( $words ) === 1 ) {
+			return strtoupper( substr( $words[0], 0, 2 ) );
+		}
+		$short = '';
+		foreach ( array_slice( $words, 0, 3 ) as $word ) {
+			$short .= strtoupper( substr( $word, 0, 1 ) );
+		}
+		return $short;
+	}
+
+	private static function normalize_identity_value( $key, $value ) {
+		$value = (string) $value;
+		if ( 'chapters_heading' === $key ) {
+			// utf8 (not utf8mb4) stores the stop-sign emoji as ?.
+			$value = str_replace(
+				'? THE CERTIFIED CHRONO SLOP BREAKDOWN ?',
+				'🛑 THE CERTIFIED CHRONO SLOP BREAKDOWN 🛑',
+				$value
+			);
+		}
+		return $value;
+	}
+
 	public static function get( $key ) {
 		$value = TW_Store::get( $key, '' );
 		if ( 'model' === $key && '' === $value ) {
@@ -201,17 +406,24 @@ class TW_Settings {
 			$value = (string) $value;
 			return isset( self::IMAGE_PROVIDERS[ $value ] ) ? $value : TW_DEFAULT_IMAGE_PROVIDER;
 		}
+		if ( in_array( $key, self::IDENTITY_KEYS, true ) ) {
+			return self::normalize_identity_value( $key, (string) $value );
+		}
 		if ( 'prompt' === $key ) {
 			if ( '' === trim( (string) $value ) ) {
 				return self::default_prompt();
 			}
 			// The site connection is utf8, which cannot store the 4-byte stop-sign emoji.
-			// Saving the prompt turns that character into a question mark. Put it back on read.
-			return str_replace(
+			$id = self::identity();
+			$heading = $id['chapters_heading'] !== '' ? $id['chapters_heading'] : self::IDENTITY_EXAMPLES['chapters_heading'];
+			$broken  = preg_replace( '/^🛑|🛑$/u', '?', $heading );
+			$value   = str_replace( (string) $broken, $heading, (string) $value );
+			$value   = str_replace(
 				'? THE CERTIFIED CHRONO SLOP BREAKDOWN ?',
 				'🛑 THE CERTIFIED CHRONO SLOP BREAKDOWN 🛑',
-				(string) $value
+				$value
 			);
+			return $value;
 		}
 		if ( 'thumb_prompt' === $key && '' === trim( (string) $value ) ) {
 			return self::default_thumb_prompt();
@@ -275,25 +487,14 @@ class TW_Settings {
 		$cat = sanitize_text_field( wp_unslash( $post['tw_default_category'] ?? '' ) );
 		self::set( 'default_category', isset( self::CATEGORIES[ $cat ] ) ? $cat : '20' );
 
-		// Prompt is plain text sent to the AI, never rendered as HTML. Keep emoji and quotes intact.
-		$prompt = wp_unslash( $post['tw_prompt'] ?? '' );
-		$prompt = wp_check_invalid_utf8( (string) $prompt );
-		self::set( 'prompt', $prompt );
-
-		$thumb_prompt = wp_unslash( $post['tw_thumb_prompt'] ?? '' );
-		$thumb_prompt = wp_check_invalid_utf8( (string) $thumb_prompt );
-		self::set( 'thumb_prompt', $thumb_prompt );
-
-		$thumb_render = wp_unslash( $post['tw_thumb_render_prompt'] ?? '' );
-		$thumb_render = wp_check_invalid_utf8( (string) $thumb_render );
-		self::set( 'thumb_render_prompt', $thumb_render );
+		self::save_identity_from_post( $post, true );
 	}
 
 	public static function is_configured() {
 		if ( TW_Context::is_user() ) {
-			return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::user_has_ai_key();
+			return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::user_has_ai_key() && self::identity_complete();
 		}
-		return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::get( 'gemini_key' );
+		return self::get( 'client_id' ) && self::get( 'client_secret' ) && self::get( 'gemini_key' ) && self::identity_complete();
 	}
 
 	/** Label for the active thumbnail image provider. */
