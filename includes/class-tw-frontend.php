@@ -30,7 +30,7 @@ class TW_Frontend {
 	public static function activate() {
 		add_role(
 			'tubewriter',
-			'TubeWriter',
+			'UploadWriter',
 			array(
 				'read'         => true,
 				'upload_files' => true,
@@ -105,6 +105,8 @@ class TW_Frontend {
 			exit;
 		}
 
+		if ( 'home' === $view ) { wp_safe_redirect( home_url( '/' ) ); exit; }
+
 		nocache_headers();
 		status_header( 200 );
 		$this->enqueue();
@@ -151,7 +153,9 @@ class TW_Frontend {
 		echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
 		echo '<title>' . esc_html( TW_BRAND ) . '</title>';
 		wp_head();
-		echo '</head><body class="tw-app tw-app--' . esc_attr( $view ) . '">';
+		echo '</head><body class="tw-app uw-site tw-app--' . esc_attr( $view ) . '">';
+		wp_body_open();
+		if ( function_exists( 'uw_brand' ) ) { get_template_part( 'template-parts/uploadwriter-header' ); }
 		echo '<div class="tw-app-bg" aria-hidden="true"></div>';
 		echo '<div id="tw-toasts" class="tw-toasts" aria-live="polite"></div>';
 
@@ -175,25 +179,14 @@ class TW_Frontend {
 			$this->view_home();
 		}
 
+		if ( in_array( $view, array( 'login', 'register' ), true ) ) { echo '<a class="uw-app-home-link" href="' . esc_url( home_url( '/' ) ) . '">&larr; Back to UploadWriter.com</a>'; }
 		wp_footer();
 		echo '</body></html>';
 	}
 
 	private function view_home() {
-		?>
-		<main class="tw-shell tw-shell--auth">
-			<section class="tw-hero-panel tw-auth-center">
-				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
-				<span class="tw-brand-mark" aria-hidden="true"></span>
-				<h1>Write better YouTube metadata without losing control</h1>
-				<p class="tw-lead">Connect your AI key and YouTube, draft titles, descriptions, chapters, tags, and thumbnails, then publish only after review.</p>
-				<div class="tw-cta-row tw-cta-row--center">
-					<a class="tw-btn tw-btn--primary tw-btn--pill" href="<?php echo esc_url( self::url( 'register' ) ); ?>">Create account</a>
-					<a class="tw-btn tw-btn--ghost tw-btn--pill" href="<?php echo esc_url( self::url( 'login' ) ); ?>">Log in</a>
-				</div>
-			</section>
-		</main>
-		<?php
+		wp_safe_redirect( home_url( '/' ) );
+		exit;
 	}
 
 	private function view_login() {
@@ -342,26 +335,21 @@ class TW_Frontend {
 	 * @param string $active videos|schedule|editor|keys.
 	 */
 	private function render_topbar( $active = 'videos' ) {
-		$user = wp_get_current_user();
-		$label = $user->display_name ? $user->display_name : $user->user_login;
-		?>
-		<header class="tw-topbar">
-			<a class="tw-brand tw-brand--link" href="<?php echo esc_url( self::url( 'account' ) ); ?>"><?php echo esc_html( TW_BRAND ); ?></a>
-			<nav class="tw-topnav">
-				<a class="<?php echo 'videos' === $active || 'editor' === $active ? 'is-active' : ''; ?>" href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a>
-				<a class="<?php echo 'schedule' === $active ? 'is-active' : ''; ?>" href="<?php echo esc_url( self::url( 'schedule' ) ); ?>">Schedule</a>
-				<a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys>Keys</a>
-				<span class="tw-userpill"><span class="tw-userpill-dot" aria-hidden="true"></span><?php echo esc_html( $label ); ?></span>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline">
-					<?php wp_nonce_field( 'tw_front_logout' ); ?>
-					<input type="hidden" name="action" value="tw_front_logout">
-					<button type="submit" class="tw-btn tw-btn--ghost tw-btn--small">Log out</button>
-				</form>
-			</nav>
-		</header>
-		<?php
-	}
-
+        // Keep plugin navigation available when another theme is active.
+        if ( ! function_exists( 'uw_brand' ) ) {
+            echo '<a class="tw-brand tw-brand--link" href="' . esc_url( home_url( '/' ) ) . '">' . esc_html( TW_BRAND ) . '</a>';
+        }
+        ?>
+        <div class="uw-workspace-nav">
+            <nav class="uw-workspace-tabs" aria-label="Workspace navigation">
+                <a data-uw-workspace-tab="videos" class="<?php echo in_array( $active, array( 'videos', 'editor' ), true ) ? 'is-active' : ''; ?>" <?php echo in_array( $active, array( 'videos', 'editor' ), true ) ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos"><span aria-hidden="true">▤</span> Videos</a>
+                <a data-uw-workspace-tab="schedule" class="<?php echo 'schedule' === $active ? 'is-active' : ''; ?>" <?php echo 'schedule' === $active ? 'aria-current="page"' : ''; ?> href="<?php echo esc_url( self::url( 'schedule' ) ); ?>"><span aria-hidden="true">▦</span> Schedule</a>
+                <a data-uw-workspace-tab="keys" href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys" data-tw-open-keys><span aria-hidden="true">⚙</span> Keys &amp; connections</a>
+            </nav>
+            <span class="uw-workspace-label">YOUR CHANNEL, IN FOCUS <span aria-hidden="true">✦</span></span>
+        </div>
+        <?php
+    }
 	private function render_workspace( $channel ) {
 		$has_gemini = TW_Store::has( 'gemini_key' );
 		$has_openai = TW_Store::has( 'openai_key' );
@@ -372,15 +360,20 @@ class TW_Frontend {
 		?>
 		<section class="tw-panel tw-workspace-head">
 			<div class="tw-panel-head">
-				<h1>Your workspace</h1>
+				<p class="uw-workspace-eyebrow">YOUR CREATIVE CONTROL ROOM</p><h1>Your video workspace.</h1>
 				<?php if ( $ready ) : ?>
-					<p>Sync your videos and compare AI-generated drafts. Keys and YouTube stay tucked away until you need them.</p>
+					<p>A clearer view of your channel. Find a video, polish the details, and make your next move.</p>
 				<?php else : ?>
 					<p>Save an AI key, connect YouTube, then sync your videos and compare AI drafts in one place.</p>
 				<?php endif; ?>
 			</div>
 		</section>
 
+        <div class="uw-workspace-stats" aria-label="Channel overview">
+            <div class="uw-stat"><span>VIDEOS IN YOUR LIBRARY</span><strong><?php echo esc_html( number_format_i18n( TW_Index::count_all() ) ); ?></strong></div>
+            <div class="uw-stat"><span>ON THE SCHEDULE</span><strong><?php echo esc_html( number_format_i18n( TW_Index::count_scheduled() ) ); ?></strong></div>
+            <div class="uw-stat"><span>CHANNEL CONNECTION</span><strong><?php echo $connected ? 'Connected' : 'Let’s get set up'; ?></strong></div>
+        </div>
 		<details class="tw-setup tw-panel" id="tw-keys"<?php echo $ready ? '' : ' open'; ?>>
 			<summary class="tw-setup-summary">
 				<span class="tw-setup-title"><?php echo $ready ? 'Keys &amp; YouTube' : 'Set up your workspace'; ?></span>
@@ -424,7 +417,7 @@ class TW_Frontend {
 				<div class="tw-card-ui">
 					<h2>YouTube</h2>
 					<?php if ( ! $site_ok ) : ?>
-						<p class="tw-warn">This site still needs a Google OAuth client in the WordPress admin TubeWriter settings. Ask the site owner to finish that once.</p>
+						<p class="tw-warn">This site still needs a Google OAuth client in the WordPress admin UploadWriter settings. Ask the site owner to finish that once.</p>
 					<?php elseif ( $connected ) : ?>
 						<p class="tw-ok-line"><span class="tw-ok-check" aria-hidden="true"></span> Connected<?php echo $channel_label ? ': <strong>' . esc_html( $channel_label ) . '</strong>' : ''; ?></p>
 						<?php if ( TW_OAuth::needs_reconnect() ) : ?>
@@ -456,7 +449,7 @@ class TW_Frontend {
 			</div>
 			<?php
 			if ( ! $ready ) {
-				echo '<div class="tw-card-ui"><p>Add an AI key and connect YouTube above, then sync your uploads.</p></div>';
+				echo '<div class="tw-card-ui"><h3>Your videos will feel right at home here.</h3><p>Add your AI key and connect YouTube above. Then sync your channel to start shaping your next upload.</p></div></section>';
 				return;
 			}
 			$this->render_video_list();

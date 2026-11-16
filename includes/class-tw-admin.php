@@ -26,10 +26,10 @@ class TW_Admin {
 	}
 
 	public function menu() {
-		add_menu_page( 'TubeWriter', 'TubeWriter', self::CAP, 'tubewriter', array( $this, 'page_videos' ), 'dashicons-video-alt3', 26 );
+		add_menu_page( 'UploadWriter', 'UploadWriter', self::CAP, 'tubewriter', array( $this, 'page_videos' ), 'dashicons-video-alt3', 26 );
 		add_submenu_page( 'tubewriter', 'Videos', 'Videos', self::CAP, 'tubewriter', array( $this, 'page_videos' ) );
-		add_submenu_page( 'tubewriter', 'TubeWriter History', 'History', self::CAP, 'tubewriter-history', array( $this, 'page_history' ) );
-		add_submenu_page( 'tubewriter', 'TubeWriter Settings', 'Settings', self::CAP, 'tubewriter-settings', array( $this, 'page_settings' ) );
+		add_submenu_page( 'tubewriter', 'UploadWriter History', 'History', self::CAP, 'tubewriter-history', array( $this, 'page_history' ) );
+		add_submenu_page( 'tubewriter', 'UploadWriter Settings', 'Settings', self::CAP, 'tubewriter-settings', array( $this, 'page_settings' ) );
 	}
 
 	public function assets( $hook ) {
@@ -68,7 +68,7 @@ class TW_Admin {
 		$tz         = wp_timezone_string();
 		?>
 		<div class="wrap tw-wrap">
-			<h1>TubeWriter Settings</h1>
+			<h1>UploadWriter Settings</h1>
 			<?php $this->notice(); ?>
 
 			<div class="tw-card">
@@ -80,7 +80,7 @@ class TW_Admin {
 					<?php endif; ?>
 					<details class="tw-reconnect" <?php echo TW_OAuth::needs_reconnect() ? 'open' : ''; ?>>
 						<summary>Sign in again</summary>
-						<p>Use this when Google asks you to approve TubeWriter again, or when a video says the YouTube connection expired.</p>
+						<p>Use this when Google asks you to approve UploadWriter again, or when a video says the YouTube connection expired.</p>
 						<?php $this->reconnect_steps( 'Sign in again' ); ?>
 					</details>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -120,7 +120,7 @@ class TW_Admin {
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
 								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Other options: <code>gemini-3.6-flash</code>, <code>gemini-3.8-flash</code>. If the model you type here is busy or does not answer, TubeWriter tries <code>gemini-3.5-flash-lite</code>, then <code>gemini-flash-lite-latest</code>. Used for metadata and thumbnail briefs.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Other options: <code>gemini-3.6-flash</code>, <code>gemini-3.8-flash</code>. If the model you type here is busy or does not answer, UploadWriter tries <code>gemini-3.5-flash-lite</code>, then <code>gemini-flash-lite-latest</code>. Used for metadata and thumbnail briefs.</p>
 							</td>
 						</tr>
 						<tr>
@@ -306,7 +306,7 @@ class TW_Admin {
 			return;
 		}
 
-		echo '<div class="wrap tw-wrap"><h1 class="wp-heading-inline">TubeWriter</h1>';
+		echo '<div class="wrap tw-wrap"><h1 class="wp-heading-inline">UploadWriter</h1>';
 		$this->notice();
 		if ( TW_OAuth::needs_reconnect() ) {
 			echo '<div class="notice notice-error"><p>YouTube needs you to sign in again. Open <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a> and use <strong>Sign in again</strong>.</p></div>';
@@ -442,7 +442,7 @@ class TW_Admin {
 						&middot; <button type="button" class="button-link" id="tw-refresh" title="About 1 API unit">Refresh from YouTube</button>
 						&middot; <span class="tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
 					</p>
-					<p class="tw-safe">Nothing on YouTube changes until step 7, where you confirm twice. A backup is saved before every change, and TubeWriter never deletes anything. Thumbnails stay on your computer until you upload them in Studio.</p>
+					<p class="tw-safe">Nothing on YouTube changes until step 7, where you confirm twice. A backup is saved before every change, and UploadWriter never deletes anything. Thumbnails stay on your computer until you upload them in Studio.</p>
 				</div>
 			</div>
 
@@ -480,7 +480,7 @@ class TW_Admin {
 					</span>
 				</div>
 				<textarea id="tw-transcript" rows="12" class="large-text code" placeholder="Pull captions, or paste a transcript (plain text with timestamps, SRT or VTT all work)."></textarea>
-				<p class="description">Pulling captions costs 250 of your 10,000 daily YouTube API units. TubeWriter remembers when a pull already ran, including pulls that found nothing, so old videos are not charged again by accident.</p>
+				<p class="description">Pulling captions costs 250 of your 10,000 daily YouTube API units. UploadWriter remembers when a pull already ran, including pulls that found nothing, so old videos are not charged again by accident.</p>
 
 				<div class="tw-guide" id="tw-guide">
 					<strong>No transcript? Skim the video and fill in the boxes below.</strong>
@@ -529,7 +529,7 @@ class TW_Admin {
 						<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
 					</span>
 				</p>
-				<p class="description">Switching models only changes who writes the draft. YouTube sign-in is separate. If the Gemini model in Settings is busy or does not answer, TubeWriter tries gemini-3.5-flash-lite, then gemini-flash-lite-latest. You can also pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
+				<p class="description">Switching models only changes who writes the draft. YouTube sign-in is separate. If the Gemini model in Settings is busy or does not answer, UploadWriter tries gemini-3.5-flash-lite, then gemini-flash-lite-latest. You can also pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
 			</section>
 
 			<!-- STEP 2 (same page as the source, so the draft can be compared with what it came from) -->
@@ -749,7 +749,7 @@ class TW_Admin {
 					array(
 						'Choose <strong>Don\'t add</strong>, <strong>Add to an existing playlist</strong>, or <strong>Create a new playlist</strong>.',
 						'For a new playlist, type a rough name and click <strong>Polish for SEO</strong>. Edit the result if you want.',
-						'TubeWriter never removes videos from playlists. If you pick the wrong one, remove it in Studio.',
+						'UploadWriter never removes videos from playlists. If you pick the wrong one, remove it in Studio.',
 					)
 				);
 				?>
@@ -824,7 +824,7 @@ class TW_Admin {
 				<h2>Step 6: Review</h2>
 				<?php
 				$help(
-					'Compares what is on YouTube right now with what TubeWriter will write. Nothing has changed yet.',
+					'Compares what is on YouTube right now with what UploadWriter will write. Nothing has changed yet.',
 					array(
 						'Read every <strong>highlighted</strong> row. Left is YouTube now, right is after publishing.',
 						'Fix problems by going back to the step that owns them.',
@@ -853,7 +853,7 @@ class TW_Admin {
 				<div id="tw-confirm">
 					<h3>These changes will be made</h3>
 					<ul id="tw-actions" class="tw-action-list"></ul>
-					<p class="tw-backup-note">Before anything changes, TubeWriter saves the current title, description, tags, category, language and schedule. You can restore them from <strong>Version history</strong> below.</p>
+					<p class="tw-backup-note">Before anything changes, UploadWriter saves the current title, description, tags, category, language and schedule. You can restore them from <strong>Version history</strong> below.</p>
 					<p><label><input type="checkbox" id="tw-ack"> I reviewed these changes in step 6 and want to make them.</label></p>
 					<p><button type="button" class="button button-primary button-hero" id="tw-publish" disabled>Publish changes</button></p>
 				</div>
@@ -892,8 +892,8 @@ class TW_Admin {
 		if ( ! current_user_can( self::CAP ) ) {
 			return;
 		}
-		echo '<div class="wrap tw-wrap"><h1>TubeWriter History</h1>';
-		echo '<p class="description">Every change TubeWriter made, newest first. Open a video to see its backups and restore an older version.</p>';
+		echo '<div class="wrap tw-wrap"><h1>UploadWriter History</h1>';
+		echo '<p class="description">Every change UploadWriter made, newest first. Open a video to see its backups and restore an older version.</p>';
 		$log = TW_History::log_entries();
 		if ( ! $log ) {
 			echo '<div class="tw-card"><p>No changes yet.</p></div></div>';
@@ -1247,7 +1247,7 @@ class TW_Admin {
 		wp_update_post(
 			array(
 				'ID'         => $id,
-				'post_title' => 'TubeWriter reference ' . wp_date( 'Y-m-d g:i a' ),
+				'post_title' => 'UploadWriter reference ' . wp_date( 'Y-m-d g:i a' ),
 			)
 		);
 		wp_send_json_success( $this->thumb_ref_payload( $id ) );
@@ -1334,7 +1334,7 @@ class TW_Admin {
 			wp_send_json_error( 'That saved reference was not found.' );
 		}
 		if ( '1' !== (string) get_post_meta( $id, '_tw_thumb_ref', true ) ) {
-			wp_send_json_error( 'That file is not a TubeWriter reference.' );
+			wp_send_json_error( 'That file is not a UploadWriter reference.' );
 		}
 		$uid = get_current_user_id();
 		if ( $uid && (int) get_post_field( 'post_author', $id ) !== $uid ) {
@@ -2143,7 +2143,7 @@ class TW_Admin {
 	}
 
 	/**
-	 * Delete a TubeWriter-generated thumb file. Never touches Media Library attachments.
+	 * Delete a UploadWriter-generated thumb file. Never touches Media Library attachments.
 	 *
 	 * @param string $file Absolute path.
 	 */
@@ -2240,7 +2240,7 @@ class TW_Admin {
 			<li>
 				<a class="button button-primary" target="_blank" rel="noopener" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
 				opens Google in a new tab. Pick the account that owns the channel and allow access.
-				If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to TubeWriter (unsafe)</strong>.
+				If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to UploadWriter (unsafe)</strong>.
 			</li>
 			<li>Google then opens a <strong>This site can't be reached</strong> page at 127.0.0.1. That is expected. Copy the entire address from the address bar.</li>
 			<li>
@@ -2252,7 +2252,7 @@ class TW_Admin {
 				</form>
 			</li>
 		</ol>
-		<p class="description">This signs TubeWriter into YouTube. It does not fix a busy Gemini or ChatGPT model. A Google Cloud project left in <strong>Testing</strong> makes you do this about every 7 days. To stop that, open Google Auth Platform, go to Audience, and click <strong>Publish app</strong>.</p>
+		<p class="description">This signs UploadWriter into YouTube. It does not fix a busy Gemini or ChatGPT model. A Google Cloud project left in <strong>Testing</strong> makes you do this about every 7 days. To stop that, open Google Auth Platform, go to Audience, and click <strong>Publish app</strong>.</p>
 		<?php
 	}
 
