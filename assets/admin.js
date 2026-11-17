@@ -248,7 +248,7 @@ window.TWAjax = window.TWAjax || {
 		playlists: null,
 		events: null,
 		calMonth: null,      // Date at the 1st of the shown month
-		published: false,
+		published: false,    // true after a successful step-7 publish this session
 		shots: [],           // up to 2 pasted screenshots {mime, data, url}
 		refs: [],            // pasted thumbs saved in the Media Library
 		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } },
@@ -542,16 +542,17 @@ window.TWAjax = window.TWAjax || {
 	}
 
 	function recalledStep() {
-		var fromState = parseInt(saved.step, 10);
-		if (fromState >= 1 && fromState <= 7) {
-			return fromState;
-		}
+		/* localStorage is written on every go(); server step can lag a beat. */
 		try {
 			var n = parseInt(localStorage.getItem(stepStorageKey()), 10);
 			if (n >= 1 && n <= 7) {
 				return n;
 			}
 		} catch (err) {}
+		var fromState = parseInt(saved.step, 10);
+		if (fromState >= 1 && fromState <= 7) {
+			return fromState;
+		}
 		return 1;
 	}
 
@@ -575,27 +576,40 @@ window.TWAjax = window.TWAjax || {
 	function canGo(n) {
 		if (n === 1 || n === 2) { return true; }
 		if (!S.hasDetails) { return false; }
-		if (n === 7) { return !!(S.plan && !S.plan.errors.length && S.plan.actions.length); }
+		if (n === 7) {
+			return S.published || !!(S.plan && !S.plan.errors.length && S.plan.actions.length);
+		}
 		return true;
 	}
 
 	function updateNav() {
 		var onSource = S.step <= 2;
+		var donePublish = S.step === 7 && S.published && !!boot.backUrl;
 		document.querySelectorAll('#tw-stepper button').forEach(function (b) {
 			var n = parseInt(b.getAttribute('data-go'), 10);
-			b.classList.toggle('is-current', n === S.step);
-			b.classList.toggle('is-done', n < S.step && !(onSource && n <= 2));
+			b.classList.toggle('is-current', n === S.step && !S.published);
+			b.classList.toggle('is-done', S.published || (n < S.step && !(onSource && n <= 2)));
 			b.disabled = !canGo(n) && n !== S.step;
 		});
-		el.back.disabled = S.step === 1;
-		el.next.hidden = S.step === 7 || (S.step === 1 && !S.hasDetails);
-		if (S.step === 6) {
+		el.back.disabled = S.step === 1 || donePublish;
+		el.next.hidden = (S.step === 7 && !donePublish) || (S.step === 1 && !S.hasDetails);
+		if (donePublish) {
+			el.next.textContent = 'Done — back to videos →';
+			el.next.disabled = false;
+		} else if (S.step === 6) {
 			el.next.textContent = 'Continue to publish →';
 			el.next.disabled = !canGo(7);
 		} else {
 			el.next.textContent = 'Next →';
 			el.next.disabled = S.step === 1 ? false : !canGo(S.step + 1);
 		}
+	}
+
+	function goBackToVideos() {
+		if (!boot.backUrl) {
+			return;
+		}
+		window.location.href = boot.backUrl;
 	}
 
 	function go(n, opts) {
@@ -613,12 +627,15 @@ window.TWAjax = window.TWAjax || {
 				return;
 			}
 		}
-		if (S.step !== n && S.hasDetails) {
-			saveDraft(true).catch(function () {});
-		}
+		var prev = S.step;
+		var changed = prev !== n;
 		clearMsg();
+		/* Set step before saveDraft so the draft stores the page we landed on. */
 		S.step = n;
 		rememberStep(n);
+		if (changed && S.hasDetails) {
+			saveDraft(true).catch(function () {});
+		}
 		document.querySelectorAll('.tw-step').forEach(function (sec) {
 			var s = parseInt(sec.getAttribute('data-step'), 10);
 			if (n <= 2) {
@@ -641,9 +658,10 @@ window.TWAjax = window.TWAjax || {
 		updateNav();
 		if (!opts.stay) {
 			var target = document.querySelector('.tw-step[data-step="' + n + '"]') || root;
-			/* Steps 1 and 2 share one page. softReveal often no-ops because
-			   step 2 is already partly visible under step 1. Put Details at the top. */
-			if (n === 2) {
+			/* Steps 1 and 2 share one page. Any other move changes pages — pin the
+			   new step to the top. Same-page → Details also scrolls to its heading. */
+			var sharedPage = prev <= 2 && n <= 2;
+			if (!sharedPage || n === 2) {
 				target.scrollIntoView({ block: 'start', behavior: 'smooth' });
 			} else {
 				softReveal(target);
@@ -655,7 +673,13 @@ window.TWAjax = window.TWAjax || {
 		b.addEventListener('click', function () { go(parseInt(b.getAttribute('data-go'), 10)); });
 	});
 	el.back.addEventListener('click', function () { go(S.step - 1); });
-	el.next.addEventListener('click', function () { go(S.step + 1); });
+	el.next.addEventListener('click', function () {
+		if (S.step === 7 && S.published && boot.backUrl) {
+			goBackToVideos();
+			return;
+		}
+		go(S.step + 1);
+	});
 	wire($('tw-save'), 'Saving...', function () { return saveDraft(false); });
 
 	/* Any edit after a review makes it stale, so step 7 needs a fresh one.
@@ -1567,6 +1591,10 @@ window.TWAjax = window.TWAjax || {
 		});
 	}
 
+	var refReturnFocus = null;
+	var refInertSiblings = [];
+	var refBodyOverflow = '';
+
 	function openRef(item) {
 		var box = $('tw-thumb-lightbox');
 		var img = $('tw-thumb-lightbox-img');
@@ -1579,15 +1607,37 @@ window.TWAjax = window.TWAjax || {
 		if (edit) {
 			edit.href = item.edit || item.url;
 		}
-		box.hidden = false;
-		box.dataset.id = String(item.id);
+        if (box.hidden) {
+            refReturnFocus = document.activeElement;
+            refBodyOverflow = document.body.style.overflow;
+            var branch = box;
+            while (branch.parentElement) {
+                Array.prototype.forEach.call(branch.parentElement.children, function (sibling) {
+                    if (sibling !== branch && !sibling.inert) {
+                        refInertSiblings.push(sibling);
+                        sibling.inert = true;
+                    }
+                });
+                branch = branch.parentElement;
+            }
+        }
+        box.hidden = false;
+        box.dataset.id = String(item.id);
+        document.body.style.overflow = 'hidden';
+        var close = $('tw-thumb-lightbox-close');
+        if (close) { close.focus(); }
 	}
 
 	function closeRef() {
 		var box = $('tw-thumb-lightbox');
-		if (box) {
-			box.hidden = true;
-		}
+        if (box && !box.hidden) {
+            box.hidden = true;
+            refInertSiblings.forEach(function (sibling) { sibling.inert = false; });
+            refInertSiblings = [];
+            document.body.style.overflow = refBodyOverflow;
+            if (refReturnFocus && refReturnFocus.isConnected) { refReturnFocus.focus(); }
+            refReturnFocus = null;
+        }
 	}
 
 	function deleteRef(item) {
@@ -1927,11 +1977,22 @@ window.TWAjax = window.TWAjax || {
 			}
 		});
 	}
-	document.addEventListener('keydown', function (e) {
-		if (e.key === 'Escape') {
-			closeRef();
-		}
-	});
+    document.addEventListener('keydown', function (e) {
+        var box = $('tw-thumb-lightbox');
+        if (!box || box.hidden) { return; }
+        if (e.key === 'Escape') { e.preventDefault(); closeRef(); return; }
+        if (e.key !== 'Tab') { return; }
+        var focusable = Array.prototype.filter.call(box.querySelectorAll('a[href],button,input,select,textarea,[tabindex]'), function (node) {
+            return !node.disabled && node.tabIndex >= 0 && node.getClientRects().length > 0;
+        });
+        if (!focusable.length) { e.preventDefault(); return; }
+        var first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && (document.activeElement === first || !box.contains(document.activeElement))) {
+            e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && (document.activeElement === last || !box.contains(document.activeElement))) {
+            e.preventDefault(); first.focus();
+        }
+    });
 	if (el.thumbClear) {
 		el.thumbClear.addEventListener('click', function () {
 			S.shots = [];
@@ -2053,13 +2114,12 @@ window.TWAjax = window.TWAjax || {
 
 	if ($('tw-thumb-describe')) {
 		wire($('tw-thumb-describe'), 'Writing brief...', function () {
-			if (!S.shots.length) {
-				throw new Error('Paste at least one screenshot first.');
-			}
 			if (!warnIfSpent('thumbDescribe', 'a thumbnail brief for this video')) {
 				return null;
 			}
-			say('Reading the screenshots and drafting a thumbnail brief…', 'info');
+			say(S.shots.length
+				? 'Reading the screenshots and drafting a thumbnail brief…'
+				: 'Drafting a thumbnail brief from the title and description…', 'info');
 			return call('thumb_describe', {
 				images: JSON.stringify(shotPayload()),
 				pkg: JSON.stringify(pkgFromForm())
@@ -2074,9 +2134,6 @@ window.TWAjax = window.TWAjax || {
 
 	if ($('tw-thumb-create')) {
 		wire($('tw-thumb-create'), 'Creating thumbnail...', function () {
-			if (!S.shots.length) {
-				throw new Error('Paste at least one screenshot first.');
-			}
 			if (!el.thumbDesc.value.trim()) {
 				throw new Error('Write or generate a thumbnail description first.');
 			}
@@ -2084,8 +2141,13 @@ window.TWAjax = window.TWAjax || {
 				if (!warnIfSpent('thumbGenerate', 'a thumbnail image for this video')) {
 					return null;
 				}
-			} else if (!window.confirm('Create a thumbnail from this description and your pasted screenshots?\n\nThis only generates the image. It does not upload to YouTube yet.')) {
-				return null;
+			} else {
+				var confirmMsg = S.shots.length
+					? 'Create a thumbnail from this description and your pasted screenshots?\n\nThis only generates the image. It does not upload to YouTube yet.'
+					: 'Create a thumbnail from this description (no screenshots pasted)?\n\nThis only generates the image. It does not upload to YouTube yet.';
+				if (!window.confirm(confirmMsg)) {
+					return null;
+				}
 			}
 			var who = (TW.imageProviderLabel || 'the image model');
 			say('Creating the thumbnail with ' + who + '. This can take a minute.', 'info');
@@ -2255,10 +2317,12 @@ window.TWAjax = window.TWAjax || {
 			var ev = byDay[key] || [];
 			var past = key < boot.today;
 			var cls = 'tw-cal-day' + (past ? ' is-past' : '') + (!ev.length && !past ? ' is-open' : '') + (key === picked ? ' is-picked' : '') + (key === boot.today ? ' is-today' : '');
-			html += '<div class="' + cls + '" data-date="' + key + '"><span class="tw-cal-num">' + d + '</span>';
+			html += '<div class="' + cls + '" data-date="' + key + '" role="button" tabindex="' + (past || !canSchedule ? '-1' : '0') + '" aria-disabled="' + (past || !canSchedule ? 'true' : 'false') + '" aria-pressed="' + (key === picked ? 'true' : 'false') + '" aria-label="' + esc(key + ', ' + ev.length + ' uploads') + '"><span class="tw-cal-day-head"><span class="tw-cal-num">' + d + '</span>' + (ev.length ? '<span class="tw-cal-day-count" aria-hidden="true">' + ev.length + '<span class="tw-cal-count-label"> video' + (ev.length === 1 ? '' : 's') + '</span></span>' : '') + '</span>';
 			ev.forEach(function (e) {
 				var mine = e.id === boot.videoId ? ' is-mine' : '';
-				html += '<span class="tw-chip tw-chip-' + e.type + mine + '" title="' + esc(e.time + ' ' + e.title) + '">' + esc(e.time) + ' ' + esc(e.title) + '</span>';
+				var thumb = e.thumb ? '<img class="tw-chip-thumb" src="' + esc(e.thumb) + '" alt="" loading="lazy">' : '';
+                var state = e.type === 'scheduled' ? 'Scheduled' : 'Published';
+                html += '<span class="tw-chip tw-chip-' + e.type + mine + '" title="' + esc(e.time + ' · ' + e.title) + '">' + thumb + '<span class="tw-chip-body"><span class="tw-chip-meta"><span class="tw-chip-state">' + state + '</span><span class="tw-chip-time">' + esc(e.time) + '</span></span><span class="tw-chip-title">' + esc(e.title) + '</span></span></span>';
 			});
 			html += '</div>';
 		}
@@ -2301,6 +2365,16 @@ window.TWAjax = window.TWAjax || {
 		return null;
 	}
 
+    $('tw-cal-grid').addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') { return; }
+        var cell = e.target.closest('.tw-cal-day[data-date]');
+        if (!cell || cell.getAttribute('aria-disabled') === 'true') { return; }
+        e.preventDefault();
+        var key = cell.dataset.date;
+        cell.click();
+        var selected = $('tw-cal-grid').querySelector('[data-date="' + key + '"]');
+        if (selected) { selected.focus({ preventScroll: true }); }
+    });
 	$('tw-cal-grid').addEventListener('click', function (e) {
 		var cell = e.target.closest('.tw-cal-day');
 		if (!cell || !cell.dataset.date || cell.classList.contains('is-past')) {
@@ -2378,6 +2452,11 @@ window.TWAjax = window.TWAjax || {
 	/* ================================================================ step 7 */
 
 	function renderConfirm() {
+		if (S.published) {
+			$('tw-confirm').hidden = true;
+			el.results.hidden = false;
+			return;
+		}
 		$('tw-confirm').hidden = false;
 		el.results.hidden = true;
 		el.ack.checked = false;
@@ -2403,16 +2482,25 @@ window.TWAjax = window.TWAjax || {
 			fingerprint: S.plan.fingerprint
 		}).then(function (d) {
 			S.plan = null;
+			S.published = !!d.ok;
 			$('tw-confirm').hidden = true;
 			el.results.hidden = false;
-			el.results.innerHTML = '<div class="tw-msg tw-msg-' + (d.ok ? 'success' : 'error') + '"><strong>' + esc(d.message) + '</strong></div>' +
+			var back = boot.backUrl ? '<a class="button button-primary button-hero" href="' + esc(boot.backUrl) + '">Done — back to videos</a> ' : '';
+			el.results.innerHTML = '<div class="tw-msg tw-msg-' + (d.ok ? 'success' : 'error') + '"><strong>' + esc(d.message) + '</strong>' +
+				(d.ok ? '<p class="tw-done-lead">You\'re finished here. Head back to your videos, or open Studio for game title and end screen.</p>' : '') +
+				'</div>' +
 				'<ul class="tw-result-list">' + d.results.map(function (r) {
 					return '<li class="' + (r.ok ? 'ok' : 'bad') + '">' + (r.ok ? '✔ ' : '✖ ') + esc(r.text) + '</li>';
 				}).join('') + '</ul>' +
-				'<p><a class="button" href="' + esc(boot.studioUrl) + '" target="_blank" rel="noopener">Check it in Studio</a> ' +
+				'<p class="tw-done-actions">' + (d.ok ? back : '') +
+				'<a class="button" href="' + esc(boot.studioUrl) + '" target="_blank" rel="noopener">Check it in Studio</a> ' +
 				'<button type="button" class="button" data-restore="' + esc(d.backup) + '">Undo this publish</button></p>';
 			renderHistory(d.history);
 			updateNav();
+			softReveal(el.results);
+			if (d.ok && el.next && !el.next.hidden) {
+				el.next.classList.add('tw-next-pulse');
+			}
 		});
 	});
 

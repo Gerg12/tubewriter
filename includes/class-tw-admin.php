@@ -41,8 +41,8 @@ class TW_Admin {
 			wp_enqueue_media();
 			$script_deps[] = 'media-editor';
 		}
-		wp_enqueue_style( 'tubewriter', TW_URL . 'assets/admin.css', array(), TW_VERSION );
-		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $script_deps, TW_VERSION, true );
+		wp_enqueue_style( 'tubewriter', TW_URL . 'assets/admin.css', array(), filemtime( TW_DIR . 'assets/admin.css' ) );
+		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $script_deps, filemtime( TW_DIR . 'assets/admin.js' ), true );
 		wp_localize_script(
 			'tubewriter',
 			'TW',
@@ -245,7 +245,7 @@ class TW_Admin {
 
 				<div class="tw-card">
 					<h2>6. Thumbnail brief prompt</h2>
-					<p class="description">Gemini reads the title, description, transcript and screenshots, then writes a thumbnail concept: hook text, picture-in-picture, avatar, channel logo and game logo. JSON rules are added automatically.</p>
+					<p class="description">Gemini reads the title, description, transcript and any pasted screenshots, then writes a thumbnail concept: hook text, picture-in-picture, channel logo and game logo. Screenshots are optional. JSON rules are added automatically.</p>
 					<textarea name="tw_thumb_prompt" rows="24" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_prompt' ) ); ?></textarea>
 				</div>
 
@@ -439,6 +439,7 @@ class TW_Admin {
 			'publishAtLocal' => $snap['publishAt'] ? array( 'date' => wp_date( 'Y-m-d', strtotime( $snap['publishAt'] ) ), 'time' => wp_date( 'H:i', strtotime( $snap['publishAt'] ) ) ) : null,
 			'state'     => is_array( $state ) ? $state : array(),
 			'studioUrl' => $studio,
+			'backUrl'   => $back_url,
 			'defaults'  => array(
 				'time'     => TW_Settings::get( 'default_time' ),
 				'language' => TW_Settings::get( 'default_language' ),
@@ -654,10 +655,10 @@ class TW_Admin {
 				<h2>Step 3: Thumbnail</h2>
 				<?php
 				$help(
-					'Optional. Paste up to two gameplay screenshots. Gemini writes a packaged thumbnail concept from the shots plus your title, description and transcript, then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
+					'Optional. Screenshots are optional. Gemini writes a packaged thumbnail concept from your title, description and transcript (plus any pasted shots), then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
 					array(
-						'Press <strong>Ctrl+V</strong> to paste a screenshot. First paste is the main background. Second paste is the picture-in-picture. Saved in the Media Library for this video.',
-						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, your avatar and channel logo, and the game logo. The hook does not repeat the title.',
+						'Paste screenshots if you have them: <strong>Ctrl+V</strong> or Add image. First paste is the main background. Second is the picture-in-picture. Saved in the Media Library for this video. Skip this if you want a text-only concept.',
+						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, channel logo and game logo. The hook does not repeat the title.',
 						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
 						'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below. Use <strong>Remove logo</strong> or <strong>Remove thumbnail</strong> to clear the wrong one.',
 						'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Download or Open in Studio only if you will finish the upload yourself. Skip this step anytime with Next.',
@@ -666,8 +667,8 @@ class TW_Admin {
 				?>
 				<p class="description" id="tw-thumb-provider">Image provider: <strong><?php echo esc_html( TW_Settings::image_provider_label() ); ?></strong>. Change it in Settings.</p>
 				<div id="tw-thumb-zone" class="tw-thumb-zone" tabindex="0" role="button" aria-label="Paste screenshot area">
-					<p class="tw-thumb-zone-title">Paste screenshots here</p>
-					<p class="description">Press Ctrl+V while this box is focused, or click Add image. First image is the main background. Second is the picture-in-picture. Max two.</p>
+					<p class="tw-thumb-zone-title">Paste screenshots here (optional)</p>
+					<p class="description">Optional. Press Ctrl+V while this box is focused, or click Add image. First image is the main background. Second is the picture-in-picture. Max two. Skip this and write from title and description alone.</p>
 					<div id="tw-thumb-shots" class="tw-thumb-shots"></div>
 					<div class="tw-inline">
 						<button type="button" class="button" id="tw-thumb-add">Add image</button>
@@ -825,7 +826,7 @@ class TW_Admin {
 					array(
 						'Choose <strong>Publish now</strong> to make it public as soon as you confirm in step 7.',
 						'Choose <strong>Schedule it</strong> to pick a future date and time, or <strong>Leave as is</strong> to keep it private (or keep the current schedule) and only update the details.',
-						'Click a day on the calendar. <span class="tw-key tw-key-sched">Orange</span> is already scheduled, <span class="tw-key tw-key-pub">green</span> is already published, empty days are open.',
+						'Click a day on the calendar. <span class="tw-key tw-key-sched">Scheduled</span> and <span class="tw-key tw-key-pub">Published</span> labels show existing uploads, empty days are open.',
 						'Scheduled times start at your default from Settings (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( wp_timezone_string() ) . ').',
 					)
 				);
@@ -847,15 +848,16 @@ class TW_Admin {
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label><br><span class="description">Stays private (or keeps the current schedule). Only the details change.</span></p>
 						</div>
 					</div>
-					<div class="tw-cal">
+					<div class="tw-cal uw-calendar tw-editor-calendar">
 						<div class="tw-cal-head">
-							<button type="button" class="button" id="tw-cal-prev">&larr;</button>
+							<button type="button" class="button" id="tw-cal-prev" aria-label="Previous month">&larr;</button>
 							<strong id="tw-cal-title"></strong>
-							<button type="button" class="button" id="tw-cal-next">&rarr;</button>
+							<button type="button" class="button" id="tw-cal-next" aria-label="Next month">&rarr;</button>
 							<button type="button" class="button-link" id="tw-cal-next-open">Next available</button>
 							<button type="button" class="button-link" id="tw-cal-refresh">Refresh from YouTube</button>
 						</div>
-						<div class="tw-cal-grid" id="tw-cal-grid"></div>
+						<p class="tw-editor-calendar-hint">Select a future date to schedule this video. On small screens, scroll across to see the full week.</p>
+						<div class="tw-calendar-scroll" role="region" aria-label="Publishing calendar, scroll horizontally on small screens" tabindex="0"><div class="tw-cal-grid" id="tw-cal-grid" role="group" aria-label="Choose a publishing date"></div></div>
 					</div>
 				</div>
 			</section>
@@ -887,7 +889,7 @@ class TW_Admin {
 						'Read the list of changes.',
 						'Tick the box to confirm you reviewed them.',
 						'Click <strong>Publish changes</strong>, then confirm once more in the pop-up.',
-						'Afterwards, finish the manual steps in Studio (thumbnail, game title and end screen).',
+						'When it finishes, use <strong>Done — back to videos</strong> to return to your library. You can still open Studio for game title and end screen.',
 					)
 				);
 				?>
@@ -2032,10 +2034,7 @@ class TW_Admin {
 
 	private function images_from_post() {
 		$raw = json_decode( wp_unslash( $_POST['images'] ?? '' ), true ); // phpcs:ignore
-		if ( ! is_array( $raw ) ) {
-			return new WP_Error( 'tw_ai', 'Paste at least one screenshot first.' );
-		}
-		return $raw;
+		return is_array( $raw ) ? $raw : array();
 	}
 
 	/**

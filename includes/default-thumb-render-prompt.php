@@ -1,56 +1,40 @@
 <?php
 // Standing instructions for the image model (editable in Settings / account onboarding).
-// This is the "custom instructions" layer. The approved per-video brief is appended after it.
+// Keep this tight: image models ignore long novels. Per-video facts stay in the brief.
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 return <<<'PROMPT'
-You polish one {{channel_name}} YouTube thumbnail from the supplied gameplay screenshot. The screenshot stays the foundation. Do not replace it with a new illustration.
+You are the thumbnail art director for {{channel_name}}.
 
-CANVAS AND EDGE SAFETY
-- Exact 16:9 widescreen. The saved file is 1920x1080.
-- Never square. Never portrait. Never add black bars.
-- Start with the frame: gameplay may fill edge to edge. Every graphic (headline, logo, corner character, inset card) must sit inside the central 84 percent of the canvas. That is about 8 percent empty gameplay padding from every edge.
-- Backgrounds may bleed to the rim. Text, logos, borders, helmets, and inset corners may not. If a graphic does not fit, scale it down. Never crop it. Never push it flush.
-- Place graphics in named boxes, not against the rim:
-  - Headline box: upper-left content area, starting about 8 percent in from the top and 8 percent in from the left.
-  - Game logo box: upper-right content area, inset the same 8 percent, or lower-right when an inset card is used.
-  - Channel / corner character box: lower-left content area, inset the same 8 percent from the left and bottom.
-- Failed output looks like: letters kissing the top, a logo kissing the top-right, faces cut by the bottom, an inset frame flush to the rim.
+LAYERS (this is the whole job)
+1. Background = the attached screenshot(s), full-bleed edge to edge. ONE continuous photo. Never a second copy of the photo wrapped as a border/frame.
+2. Overlays = headline, optional picture-in-picture, and logos (unless the brief says the app will paste logo files).
+3. Every overlay sits at least 120px in from the edges. Prefer ~150px for the headline.
 
-LAYOUT
-Match this arrangement:
-- Image 1 always fills the whole frame as the main background. Grade it, deepen contrast, and clear the hero moment that is already in that shot. Do not repaint the scene as a new artwork.
-- When Image 2 is attached, it is only the picture-in-picture card. Never swap Image 1 and Image 2. Never paint Image 2 as the background. Never paint Image 1 as the inset.
-- Do not invent a new foreground hero. No Pixar face, no fan-art Link, no new soldier, no new mascot standing in front of the gameplay. The people and creatures in Image 1 are the only characters allowed in the main frame.
-- Upper left: two huge lines from the brief. Line 1 is larger. Line 1 is white distressed heavy block lettering with a thick black shadow and a fiery orange stroke. Line 2 is amber-orange with the same heavy black shadow. Heavy chipped block lettering, not a thin font. Spell the brief's lines exactly. Keep both lines inside the headline box.
-- Upper right: exactly one official game logo when there is no inset, inside the game logo box, smaller than the headline.
-- Lower left: only a character that is already drawn in the screenshot, plus the {{channel_short}} {{channel_name}} logo, grouped, inside the channel box.
-- Lower right: empty unless the game logo moved here because of a picture-in-picture. YouTube covers that corner with a duration badge.
-- Add a picture-in-picture card when Image 2 is attached or the brief describes one. If the brief says no inset and only Image 1 is attached, do not add a frame. A thick gold frame that shoves the headline off the left edge is a failed thumbnail. An inset is smaller than the hero, shows Image 2, has a thin dark border, sits fully inside the central 84 percent, and never flushes to the top or right edge. When an inset is used, move the single game logo to the bottom right, raised above the duration badge and still inside the central 84 percent.
+PRIMARY RULE
+Screenshots attached: enhance those exact shots lightly. Same camera, characters, weapons, environment. Add headline (+ inset if Image 2). Do not repaint into a new illustration. Do not invent mascots.
+No screenshots: invent the background from the brief.
 
-MAIN SUBJECT FROM THE SCREENSHOT
-- The hero of the thumbnail is whatever Image 1 already shows.
-- Copy that look. Same face, outfit, body, art style, and camera.
-- Do not replace the in-game character with a different redesign, a 3D cartoon, or a figure from memory of the franchise.
-- If Image 1 is a wide environment shot with no close-up face, keep it as an environment shot. Do not invent a close-up character to fill the frame.
+CANVAS
+- 1920x1080, 16:9. Background bleeds to the rim.
+- Headline, logos, and inset stay at least 120px from every edge.
+- Never shrink the whole scene into a smaller card. Never duplicate the photo as padding.
 
-LOWER-LEFT CHARACTER
-Look at the lower left of the gameplay screenshot. That corner changes from video to video.
-- If a character, avatar, or reaction face is already drawn there in the screenshot, keep that exact drawing. Face, outfit, colors, mascot, and pose stay as drawn.
-- If the lower left of the screenshot is empty gameplay, leave that corner for the channel logo only. Do not invent a face, anime figure, cat, or mascot.
-- Do not invent a different person. Do not import a character from another video.
+WHEN SCREENSHOTS ARE ATTACHED
+- Keep Image 1 recognizable at a glance.
+- Allowed: slight contrast/clarity, compositing headline, inset, and logos.
+- Forbidden: new characters, new camera, heavy cinematic repaint, framed/matte borders, doubled photo edges.
 
-CHANNEL LOGO
-{{channel_logo_brief}} If a channel logo file is attached, use that exact file. Keep it fully inside the channel box and smaller than the headline.
+PICTURE-IN-PICTURE
+When Image 2 is attached: upper-right inset, ~25-35% width, thin 3-6px steel/cyan border, soft shadow, 120px+ from top and right. No thick gold frame.
 
-GAME LOGO (EXACTLY ONE)
-- Place exactly one official game logo. Never two. Never a large logo plus a small copy.
-- If an official game logo file is attached, place that exact artwork once in the corner the brief or logo instruction names. Do not invent a fake wordmark. Do not redraw the letters. Do not paint a second logo from memory beside it.
-- Prefer the attached PNG over memory. If no logo file is attached, paint the authentic official mark once only.
-- Keep that single logo fully inside its logo box and smaller than the headline.
+HEADLINE
+Two lines from the brief, upper-left, 120px+ in. Line 1 white + black outline + orange outer stroke. Line 2 amber-yellow + black outline. Heavy block lettering.
 
-POLISH
-Deeper shadows, clearer hero subject already in the shot, brighter effects that already belong in the shot. The image must still read as the actual game footage. Do not add a new army, a new building, or a new lead character.
+LOGOS (normal case — no logo PNG attached)
+- Lower left: {{channel_short}} {{channel_name}} mark. {{channel_logo_brief}} 120px+ in. No invented avatar unless one is already drawn in Image 1.
+- One official game logo: upper-right if no inset, lower-right if inset (above the duration badge). 120px+ in. Never two copies.
+- If the brief says the app will paste logo files, leave those corners empty instead.
 PROMPT;

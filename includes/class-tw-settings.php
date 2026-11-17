@@ -197,6 +197,16 @@ class TW_Settings {
 			|| false !== strpos( $brief, 'safe zone at least 140px from every edge' )
 			|| false !== strpos( $brief, 'safe zone at least 160px from every edge' )
 			|| false !== strpos( $brief, 'A picture-in-picture inset only when a second screenshot shows a different moment' )
+			|| false !== strpos( $brief, 'The target layout is a polished gameplay card, not a poster' )
+			|| false !== strpos( $brief, 'The target layout is a polished ChatGPT-style gameplay card' )
+			|| (
+				false !== strpos( $brief, 'You look at up to two gameplay screenshots plus the draft title, description and transcript.' )
+				&& false === strpos( $brief, 'channel logo only, UNLESS' )
+			)
+			|| (
+				false !== strpos( $brief, 'Describe only what the screenshots show.' )
+				&& false === strpos( $brief, 'Prefer attached screenshots when present' )
+			)
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
 		}
@@ -216,6 +226,27 @@ class TW_Settings {
 			|| false !== strpos( $render, 'at least 160px inward from every edge' )
 			|| false !== strpos( $render, 'Edge padding is the top priority after the gameplay shot' )
 			|| false !== strpos( $render, 'Add a picture-in-picture card only when the brief describes one' )
+			|| false !== strpos( $render, 'thin dark border, sits fully inside the central 84 percent' )
+			|| false !== strpos( $render, 'thin light border and a soft drop shadow' )
+			|| false !== strpos( $render, 'about 8 percent empty gameplay between each graphic and the frame' )
+			|| false !== strpos( $render, 'Controlled cinematic S-curve, selective clarity on the hero subject' )
+			|| false !== strpos( $render, 'REAL GAMEPLAY + cinematic polish + clear story + bold typography' )
+			|| (
+				false !== strpos( $render, 'You polish one {{channel_name}} YouTube thumbnail from the supplied gameplay screenshot. The screenshot stays the foundation. Do not replace it with a new illustration.' )
+				&& false === strpos( $render, 'When no screenshot is attached' )
+			)
+			|| false !== strpos( $render, 'WHEN SCREENSHOTS ARE ATTACHED (ENHANCE ONLY)' )
+			|| false !== strpos( $render, 'Controlled cinematic S-curve' )
+			|| false !== strpos( $render, 'Corner logos are pasted later by the app. Do not paint channel or game logos.' )
+			|| (
+				false === strpos( $render, 'LOGOS (normal case — no logo PNG attached)' )
+				&& (
+					false !== strpos( $render, 'LAYERS (this is the whole job)' )
+					|| false !== strpos( $render, 'TARGET LOOK' )
+					|| false !== strpos( $render, 'LOWER-LEFT BRANDING' )
+					|| false !== strpos( $render, 'You are the thumbnail art director' )
+				)
+			)
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}

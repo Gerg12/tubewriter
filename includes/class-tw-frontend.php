@@ -130,9 +130,9 @@ class TW_Frontend {
 			$deps[] = 'media-editor';
 		}
 
-		wp_enqueue_style( 'tubewriter-front', TW_URL . 'assets/front.css', array(), TW_VERSION );
-		wp_enqueue_style( 'tubewriter-admin', TW_URL . 'assets/admin.css', array( 'tubewriter-front' ), TW_VERSION );
-		wp_enqueue_script( 'tubewriter-front', TW_URL . 'assets/front.js', array(), TW_VERSION, true );
+		wp_enqueue_style( 'tubewriter-front', TW_URL . 'assets/front.css', array(), filemtime( TW_DIR . 'assets/front.css' ) );
+		wp_enqueue_style( 'tubewriter-admin', TW_URL . 'assets/admin.css', array( 'tubewriter-front' ), filemtime( TW_DIR . 'assets/admin.css' ) );
+		wp_enqueue_script( 'tubewriter-front', TW_URL . 'assets/front.js', array(), filemtime( TW_DIR . 'assets/front.js' ), true );
 		// Localize onto front.js so TW exists before that file runs (Schedule calendar, etc.).
 		wp_localize_script(
 			'tubewriter-front',
@@ -148,7 +148,7 @@ class TW_Frontend {
 				'scheduleUrl'        => self::url( 'schedule' ),
 			)
 		);
-		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, TW_VERSION, true );
+		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, filemtime( TW_DIR . 'assets/admin.js' ), true );
 	}
 
 	private function render( $view ) {
@@ -157,8 +157,11 @@ class TW_Frontend {
 		echo '<meta name="viewport" content="width=device-width, initial-scale=1">';
 		echo '<title>' . esc_html( TW_BRAND ) . '</title>';
 		wp_head();
-		echo '</head><body class="tw-app uw-site tw-app--' . esc_attr( $view ) . '">';
+		// The library gets its own layout scope so marketing, editor and schedule stay independent.
+		$library_class = ( 'account' === $view && empty( $_GET['video'] ) ) ? ' tw-app--videos' : '';
+		echo '</head><body class="tw-app uw-site tw-app--' . esc_attr( $view ) . esc_attr( $library_class ) . '">';
 		wp_body_open();
+		echo '<a class="skip-link screen-reader-text" href="#primary">Skip to content</a>';
 		if ( function_exists( 'uw_brand' ) ) { get_template_part( 'template-parts/uploadwriter-header' ); }
 		echo '<div class="tw-app-bg" aria-hidden="true"></div>';
 		echo '<div id="tw-toasts" class="tw-toasts" aria-live="polite"></div>';
@@ -195,7 +198,7 @@ class TW_Frontend {
 
 	private function view_login() {
 		?>
-		<main class="tw-shell tw-shell--auth">
+		<main id="primary" tabindex="-1" class="tw-shell tw-shell--auth">
 			<section class="tw-auth-card tw-auth-center">
 				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
@@ -218,7 +221,7 @@ class TW_Frontend {
 
 	private function view_register() {
 		?>
-		<main class="tw-shell tw-shell--auth">
+		<main id="primary" tabindex="-1" class="tw-shell tw-shell--auth">
 			<section class="tw-auth-card tw-auth-center">
 				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
@@ -248,7 +251,7 @@ class TW_Frontend {
 		$channel = TW_Store::get( 'channel', array() );
 		$this->render_topbar( $video ? 'editor' : 'videos' );
 		?>
-		<main class="tw-shell tw-shell--account">
+		<main id="primary" tabindex="-1" class="tw-shell tw-shell--account">
 			<?php
 			if ( $video ) {
 				$this->render_editor( $video );
@@ -275,11 +278,11 @@ class TW_Frontend {
 			'scheduled' => $scheduled,
 		);
 		?>
-		<main class="tw-shell tw-shell--account tw-shell--schedule">
+		<main id="primary" tabindex="-1" class="tw-shell tw-shell--account tw-shell--schedule">
 			<section class="tw-panel tw-workspace-head">
 				<div class="tw-panel-head">
 					<h1>Schedule</h1>
-					<p>Browse scheduled and published uploads by day. Click a day to drill into those posts, then open one to edit.</p>
+					<p>Browse scheduled and published uploads by day. Click a day to review its posts above the calendar, then open one to edit.</p>
 				</div>
 			</section>
 
@@ -297,35 +300,32 @@ class TW_Frontend {
 				</section>
 			<?php else : ?>
 				<section class="tw-panel" id="tw-schedule" data-boot="<?php echo esc_attr( wp_json_encode( $boot ) ); ?>">
-					<div class="tw-help">
-						<p><strong>What this page does:</strong> Shows when your uploads go public, from the local index (zero YouTube units until you refresh).</p>
-						<p><strong>What to do:</strong></p>
-						<ol>
-							<li>Click a day. <span class="tw-key tw-key-sched">Orange</span> is scheduled, <span class="tw-key tw-key-pub">green</span> is already published.</li>
-							<li>Use the day panel to open a post in the editor.</li>
-							<li>Times use your site timezone (<?php echo esc_html( wp_timezone_string() ); ?>).</li>
-						</ol>
-					</div>
+                    <div class="tw-help tw-schedule-intro">
+                        <p><strong>Your publishing calendar, in focus.</strong> Select a date to see its videos and open one to edit.</p>
+                        <div class="tw-schedule-legend" aria-label="Video status legend">
+                            <span class="tw-schedule-legend-item tw-schedule-legend-scheduled">Scheduled</span>
+                            <span class="tw-schedule-legend-item tw-schedule-legend-published">Published</span>
+                            <span class="tw-schedule-timezone">Times in <?php echo esc_html( wp_timezone_string() ); ?></span>
+                        </div>
+                    </div>
+					<aside class="tw-sched-day" id="tw-sched-day" aria-live="polite">
+						<h2 id="tw-sched-day-heading">Pick a day</h2>
+						<p class="tw-muted" id="tw-sched-day-empty">Click a day on the calendar to see its posts.</p>
+						<div class="tw-sched-day-list" id="tw-sched-day-list" hidden></div>
+					</aside>
 
-					<div class="tw-sched-page-layout">
-						<div class="tw-cal tw-sched-cal">
-							<div class="tw-cal-head">
-								<button type="button" class="tw-btn tw-btn--small" id="tw-sched-prev" aria-label="Previous month">&larr;</button>
-								<strong id="tw-sched-title"></strong>
-								<button type="button" class="tw-btn tw-btn--small" id="tw-sched-next" aria-label="Next month">&rarr;</button>
-								<button type="button" class="tw-btn tw-btn--ghost tw-btn--small" id="tw-sched-refresh">Refresh from YouTube</button>
-							</div>
-							<div class="tw-cal-grid" id="tw-sched-grid" role="grid" aria-label="Publishing calendar">
-								<p class="tw-muted">Loading schedule…</p>
-							</div>
-							<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+					<div class="tw-cal tw-sched-cal uw-calendar">
+						<div class="tw-cal-head">
+							<button type="button" class="tw-btn tw-btn--small" id="tw-sched-prev" aria-label="Previous month">&larr;</button>
+							<strong id="tw-sched-title"></strong>
+							<button type="button" class="tw-btn tw-btn--small" id="tw-sched-next" aria-label="Next month">&rarr;</button>
+							<button type="button" class="tw-btn tw-btn--ghost tw-btn--small" id="tw-sched-refresh">Refresh from YouTube</button>
 						</div>
-
-						<aside class="tw-sched-day" id="tw-sched-day" aria-live="polite">
-							<h2 id="tw-sched-day-heading">Pick a day</h2>
-							<p class="tw-muted" id="tw-sched-day-empty">Click a day on the calendar to see its posts.</p>
-							<div class="tw-sched-day-list" id="tw-sched-day-list" hidden></div>
-						</aside>
+						<p class="tw-schedule-mobile-hint">Dates show video counts. Select a day for full titles and thumbnails above.</p>
+						<div class="tw-cal-grid" id="tw-sched-grid" role="group" aria-label="Publishing calendar">
+							<p class="tw-muted">Loading schedule…</p>
+						</div>
+						<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
 					</div>
 				</section>
 			<?php endif; ?>
@@ -670,7 +670,7 @@ class TW_Frontend {
 			<button class="tw-btn tw-btn--primary" type="submit">Search</button>
 		</form>
 
-		<div class="tw-tabs" role="tablist" aria-label="Filter by visibility">
+		<nav class="tw-tabs" aria-label="Filter videos by visibility">
 			<?php
 			$tabs = array( '' => 'All', 'public' => 'Public', 'unlisted' => 'Unlisted', 'private' => 'Private', 'scheduled' => 'Scheduled', 'draft' => 'Draft' );
 			foreach ( $tabs as $key => $label ) {
@@ -685,15 +685,16 @@ class TW_Frontend {
 				);
 				$cls = ( (string) $visibility === (string) $key ) ? ' is-active' : '';
 				printf(
-					'<a class="tw-tab%s" href="%s">%s <span>(%s)</span></a>',
+					'<a class="tw-tab%s" href="%s"%s>%s <span>(%s)</span></a>',
 					esc_attr( $cls ),
 					esc_url( $url ),
+					$cls ? ' aria-current="page"' : '',
 					esc_html( $label ),
 					esc_html( number_format_i18n( $count ) )
 				);
 			}
 			?>
-		</div>
+		</nav>
 
 		<div class="tw-sortbar" aria-label="Sort videos">
 			<span class="tw-sortbar-label">Sort</span>
@@ -876,7 +877,7 @@ class TW_Frontend {
 		// Avoid registering admin menus twice when Admin was already constructed for AJAX bootstrap.
 		$admin = new TW_Admin();
 		echo '<div class="tw-editor-shell">';
-		$admin->page_editor( $video_id, self::url( 'account' ) );
+		$admin->page_editor( $video_id, self::url( 'account' ) . '#tw-videos' );
 		echo '</div>';
 	}
 
@@ -1122,3 +1123,4 @@ class TW_Frontend {
 		return null;
 	}
 }
+

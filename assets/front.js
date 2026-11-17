@@ -127,7 +127,7 @@
 	});
 })();
 
-/* Schedule page: month calendar + day drill-down into posts. */
+/* Schedule page: month calendar + day drill-down above the grid. */
 (function () {
 	'use strict';
 
@@ -157,6 +157,7 @@
 	var dayHeading = document.getElementById('tw-sched-day-heading');
 	var dayEmpty = document.getElementById('tw-sched-day-empty');
 	var dayList = document.getElementById('tw-sched-day-list');
+	var dayPanel = document.getElementById('tw-sched-day');
 	var events = null;
 	var calMonth = null;
 	var picked = '';
@@ -208,6 +209,9 @@
 	}
 
 	function renderDay() {
+		if (!dayHeading || !dayEmpty || !dayList) {
+			return;
+		}
 		if (!picked) {
 			dayHeading.textContent = 'Pick a day';
 			dayEmpty.hidden = false;
@@ -266,7 +270,7 @@
 			(byDay[e.date] = byDay[e.date] || []).push(e);
 		});
 		var html = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(function (d) {
-			return '<div class="tw-cal-dow">' + d + '</div>';
+			return '<div class="tw-cal-dow"><span class="tw-cal-dow-full">' + d + '</span><span class="tw-cal-dow-short">' + d.slice(0, 2) + '</span></div>';
 		}).join('');
 		var first = new Date(m.getFullYear(), m.getMonth(), 1);
 		var days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
@@ -282,11 +286,18 @@
 				(!ev.length && !past ? ' is-open' : '') +
 				(key === picked ? ' is-picked' : '') +
 				(key === boot.today ? ' is-today' : '');
-			html += '<div class="' + cls + '" data-date="' + key + '" role="gridcell" tabindex="0"><span class="tw-cal-num">' + d + '</span>';
+			html += '<div class="' + cls + '" data-date="' + key + '" role="button" tabindex="0"' + (key === boot.today ? ' aria-current="date"' : '') + ' aria-pressed="' + (key === picked ? 'true' : 'false') + '" aria-label="' + esc(key + ', ' + ev.length + ' uploads') + '">' +
+				'<span class="tw-cal-day-head"><span class="tw-cal-num">' + d + '</span>' +
+                (ev.length ? '<span class="tw-cal-day-count" aria-hidden="true">' + ev.length + '<span class="tw-cal-count-label"> video' + (ev.length === 1 ? '' : 's') + '</span></span>' : '') + '</span>';
 			ev.forEach(function (e) {
 				var focus = e.id === focusId ? ' is-focus' : '';
-				html += '<span class="tw-chip tw-chip-' + esc(e.type) + focus + '" data-id="' + esc(e.id) + '" title="' + esc(e.time + ' ' + e.title) + '">' +
-					esc(e.time) + ' ' + esc(e.title) + '</span>';
+				var thumb = e.thumb
+					? '<img class="tw-chip-thumb" src="' + esc(e.thumb) + '" alt="" loading="lazy" decoding="async">'
+					: '';
+				html += '<span class="tw-chip tw-chip-' + esc(e.type) + focus + '" data-id="' + esc(e.id) + '" title="' + esc(e.time + ' · ' + e.title) + '">' +
+					thumb +
+					'<span class="tw-chip-body"><span class="tw-chip-meta"><span class="tw-chip-state">' + (e.type === 'scheduled' ? 'Scheduled' : 'Published') + '</span><span class="tw-chip-time">' + esc(e.time || '') + '</span></span>' +
+                    '<span class="tw-chip-title">' + esc(e.title) + '</span></span></span>';
 			});
 			html += '</div>';
 		}
@@ -300,8 +311,7 @@
 		var parts = key.split('-');
 		calMonth = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
 		renderCalendar();
-		var dayPanel = document.getElementById('tw-sched-day');
-		if (dayPanel && window.matchMedia && window.matchMedia('(max-width: 900px)').matches) {
+		if (dayPanel) {
 			dayPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 		}
 	}
@@ -368,7 +378,12 @@
 			return;
 		}
 		e.preventDefault();
-		pickDay(cell.getAttribute('data-date'), '');
+		var key = cell.getAttribute('data-date');
+		pickDay(key, '');
+		var selected = grid.querySelector('[data-date="' + key + '"]');
+		if (selected) {
+			selected.focus({ preventScroll: true });
+		}
 	});
 
 	document.getElementById('tw-sched-prev').addEventListener('click', function () {
