@@ -1,0 +1,33 @@
+.icon-box {
+	height: 30px;
+	width: 30px;
+	display: block;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: contain;
+	@include transition;
+}
+
+.icon-twitter {
+	background-color: white;
+	background-image: img('icon-twitter.svg');
+
+	&:focus,
+	&:hover {
+		background-color:#F4F9FD;
+	}
+}
+
+.icon-linkedin {
+	background-color: white;
+	background-image: img('icon-linkedin.svg');
+
+	&:focus,
+	&:hover {
+		background-color: #F4F9FD;
+	}
+}
+
+.footer-social__icon-box a:first-child {
+ margin-right: 15px;
+}

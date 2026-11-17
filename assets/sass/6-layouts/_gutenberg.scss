@@ -1,0 +1,99 @@
+// Admin Styles 
+#nav-menus-frame {
+	h2, h3 {
+		font-size: 16px !important;
+	}
+}
+.block-editor {
+
+	.wp-block {
+		max-width: 95% !important;
+	}
+
+	.wp-block[data-align="wide"] {
+		max-width: 1280px;
+	}
+
+	.wp-block-group{
+		// border: 4px dashed black;
+		padding:10px;
+
+		.wp-block-group {
+			padding:0;
+			border: none;
+		}
+	}
+
+	.wp-block-spacer,
+	[data-title="Spacer"] {
+		background-color: #e3e3e3;
+	}
+
+	.login form {
+		border-radius: 13px;
+	}
+
+}
+
+// Block front end styles.
+
+body .wp-block-group__inner-container,
+body .wp-block-cover__inner-container {
+
+	@include container;
+}
+
+body .wp-block-group,
+body .wp-block-cover {
+	padding: 35px 15px;
+
+	@include tablet-up {
+		padding: 50px $gutter;
+	}
+
+	.wp-block-group,
+	.wp-block-cover {
+		padding: 0;
+	}
+}
+
+
+body .gutter-lg {
+	padding-top: 45px;
+	padding-bottom: 45px;
+
+	@include tablet-up {
+		padding-top: 100px;
+		padding-bottom: 100px;
+	}
+}
+
+.max-width-small {
+	max-width: 654px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+#lottie-container {
+	max-width: 350px;
+	margin: 0 auto;
+}
+
+.no-top-padding {
+	padding-top: 1px !important;
+}
+
+.wp-block-button__link {
+
+	@include transition;
+
+	&:hover {
+		color: $white;
+		background-color: $buttonHover;
+		transform: scale(1.03);
+	}
+}
+
+.margin-bottom-0 {
+	margin-bottom: 0 !important;
+}

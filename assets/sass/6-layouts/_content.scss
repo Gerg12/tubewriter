@@ -1,0 +1,24 @@
+.content-wrap {
+	display: flex;
+	flex-wrap: wrap;
+	width: 100%;
+}
+
+.page-content {
+	background: #f4f4f4;
+}
+
+.page-content main {
+	max-width: 100%;
+
+	@include tablet-up {
+		flex: 3;
+	}
+}
+
+.page-content aside {
+	
+	@include tablet-up {
+		flex: 1;
+	}
+}

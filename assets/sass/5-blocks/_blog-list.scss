@@ -1,0 +1,143 @@
+.blog-list-inner {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+body .blog-list__item-link {
+	text-decoration: none;
+}
+
+.blog-list__title {
+	color: #000;
+	text-align: center;
+	font-family: $font2;
+	font-style: normal;
+	font-weight: 400;
+	line-height: normal;
+	font-size: 44px;
+	margin-bottom: 105px;
+
+	@include tablet-up	 {
+		font-size: 64px;
+	}
+}
+
+.blog-list__wrapper {
+	display: flex;
+	flex-wrap: wrap;
+	width: calc(100% + 15px);
+	margin: -15px;
+}
+
+.blog-list__item {
+	width: 100%;
+  @include mobile-up {
+    width: 50%;
+  }
+  @include tablet-up {
+    width: 33.333%;
+  }
+  padding: 15px;
+}
+
+.blog-list__image-box {
+	aspect-ratio: 547/333;
+	position: relative;
+	margin-bottom: 35px;
+}
+
+.blog-list__image-box img {
+	position: absolute;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.blog-list-repeater__item-title {
+	color: #000;
+	font-family: $font2;
+	font-size: 24px;
+	font-style: normal;
+	font-weight: 400;
+	line-height: 1.3;
+	margin-bottom: 10px;
+}
+
+.blog-list__podcast-icon {
+	position: relative;
+	margin-bottom: 30px;
+}
+
+.blog-list-repeater__item-date {
+	color: $colorPrimary;
+	font-size: 18px;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 32px;
+	margin-bottom: 30px;
+}
+
+.blog-list-repeater__item-text p {
+	color: $black;
+	font-size: 18px;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 10px;
+}
+
+.blog-list-section .pagination {
+	display: inline-flex;
+	justify-content: center;
+	align-items: center;
+	text-align: center;
+	font-size: 24px;
+	font-style: normal;
+	font-weight: 500;
+	line-height: 32px;
+	width: 100%;
+	margin-top: 50px;
+}
+
+.blog-list-section .page-numbers {
+	margin-left: 6px;
+	margin-right: 6px;
+	font-weight: 500;
+	text-decoration: none;
+	display: block;
+	color: black;
+}
+
+.blog-list-section .page-numbers.current {
+	color: $colorPrimary;
+}
+
+.prev.page-numbers,
+.next.page-numbers {
+	background-image: img('next-icon.svg');
+	background-repeat: no-repeat;
+	color: transparent !important;
+	background-size: contain;
+	height: 40px;
+	width: 40px;
+}
+
+.prev.page-numbers {
+	background-image: img('prev-icon.svg');
+}
+
+.next.page-numbers {
+	background-image: img('next-icon.svg');
+}
+
+
+.blog-list__item-inner {
+	background-color: white;
+	box-shadow: 0 1px 1px 0 rgba(164,164,164,.11);
+	height: 100%;
+}
+
+.text-container-inner {
+	padding: 10px;
+}

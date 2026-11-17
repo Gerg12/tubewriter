@@ -1,0 +1,149 @@
+.graphic-block-section {
+  background-color: #111827;
+}
+
+/* Hero Section */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 4rem 0; /* Less padding on mobile */
+  display: flex;
+  align-items: center;
+  text-align: center; /* Center text on mobile */
+}
+
+.hero-content {
+  margin: 0 auto; /* Center content block */
+}
+
+.hero-content h1 {
+  font-size: clamp(2.25rem, 8vw, 3rem); /* Responsive font size */
+}
+
+.hero-content p {
+  font-size: 1.125rem;
+  color: var(--color-text-med);
+  max-width: 32rem;
+  margin: 1.5rem auto 2.5rem;
+}
+
+.hero-imagery {
+  display: none;
+}
+
+/* Desktop and up: Two-column hero with imagery */
+@media (min-width: 1024px) {
+  .hero {
+    padding: 5rem 0;
+    min-height: calc(100vh - 81px);
+    text-align: left;
+  }
+  .hero .grid {
+    align-items: center;
+  }
+  .hero-content {
+    margin: 0;
+  }
+  .hero-content h1 {
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+  }
+  .hero-content p {
+    margin: 1.5rem 0 2.5rem;
+  }
+  .hero-imagery {
+    display: block;
+    position: relative;
+  }
+  .hero-imagery .floating-element {
+    position: absolute;
+    will-change: transform;
+  }
+}
+/* ANIMATIONS (can be kept as is, they don't affect layout) */
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+#hero::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(79, 70, 229, 0.1), transparent 40%);
+  animation: rotate 20s linear infinite;
+}
+
+@keyframes float-up-down {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+@keyframes float-sway {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(15px) rotate(5deg);
+  }
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+}
+@keyframes orbit {
+  from {
+    transform: rotate(0deg) translateX(75px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(75px) rotate(-360deg);
+  }
+}
+@keyframes comet-trail {
+  0% {
+    transform: translateX(300px) translateY(-150px) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  80% {
+    transform: translateX(-300px) translateY(150px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.hero-imagery .anim-float-1 {
+  animation: float-up-down 6s ease-in-out infinite;
+}
+
+.hero-imagery .anim-float-2 {
+  animation: float-sway 8s ease-in-out infinite;
+}
+
+.hero-imagery .anim-orbit-1 {
+  animation: orbit 12s linear infinite;
+}
+
+.hero-imagery .anim-orbit-2 {
+  animation: orbit 15s linear infinite reverse;
+  animation-delay: 1s;
+}
+
+.hero-imagery .anim-comet {
+  animation: comet-trail 7s ease-in-out infinite;
+  animation-delay: 2s;
+}
+/*# sourceMappingURL=graphic-block.css.map */

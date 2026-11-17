@@ -1,23 +1,22 @@
 <?php
 /**
- * Plugin Name: UploadWriter
- * Description: Pulls a YouTube video's transcript, writes the title, description, chapters, tags and hashtags with Gemini, and pushes them back to YouTube. Bring your own Google and Gemini credentials.
- * Version: 2.8.0
- * Author: Gregory S Johnson LLC
- * Requires at least: 6.0
- * Requires PHP: 7.4
- * License: GPL-2.0-or-later
- * Text Domain: tubewriter
+ * UploadWriter app bootstrap (lives in the theme; was a standalone plugin).
+ *
+ * Public product name: UploadWriter. Working title / code: TubeWriter / tubewriter.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Old plugin still active: skip so classes are not declared twice.
+if ( defined( 'TW_VERSION' ) ) {
+	return;
+}
+
 define( 'TW_VERSION', '2.8.0' );
-define( 'TW_DIR', plugin_dir_path( __FILE__ ) );
-define( 'TW_URL', plugin_dir_url( __FILE__ ) );
-// Public product name (uploadwriter.com). Working title and code stay TubeWriter / tubewriter.
+define( 'TW_DIR', trailingslashit( get_template_directory() ) . 'inc/tubewriter/' );
+define( 'TW_URL', trailingslashit( get_template_directory_uri() ) . 'inc/tubewriter/' );
 define( 'TW_BRAND', 'UploadWriter' );
 
 // Desktop OAuth clients accept any loopback redirect. Nothing listens here on purpose:
@@ -45,17 +44,39 @@ require_once TW_DIR . 'includes/class-tw-index.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
 
-register_activation_hook( __FILE__, array( 'TW_Settings', 'activate' ) );
-register_activation_hook( __FILE__, array( 'TW_Index', 'maybe_install' ) );
-register_activation_hook( __FILE__, array( 'TW_Frontend', 'activate' ) );
-register_deactivation_hook( __FILE__, array( 'TW_Settings', 'deactivate' ) );
-
 add_action( TW_Settings::CRON_CLEANUP_THUMBS, function () {
 	require_once TW_DIR . 'includes/class-tw-admin.php';
 	TW_Admin::cleanup_generated_thumbs();
 } );
 
-add_action( 'plugins_loaded', function () {
+/**
+ * One-time / theme-switch setup (replaces plugin activation hooks).
+ */
+function tw_theme_activate() {
+	TW_Settings::activate();
+	TW_Index::maybe_install();
+	if ( ! get_role( 'tubewriter' ) ) {
+		add_role(
+			'tubewriter',
+			'UploadWriter',
+			array(
+				'read'         => true,
+				'upload_files' => true,
+			)
+		);
+	}
+	TW_Frontend::register_rewrites();
+	flush_rewrite_rules();
+	update_option( 'tw_front_rewrite', TW_VERSION, false );
+}
+add_action( 'after_switch_theme', 'tw_theme_activate' );
+
+add_action( 'switch_theme', array( 'TW_Settings', 'deactivate' ) );
+
+/**
+ * Boot the app. Safe to call after plugins_loaded (theme functions.php timing).
+ */
+function tw_bootstrap() {
 	TW_Settings::maybe_upgrade_prompt();
 	TW_Settings::maybe_upgrade_thumb_prompts();
 	TW_Settings::schedule_thumb_cleanup();
@@ -74,15 +95,19 @@ add_action( 'plugins_loaded', function () {
 
 	new TW_Frontend();
 
-	// Flush rewrites on init only. $wp_rewrite is null during plugins_loaded.
 	if ( get_option( 'tw_front_rewrite' ) !== TW_VERSION ) {
 		update_option( 'tw_front_rewrite', TW_VERSION, false );
 		update_option( 'tw_flush_rewrite', 1, false );
 	}
 
-	// admin-ajax.php reports is_admin(), so AJAX handlers stay available to the front app.
 	if ( is_admin() ) {
 		require_once TW_DIR . 'includes/class-tw-videos-table.php';
 		new TW_Admin();
 	}
-} );
+}
+
+if ( did_action( 'plugins_loaded' ) ) {
+	tw_bootstrap();
+} else {
+	add_action( 'plugins_loaded', 'tw_bootstrap' );
+}

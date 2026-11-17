@@ -1,0 +1,146 @@
+.flex-cards__wrapper {
+	// padding: 60px 15px 74px;
+	background-color: #404041;
+}
+
+.flex-cards__inner {
+	// max-width: 1278px;
+	margin-left: auto;
+	margin-right: auto;
+
+	// @include tablet-up {
+	// 	display: flex;
+	// }
+}
+
+.flex-cards__block-title {
+	background: #FDB813;
+	font-size: 20px;
+	display: inline-flex;
+	min-width: 170px;
+	min-height: 50px;
+	text-align: center;
+	text-transform: uppercase;
+	justify-content: center;
+	align-items: center;
+	margin-bottom: 70px;
+	padding-right: 25px;
+	padding-left: 25px;
+}
+
+.flex-cards__block-text {
+	color: #fff;
+	font-size: 20px;
+	line-height: 1.5;
+	margin-bottom: 52px;
+	display: block;
+}
+
+.flex-cards__block-link {
+	color: #FDB813;
+	text-transform: uppercase;
+	text-decoration: none;
+	font-weight: 600;
+	margin-left: auto;
+	margin-top: 32px;
+	display: block;
+	text-align: right;
+
+	&:hover {
+		color: #ffce5c;
+	}
+}
+
+.flex-cards__grid {
+	display: flex;
+	flex-wrap: wrap;
+	// margin: -15px;
+	// width: calc(100% + 30px);
+}
+
+.flex-cards__item {
+	// padding: 15px;
+	// min-height: 150px;
+	text-decoration: none;
+	width: 100%;
+	aspect-ratio: 634/308;
+	
+	@media(min-width: 860px) {
+		width: 50%;
+	}
+
+	@media(min-width: 1360px) {
+		width: 33.333%;
+	}
+}
+
+.flex-cards__item-inner {
+	background-color: #6DB4B6;
+	height: 100%;
+	width: 100%;
+	position: relative;
+	padding: 24px 30px;
+	overflow: hidden;
+	transition: all 0.3s ease-in-out;
+
+	&:hover {
+		&:before {
+			opacity: 1;
+		}
+		
+		.flex-cards__title {
+			opacity: 1;
+			transform: translateY(-50%);
+		}
+	}
+
+	&:before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background-color: rgba(0, 0, 0, 0.7);
+		z-index: 999;
+		opacity: 0;
+		transition: opacity 0.3s ease-in-out;
+	}
+}
+
+.flex-cards__image {
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	top: 0;
+	left: 0;
+	object-fit: cover;
+	opacity: 0;
+	transition: opacity 0.5s ease-in-out;
+	
+	&.active {
+		opacity: 1;
+	}
+}
+
+.flex-cards__column-inner {
+	max-width: 400px;
+}
+
+.flex-cards__title {
+	color: white;
+	font-size: 24px;
+	font-weight: 600;
+	text-decoration: none;
+	position: absolute;
+	width: 100%;
+	text-align: center;
+	top: 50%;
+	left: 0;
+	padding: 0 30px;
+	opacity: 0;
+	transform: translateY(20px);
+	transition: all 0.3s ease-in-out;
+	z-index: 1;
+	z-index: 999;
+}

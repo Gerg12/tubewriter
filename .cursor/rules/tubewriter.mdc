@@ -1,9 +1,9 @@
 ---
-description: TubeWriter plugin architecture and safety rules
+description: TubeWriter / UploadWriter app architecture and safety rules
 alwaysApply: true
 ---
 
-Read CLAUDE.md in the plugin root before changing anything. It is the full architecture doc.
+Read `inc/tubewriter/CLAUDE.md` in the tubwriter theme before changing anything. It is the full architecture doc. The app lives in the theme, not as a plugin.
 
 Non-negotiable safety rules for this codebase:
 

@@ -1,0 +1,107 @@
+:root {
+	--largeDesktop: 1350px;
+	--smallDesktop: 1200px;
+	--desktop: 1024px;
+	--navBreak: 901px;
+	--block: 782px;
+	--tablet: 768px;
+	--mobile: 600px;
+	--smallMobile: 480px;
+
+	--gutter: 25px;
+	--container: 1300px;
+
+	--assetPath: "../../assets/images";
+
+	--color-primary: #4F46E5; 
+	--color-secondary: #0a709d; 
+	--color-tertiary: #454545;
+	--color-4: #a8dadc; 
+	--color-5: #f1faee; 
+	--color-6: #1d3557;
+	--color-7: #c4c4c4; 
+	--color-8: #edf6f9;
+	--text-color: #040b1e;
+	--color-primary-dark: #4338CA;
+	--color-dark-bg: #111827;
+	--color-dark-card: #1F2937;
+	--color-dark-border: #374151;
+	--color-text-light: #E5E7EB;
+	--color-text-med: #9CA3AF;
+	--color-text-dark: #6B7280;
+	--color-accent-green: #10B981;
+	--color-accent-yellow: #FBBF24;
+	--color-accent-red: #EF4444;
+
+
+
+	// Font Family
+	--font-family--1: "Roboto", sans-serif;
+	--font-family--2: "Playfair Display", serif;
+
+	--font-primary: 'Inter', sans-serif;
+	--font-mono: 'Roboto Mono', monospace;
+
+	--container-width: 1100px;
+	--container-padding: 1.5rem;
+	
+	--border-radius-sm: 0.375rem;
+	--border-radius-lg: 0.75rem;
+}
+
+@keyframes wiggle {
+	0% {
+			transform: rotate(10deg);
+	}
+	25% {
+			transform: rotate(-10deg);
+	}
+	50% {
+			transform: rotate(10deg);
+	}
+	75% {
+			transform: rotate(-10deg);
+	}
+	100% {
+			transform: rotate(10deg);
+	}
+}
+
+$colorPrimary: var(--color-primary);
+$colorSecondary: var(--color-secondary);
+$colorTertiary: var(--color-tertiary);
+$color4: var(--color-4);
+$color5: var(--color-5);
+$color6: var(--color-6);
+$color7: var(--color-7);
+$color8: var(--color-8);
+$textColor: var(--text-color);
+$white: #fff;
+$black: #000;
+
+$buttonHover: #CC5B3D;
+$buttonHover2: #FFF8F6;
+$buttonHover3: #2576B7;
+$buttonHover4: #F4F9FD;
+
+// Fonts
+$font1: var(--font-family--1);
+$font2: var(--font-family--2);
+
+
+$gutter: 25px;
+$container: 1320px;
+$containerSmall: 914px;
+$blockGap: var(--block-gap);
+$headerHeight: 95px;
+
+
+//  Breakpoints
+$largeDesktop: 1350px;
+$smallDesktop: 1220px;
+$desktop: 1024px;
+$navBreak: 1064px;
+$block: 782px;
+$tablet: 768px;
+$mobile: 600px;
+$smallMobile: 480px;

@@ -1,0 +1,45 @@
+a {
+	color: var(--color-primary);
+	text-decoration: none;
+	transition: color 0.3s ease;
+}
+a:hover {
+	color: var(--color-primary-dark);
+}
+
+.btn {
+	display: inline-block;
+	padding: 0.75rem 1.5rem; /* Slightly less padding on mobile */
+	border-radius: var(--border-radius-sm);
+	font-weight: 600;
+	text-align: center;
+	transition: all 0.3s ease;
+	border: 1px solid transparent;
+	cursor: pointer;
+}
+@media (min-width: 768px) {
+	.btn {
+			padding: 0.75rem 2rem;
+	}
+}
+/* ... button styles */
+.btn-primary {
+	background-color: var(--color-primary);
+	color: #ffffff;
+	box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
+}
+.btn-primary:hover {
+	background-color: var(--color-primary-dark);
+	transform: translateY(-2px);
+	box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
+	color: #fff;
+}
+.btn-secondary {
+	background-color: transparent;
+	color: var(--color-text-light);
+	border-color: var(--color-dark-border);
+}
+.btn-secondary:hover {
+	background-color: var(--color-dark-card);
+	border-color: var(--color-text-med);
+}

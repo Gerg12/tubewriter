@@ -1,118 +1,80 @@
-# TubeWriter
+[![Build Status](https://travis-ci.org/Automattic/_s.svg?branch=master)](https://travis-ci.org/Automattic/_s)
 
-Pulls a YouTube video's transcript, has Gemini write the title, description, chapters, tags and hashtags in your channel's voice, and pushes them back to the video. Runs on your own local WordPress site with your own Google credentials. Nothing goes through anyone else's server.
+_s
+===
 
-## Install
+Hi. I'm a starter theme called `_s`, or `underscores`, if you like. I'm a theme meant for hacking so don't use me as a Parent Theme. Instead try turning me into the next, most awesome, WordPress theme out there. That's what I'm here for.
 
-1. In LocalWP, create a site (any name, any domain).
-2. In WP Admin go to **Plugins > Add New > Upload Plugin**, upload `tubewriter.zip`, activate.
-3. Do the one-time setup below, then open **TubeWriter > Settings**.
+My ultra-minimal CSS might make me look like theme tartare but that means less stuff to get in your way when you're designing your awesome theme. Here are some of the other more interesting things you'll find here:
 
-## One-time setup (about 15 minutes)
+* A modern workflow with a pre-made command-line interface to turn your project into a more pleasant experience.
+* A just right amount of lean, well-commented, modern, HTML5 templates.
+* A custom header implementation in `inc/custom-header.php`. Just add the code snippet found in the comments of `inc/custom-header.php` to your `header.php` template.
+* Custom template tags in `inc/template-tags.php` that keep your templates clean and neat and prevent code duplication.
+* Some small tweaks in `inc/template-functions.php` that can improve your theming experience.
+* A script at `js/navigation.js` that makes your menu a toggled dropdown on small screens (like your phone), ready for CSS artistry. It's enqueued in `functions.php`.
+* 2 sample layouts in `sass/layouts/` made using CSS Grid for a sidebar on either side of your content. Just uncomment the layout of your choice in `sass/style.scss`.
+Note: `.no-sidebar` styles are automatically loaded.
+* Smartly organized starter CSS in `style.css` that will help you to quickly get your design off the ground.
+* Full support for `WooCommerce plugin` integration with hooks in `inc/woocommerce.php`, styling override woocommerce.css with product gallery features (zoom, swipe, lightbox) enabled.
+* Licensed under GPLv2 or later. :) Use it to make something cool.
 
-### A. Google Cloud project (free)
+Installation
+---------------
 
-1. Go to https://console.cloud.google.com and create a new project, for example `TubeWriter`.
-2. **APIs & Services > Library**: search **YouTube Data API v3** and click **Enable**.
-3. Open **Google Auth Platform** (search "Google Auth Platform" in the top bar) and click **Get started**.
-   - App name: `TubeWriter`. Support email: your Gmail.
-   - Audience: **External**.
-   - Contact email: your Gmail. Agree and **Create**.
-4. **Audience** page: under Test users, **Add users** and add the Gmail that owns your YouTube channel.
-5. **Data Access** page: **Add or remove scopes**, add `https://www.googleapis.com/auth/youtube.force-ssl`, save.
-6. **Clients** page: **Create client**, type **Desktop app**, name it `TubeWriter`, **Create**.
-   Copy the **Client ID** and **Client Secret**. The secret is only shown once.
-7. On the **Audience** page click **Publish app** (switch Testing to Production). No review is needed for this.
-   In Testing mode Google logs you out of TubeWriter every 7 days. After publishing you will see a
-   "Google hasn't verified this app" warning when you connect. It is your own app, so click
-   **Advanced > Go to TubeWriter (unsafe)** and continue. You only do this once.
+### Requirements
 
-### B. Gemini API key (free)
+`_s` requires the following dependencies:
 
-1. Go to https://aistudio.google.com and sign in.
-2. Click **Get API key > Create API key**. Copy it.
+- [Node.js](https://nodejs.org/)
+- [Composer](https://getcomposer.org/)
 
-Free tier note: Google may use free-tier prompts and responses to improve its products. Your transcripts are for videos you're publishing anyway.
+### Quick Start
 
-### C. Connect TubeWriter
+Clone or download this repository, change its name to something else (like, say, `megatherium-is-awesome`), and then you'll need to do a six-step find and replace on the name in all the templates.
 
-1. **TubeWriter > Settings**: paste Client ID, Client Secret and Gemini key. **Save settings**.
-2. Click **Connect YouTube**. A Google sign-in tab opens. Pick your channel's account and allow access.
-3. Google then sends you to a **"This site can't be reached"** page at `127.0.0.1`. That's expected.
-   Copy the whole address from the address bar, paste it into the box in Settings, click **Finish connecting**.
-4. Set your timezone under **Settings > General** so schedules land at the right time.
+1. Search for `'_s'` (inside single quotations) to capture the text domain and replace with: `'megatherium-is-awesome'`.
+2. Search for `_s_` to capture all the functions names and replace with: `megatherium_is_awesome_`.
+3. Search for `Text Domain: _s` in `style.css` and replace with: `Text Domain: megatherium-is-awesome`.
+4. Search for <code>&nbsp;_s</code> (with a space before it) to capture DocBlocks and replace with: <code>&nbsp;Megatherium_is_Awesome</code>.
+5. Search for `_s-` to capture prefixed handles and replace with: `megatherium-is-awesome-`.
+6. Search for `_S_` (in uppercase) to capture constants and replace with: `MEGATHERIUM_IS_AWESOME_`.
 
-## Using it
+Then, update the stylesheet header in `style.css`, the links in `footer.php` with your own information and rename `_s.pot` from `languages` folder to use the theme's slug. Next, update or delete this readme.
 
-### Videos page
+### Setup
 
-Your video list is stored on your WordPress site, so searching and filtering never touch your YouTube quota.
+To start using all the tools that come with `_s`  you need to install the necessary Node.js and Composer dependencies :
 
-- First time: click **Full sync**. It reads 50 videos per call (2 units per 50, so 1,000 videos is about 40 units) and shows progress. If it stops, everything synced so far is kept.
-- After uploading new videos: **Quick sync** grabs the newest 100 for about 4 units.
-- Tabs filter by visibility: All, Public, Unlisted, Private, Scheduled, Draft.
-- The filter bar has Title contains, visibility, a views range, TubeWriter status (not started, draft ready, published) and rows per page.
-- Studio drafts: YouTube's API has no Draft status, so TubeWriter treats private (unscheduled) videos as drafts. Use **Compare drafts** to move already-indexed private uploads into Draft and add only the ones still missing. It does not re-sync the whole channel.
-- The search box looks in titles and descriptions.
-- Click the Video, Date, Views or Length headings to sort. Page controls are at the top and bottom.
-- View counts update when you sync.
+```sh
+$ composer install
+$ npm install
+```
 
-### Editor
+### Available CLI commands
 
-Open **TubeWriter > Videos** and click **Edit** on a video. The editor walks you through 7 steps, each with its own instructions at the top. **Nothing on YouTube changes until step 7.** **Save draft** is in the bar at the bottom, and drafts also save every time you change steps.
+`_s` comes packed with CLI commands tailored for WordPress theme development :
 
-1. **Source.** Pull captions or paste a transcript, check the starting title and description, add notes. Click **Generate with AI**, or **Fill in by hand** to edit what is on YouTube now.
-2. **Details.** Title, description, chapters, hashtags, tags, category and language. Use **Tweak it with AI** for changes.
-3. **Thumbnail (optional).** Paste up to two screenshots with Ctrl+V, let Gemini write a thumbnail brief, edit it, then **Create thumbnail** with OpenAI or Gemini (set the provider and API key in Settings). **Upload to YouTube** pushes it live (about 50 API units, needs a verified channel), or download and upload in Studio. Skip with Next if you do not need one.
-4. **Playlist.** Don't add, add to an existing playlist, or create a new one (**Polish for SEO** writes the title and description).
-5. **Go live.** Choose **Publish now** to make it public when you confirm in step 7, **Schedule it** and click a day on the calendar, or **Leave as is** to keep it private and only update the details. Orange is already scheduled, green is already published. Private videos only.
-6. **Review.** What is on YouTube now next to what it will be after publishing. Red errors block publishing.
-7. **Publish.** Read the list of changes, tick the box, click **Publish changes**, confirm the pop-up. Then set the game title and end screen in Studio (YouTube's API can't set those). Thumbnails can be uploaded from step 3.
+- `composer lint:wpcs` : checks all PHP files against [PHP Coding Standards](https://developer.wordpress.org/coding-standards/wordpress-coding-standards/php/).
+- `composer lint:php` : checks all PHP files for syntax errors.
+- `composer make-pot` : generates a .pot file in the `languages/` directory.
+- `npm run compile:css` : compiles SASS files to css.
+- `npm run compile:rtl` : generates an RTL stylesheet.
+- `npm run watch` : watches all SASS files and recompiles them to css when they change.
+- `npm run lint:scss` : checks all SASS files against [CSS Coding Standards](https://developer.wordpress.org/coding-standards/wordpress-coding-standards/css/).
+- `npm run lint:js` : checks all JavaScript files against [JavaScript Coding Standards](https://developer.wordpress.org/coding-standards/wordpress-coding-standards/javascript/).
+- `npm run bundle` : generates a .zip archive for distribution, excluding development and system files.
 
-## Safety
+Now you're ready to go! The next step is easy to say, but harder to do: make an awesome WordPress theme. :)
 
-- A backup of the current title, description, tags, category, language and schedule is saved before every publish.
-- **Version history** in step 7 lists every backup. **Restore this version** puts it back, and backs up the current version first so you can undo the undo.
-- If the video changed in Studio after your review, publishing stops and asks you to review again.
-- Editing anything after the review locks step 7 until you review again.
-- TubeWriter never deletes videos, playlists or playlist entries.
-- **TubeWriter > History** lists every change across all videos.
+Good luck!
 
-## Rules TubeWriter enforces before pushing
+Homepage hero slider: edit the Hero block's optional Hero slides repeater to customize slide labels, headlines, descriptions, photos, and captions (up to five slides). Leaving it empty uses the three bundled creator slides; the original hero fields customize the first default slide. The primary CTA remains shared across slides. The carousel uses native JavaScript and existing responsive WebP assets, without an additional slider library.
 
-- Chapters: first at 0:00, at least 3, each 10+ seconds apart, none past the end. It fixes these automatically and tells you what it changed.
-- Title: 100 characters max. Description: 5000 bytes max (emoji count as 4).
-- Tags: 500 characters total, capped at 8 (aim for 4 to 6). Generic tags and near-duplicates are dropped. Warnings only, not blockers.
-- Hashtags: capped at 3 (only 3 show above the title). Extras are trimmed with a warning.
-- Description body: warnings if it opens with the warning block or a link, looks like a keyword list, runs over 1,500 characters, or has a truncated GG Algorithm Warning.
-- No `<` or `>` (YouTube rejects them).
+Homepage feature, workflow, and CTA blocks use the cinematic homepage design. Their original ACF fields remain supported. Decorative SVGs are rendered by `uw_float_art()` and use the shared global palette, with responsive positioning, reduced-motion support, and a page-level decorative-motion pause control.
 
-## Quota
+Browser and sharing identity is configured in `inc/brand.php`. The charcoal pen favicon set includes SVG, a multi-resolution ICO, PNGs, an Apple touch icon, and a web manifest. `assets/brand/uploadwriter-social.png` is the 1200×630 public Open Graph/X card. All metadata URLs follow WordPress's configured site URL; app links use generic branding rather than private video content. WordPress Site Icon is also set in this local database for admin/login screens. Regenerate raster artwork with `planning/generate-brand-assets.ps1` from the project root. Public social preview testing requires deployment to a publicly reachable domain; existing chat previews may remain cached.
 
-YouTube gives each Google Cloud project 10,000 units a day, reset at midnight Pacific.
+Identity differentiation: the shared header/footer, favicons, WordPress Site Icon, and social card use a charcoal pen mark with a red underline. The wordmark treats Writer in editorial italic type. Workspace tabs use slate filled selection instead of a red underline, and owned promotional graphics avoid play-triangle brand marks. Red remains the shared accent. This is a visual differentiation pass, not trademark clearance or a complete YouTube API branding-compliance audit. Reference: https://developers.google.com/youtube/terms/branding-guidelines
 
-| Action | Units |
-|---|---|
-| Open a video in the editor | 1 |
-| Pull captions | 250 |
-| Review | 1 |
-| Publish | 51, plus 51 to add to a playlist, plus 50 to create one |
-| Full sync | 2 per 50 videos |
-| Quick sync | about 8 (newest 100, plus scheduled videos) |
-| Full sync scheduled check | up to about 16 more, on top of the per-page cost |
-| Videos page, search, filters, calendar | 0 |
-
-That's roughly 30 videos a day if you pull captions for each. Pasting transcripts instead costs almost nothing.
-
-## Troubleshooting
-
-- **"Your YouTube connection expired"**: your Cloud project is in Testing mode. Reconnect, or publish the app (step A7).
-- **"Google did not return a refresh token"**: remove TubeWriter at https://myaccount.google.com/permissions and connect again.
-- **"No captions yet"**: wait for YouTube to finish auto-captions, or paste a transcript.
-- **Gemini 429**: free-tier rate limit. Wait a minute.
-- **Gemini model not found**: Google renamed or retired the model. Put a current Flash model name in Settings.
-- **Schedule refused**: only private videos that have never been public can be scheduled through the API.
-
-## Make it yours
-
-Everything about the voice lives in **Settings > Channel voice prompt**. The JSON output rules get added behind the scenes, so you only describe tone, the warning text, chapter style, tags and hashtags. **Reset prompt to default** brings back the GG prompt.
+Shared responsive containers: `--uw-container` is the single width token for the header, hero copy/navigation, homepage sections, footer, pricing, video library, schedule, and editor. It defaults to 1440px and uses the original hero maximum of `1800px` from 2000px upward. Hero-only and workspace-only width overrides were removed. Local text-length limits remain for readable copy. Browser measurements confirmed matching edges at 1920px, 2560px, 3440px, 1440px, and 320px with no page-level horizontal overflow.

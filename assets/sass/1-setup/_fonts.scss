@@ -1,0 +1,28 @@
+h1, h2, h3, h4, h5, h6 {
+	font-weight: 800;
+	// color: #ffffff;
+	line-height: 1.2;
+}
+
+.section-title {
+	font-size: clamp(2rem, 6vw, 2.5rem);
+	margin-bottom: 1rem;
+}
+@media (min-width: 768px) {
+	.section-title {
+			 font-size: clamp(2rem, 4vw, 3rem);
+	}
+}
+.section-subtitle p {
+	color: var(--color-text-med);
+	max-width: 40rem;
+	margin: 0 auto 3rem;
+}
+@media (min-width: 768px) {
+	.section-subtitle {
+			margin-bottom: 4rem;
+	}
+}
+.bg-offset {
+	background-color: rgba(31, 41, 55, 0.5);
+}

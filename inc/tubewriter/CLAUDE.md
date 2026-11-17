@@ -1,13 +1,15 @@
 # TubeWriter
 
-WordPress plugin that writes and publishes YouTube video metadata for the Gregatron Games channel (and friends who run their own copy). It pulls a video's transcript, has Gemini write the title, description, chapters, tags and hashtags in the channel's voice, then pushes them to YouTube through the official YouTube Data API v3 after a multi-step review.
+App code that writes and publishes YouTube video metadata for UploadWriter. It pulls a video's transcript, has Gemini write the title, description, chapters, tags and hashtags in the channel's voice, then pushes them to YouTube through the official YouTube Data API v3 after a multi-step review.
 
-Runs on a LocalWP site (or a private hosted WP). Each install connects ONE YouTube channel with the user's own Google Cloud OAuth client and Gemini API key ("bring your own credentials"). There is no server of ours in the loop.
+Lives in the **tubwriter theme** at `inc/tubewriter/` (bootstrapped from `functions.php`). It used to be a standalone plugin; keep that layout (bootstrap + `includes/` + `assets/`) so the app stays easy to find. Options, `wp_tw_videos`, uploads under `uploads/tubewriter/`, and routes are unchanged.
+
+Each install connects ONE YouTube channel with the user's own Google Cloud OAuth client and Gemini API key ("bring your own credentials"). There is no server of ours in the loop.
 
 ## Naming
 
 - **UploadWriter** (`TW_BRAND`, uploadwriter.com): public product name shown on the front app.
-- **TubeWriter** / `tubewriter`: working title and everything under the hood. Plugin slug, WP admin menu, role, text domain, upload dirs, and front routes (`/tubewriter/`, `/tubewriter/account/`, etc.) stay as-is so the path can host more than tube-upload helpers later.
+- **TubeWriter** / `tubewriter`: working title and everything under the hood. WP admin menu, role, text domain, upload dirs, and front routes (`/tubewriter/`, `/tubewriter/account/`, etc.) stay as-is so the path can host more than tube-upload helpers later.
 - Do not rename classes, options, tables, or routes for branding.
 
 ## Prime directive: never lose the user's data
@@ -23,8 +25,10 @@ The owner is nervous about overwriting or deleting YouTube data. Every change mu
 
 ## Layout
 
+Path: `wp-content/themes/tubwriter/inc/tubewriter/`
+
 ```
-tubewriter.php                  bootstrap, constants (redirect URI, scope, default Gemini model)
+tubewriter.php                  theme bootstrap, constants; after_switch_theme replaces plugin activation
 includes/
   class-tw-settings.php         options, defaults, language and category lists
   class-tw-oauth.php            Desktop OAuth + PKCE, paste-the-URL connect flow, token refresh

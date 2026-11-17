@@ -1,0 +1,189 @@
+@mixin reset-spacing {
+	margin-bottom: 0;
+}
+
+@mixin container {
+	margin: 0 auto;
+	max-width: $container;
+	width: 100%;
+}
+
+@mixin mobile-up {
+
+	@media (min-width: #{$mobile}) {
+		@content;
+	}
+}
+
+@mixin mobile-down {
+
+	@media (max-width: #{$mobile - 1px}) {
+		@content;
+	}
+}
+
+@mixin tablet-up {
+
+	@media (min-width: #{$tablet}) {
+		@content;
+	}
+}
+
+@mixin tablet-down {
+
+	@media (max-width: #{$tablet - 1px}) {
+		@content;
+	}
+}
+
+@mixin block-up {
+
+	@media (min-width: #{$block}) {
+		@content;
+	}
+}
+
+@mixin block-down {
+
+	@media (max-width: #{$block - 1px}) {
+		@content;
+	}
+}
+
+@mixin desktop-up {
+
+	@media (min-width: #{$desktop}) {
+		@content;
+	}
+}
+
+@mixin desktop-down {
+
+	@media (max-width: #{$desktop - 1px}) {
+		@content;
+	}
+}
+
+@mixin small-desktop-up {
+
+	@media (min-width: #{$smallDesktop}) {
+		@content;
+	}
+}
+
+@mixin small-desktop-down {
+
+	@media (max-width: #{$smallDesktop - 1px}) {
+		@content;
+	}
+}
+
+@mixin large-desktop-up {
+
+	@media (min-width: #{$largeDesktop}) {
+		@content;
+	}
+}
+
+@mixin large-desktop-down {
+
+	@media (max-width: #{$largeDesktop - 1px}) {
+		@content;
+	}
+}
+
+@mixin navbreak-up {
+
+	@media (min-width: #{$navBreak}) {
+		@content;
+	}
+}
+
+@mixin navbreak-down {
+
+	@media (max-width: #{$navBreak - 1px}) {
+		@content;
+	}
+}
+
+@mixin container-up {
+
+	@media (min-width: #{$container + 1px}) {
+		@content;
+	}
+}
+
+@mixin container-down {
+
+	@media (max-width: #{$container}) {
+		@content;
+	}
+}
+
+@mixin link {
+	color: $colorPrimary;
+
+	&:hover,
+	&:focus {
+		color: $colorTextPrimary;
+	}
+}
+
+@mixin link-reverse {
+	color: $colorTextPrimary;
+
+	&:hover,
+	&:focus {
+		color: $colorPrimary;
+	}
+}
+
+@mixin link-menu {
+	color: $colorTextPrimary;
+	transition: color 0.1s ease-in;
+
+	&:hover,
+	&:focus {
+		color: $colorPrimary;
+	}
+}
+
+/* Remove Scrollbar */
+
+@mixin remove-scrollbar {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+
+	&::-webkit-scrollbar {
+		display: none;
+	}
+}
+
+/* Reset Lists */
+
+@mixin reset-list {
+	list-style-type: none;
+	padding: 0;
+	margin: 0;
+}
+
+/* Assets Path */
+
+/// Base path for assets (images, svgs),
+/// should not include trailing slash
+$assetPath: "../images";
+
+@function asset($file) {
+
+	@return url($assetPath + "/" + $file);
+}
+
+@function img($file) {
+
+	@return asset($file);
+}
+
+@mixin transition {
+  // transition: all .2s ease;
+  transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+}

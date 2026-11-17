@@ -1,0 +1,21 @@
+
+@import '1-setup/variables';
+@import '1-setup/mixins';
+@import '1-setup/fonts';
+
+@import '2-tools/utilities';
+@import './2-tools/slick/slick-theme';
+@import './2-tools/slick/slick';
+
+@import './3-elements/buttons';
+@import './3-elements/icons';
+
+@import './5-blocks/hero-general';
+@import './5-blocks/post-cards';
+@import './5-blocks/blog-list';
+@import './5-blocks/alternating-sections';
+
+@import './6-layouts/header';
+@import './6-layouts/footer';
+@import './6-layouts/content';
+@import './6-layouts/gutenberg';
