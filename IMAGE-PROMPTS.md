@@ -27,3 +27,7 @@ Use case: photorealistic-natural. Asset type: editorial supporting photo for Upl
 ## Editing in WordPress
 
 The Hero and How it works ACF blocks each have a Section photograph field. Feature cards have individual Card photograph fields. Blank fields use the bundled photographs. Select a Media Library image to override one and set its alt text in the Media Library. Custom images use WordPress-generated responsive sizes.
+
+## Workflow and closing-card replacements
+
+Generated using the built-in image_gen tool. Workflow uses `creator-planning-{640,960,1536}.webp`, showing a creator planning a video with a notebook and laptop. The closing card uses `creator-storyboard-{640,960,1536}.webp`, showing a storyboard sketchbook, tablet, pencil, and coffee. Full production prompts are in `planning/homepage-replacement-image-prompts.md`. These two photographs are unique to their sections; existing hero and feature photographs remain unchanged. Both sections support an optional ACF Section photograph override. Workflow srcset sizing accounts for its tall desktop crop.

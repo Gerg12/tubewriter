@@ -41,7 +41,7 @@ add_action( 'acf/init', function () {
         foreach ( array( 'eyebrow' => 'Eyebrow', 'heading' => 'Heading', 'description' => 'Description' ) as $name => $label ) {
             $fields[] = array( 'key' => 'field_uw_' . $slug . '_' . $name, 'name' => 'uw_' . $name, 'label' => $label, 'type' => 'description' === $name ? 'textarea' : 'text', 'instructions' => 'Leave blank to use the UploadWriter default.' );
         }
-        if ( in_array( $slug, array( 'hero', 'workflow' ), true ) ) {
+        if ( in_array( $slug, array( 'hero', 'workflow', 'cta' ), true ) ) {
             $fields[] = array( 'key' => 'field_uw_' . $slug . '_image', 'name' => 'uw_image', 'label' => 'Section photograph', 'type' => 'image', 'return_format' => 'id', 'preview_size' => 'medium', 'instructions' => 'Optional. Leave blank to use the included creator photograph. Set alt text in the Media Library.' );
         }
         if ( in_array( $slug, array( 'hero', 'cta' ), true ) ) {

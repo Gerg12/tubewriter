@@ -346,3 +346,5 @@ require get_template_directory() . '/inc/uploadwriter.php';
 require get_template_directory() . '/inc/pricing.php';
 
 require get_template_directory() . '/inc/brand.php';
+
+require get_template_directory() . '/inc/document.php';
