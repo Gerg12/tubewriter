@@ -1510,8 +1510,15 @@ class TW_Admin {
 	public function ajax_thumb_upload() {
 		$this->ajax_guard();
 		$video_id = $this->post( 'video' );
-		if ( ! $video_id ) {
-			wp_send_json_error( 'Missing video id.' );
+		$owned    = $this->assert_writable_video( $video_id );
+		if ( is_wp_error( $owned ) ) {
+			wp_send_json_error( $owned->get_error_message() );
+		}
+
+		$rl_opts = array( 'pace_ack' => $this->pace_acked() );
+		$rl      = TW_Rate_Limit::check( 'thumb_upload', $video_id, $rl_opts );
+		if ( is_wp_error( $rl ) ) {
+			$this->send_rate_error( $rl );
 		}
 
 		$key   = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
@@ -1552,6 +1559,7 @@ class TW_Admin {
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}
+		TW_Rate_Limit::hit( 'thumb_upload', $video_id, $rl_opts );
 
 		$sizes = $result['items'][0] ?? array();
 		// Editor preview can use high. List cards cache the smaller medium/default.
@@ -1791,22 +1799,44 @@ class TW_Admin {
 	public function ajax_review() {
 		$this->ajax_guard();
 		$input = $this->input();
-		$video = TW_YouTube::get_video( $input['video'] );
+		$video = $this->assert_writable_video( $input['video'] );
 		if ( is_wp_error( $video ) ) {
 			wp_send_json_error( $video->get_error_message() );
 		}
 		$plan = TW_Plan::build( $video, $this->pkg_from_post(), $this->opts_from_post(), $input['duration'] );
+		$plan['publish_token'] = $this->issue_publish_token( $input['video'], $plan['fingerprint'] );
 		unset( $plan['details'], $plan['current'] );
 		wp_send_json_success( $plan );
 	}
 
 	public function ajax_publish() {
 		$this->ajax_guard();
-		$input  = $this->input();
-		$result = TW_Plan::publish( $input['video'], $this->pkg_from_post(), $this->opts_from_post(), $input['duration'], $this->post( 'fingerprint' ) );
+		$input = $this->input();
+		$owned = $this->assert_writable_video( $input['video'] );
+		if ( is_wp_error( $owned ) ) {
+			wp_send_json_error( $owned->get_error_message() );
+		}
+
+		$opts    = $this->opts_from_post();
+		$rl_opts = array(
+			'pace_ack'  => $this->pace_acked(),
+			'high_risk' => ( 'now' === ( $opts['schedule']['mode'] ?? '' ) ),
+		);
+		$rl = TW_Rate_Limit::check( 'publish', $input['video'], $rl_opts );
+		if ( is_wp_error( $rl ) ) {
+			$this->send_rate_error( $rl );
+		}
+
+		$token_ok = $this->consume_publish_token( $input['video'], $this->post( 'publish_token' ), $this->post( 'fingerprint' ) );
+		if ( is_wp_error( $token_ok ) ) {
+			wp_send_json_error( $token_ok->get_error_message() );
+		}
+
+		$result = TW_Plan::publish( $input['video'], $this->pkg_from_post(), $opts, $input['duration'], $this->post( 'fingerprint' ) );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}
+		TW_Rate_Limit::hit( 'publish', $input['video'], $rl_opts );
 		$this->save_state(
 			$input['video'],
 			array(
@@ -1815,7 +1845,7 @@ class TW_Admin {
 				'seed_title' => $input['current_title'],
 				'seed_desc'  => $input['current_description'],
 				'pkg'        => $this->pkg_from_post(),
-				'opts'       => $this->opts_from_post(),
+				'opts'       => $opts,
 				'pushed'     => time(),
 			)
 		);
@@ -1827,11 +1857,23 @@ class TW_Admin {
 
 	public function ajax_restore() {
 		$this->ajax_guard();
-		$video  = $this->post( 'video' );
+		$video = $this->post( 'video' );
+		$owned = $this->assert_writable_video( $video );
+		if ( is_wp_error( $owned ) ) {
+			wp_send_json_error( $owned->get_error_message() );
+		}
+
+		$rl_opts = array( 'pace_ack' => $this->pace_acked() );
+		$rl      = TW_Rate_Limit::check( 'restore', $video, $rl_opts );
+		if ( is_wp_error( $rl ) ) {
+			$this->send_rate_error( $rl );
+		}
+
 		$result = TW_Plan::restore( $video, $this->post( 'entry' ) );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}
+		TW_Rate_Limit::hit( 'restore', $video, $rl_opts );
 		TW_Index::refresh_one( $video );
 		$result['history'] = TW_History::summary( $video );
 		wp_send_json_success( $result );
@@ -2308,6 +2350,9 @@ class TW_Admin {
 			if ( ! is_user_logged_in() ) {
 				wp_send_json_error( 'Please log in again.', 403 );
 			}
+			if ( ! tw_user_can_app() ) {
+				wp_send_json_error( 'Not allowed.', 403 );
+			}
 			TW_Context::set_user( get_current_user_id() );
 			return;
 		}
@@ -2315,6 +2360,94 @@ class TW_Admin {
 			wp_send_json_error( 'Not allowed.', 403 );
 		}
 		TW_Context::clear();
+	}
+
+	/**
+	 * Ensure the video belongs to the connected channel (and local index when populated).
+	 *
+	 * @param string     $video_id
+	 * @param array|null $video Optional already-fetched videos.list item.
+	 * @return array|WP_Error
+	 */
+	private function assert_writable_video( $video_id, $video = null ) {
+		$video_id = (string) $video_id;
+		if ( '' === $video_id ) {
+			return new WP_Error( 'tw_video', 'Missing video id.' );
+		}
+		if ( null === $video ) {
+			$video = TW_YouTube::get_video( $video_id );
+			if ( is_wp_error( $video ) ) {
+				return $video;
+			}
+		}
+
+		$channel    = TW_Store::get( 'channel', array() );
+		$channel_id = is_array( $channel ) ? (string) ( $channel['id'] ?? '' ) : '';
+		$video_ch   = (string) ( $video['snippet']['channelId'] ?? '' );
+		if ( $channel_id && $video_ch && $channel_id !== $video_ch ) {
+			return new WP_Error( 'tw_video', 'That video is not on the connected YouTube channel.' );
+		}
+		if ( TW_Index::count_all() > 0 && ! TW_Index::exists( $video_id ) ) {
+			return new WP_Error( 'tw_video', 'That video is not in your UploadWriter library. Sync your channel, then open it from Videos.' );
+		}
+		return $video;
+	}
+
+	private function publish_token_key( $video_id ) {
+		$uid = TW_Context::is_user() ? TW_Context::user_id() : get_current_user_id();
+		return 'tw_pub_' . (int) $uid . '_' . preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+	}
+
+	private function issue_publish_token( $video_id, $fingerprint ) {
+		$token = wp_generate_password( 32, false, false );
+		set_transient(
+			$this->publish_token_key( $video_id ),
+			array(
+				'token'       => $token,
+				'fingerprint' => (string) $fingerprint,
+			),
+			15 * MINUTE_IN_SECONDS
+		);
+		return $token;
+	}
+
+	/**
+	 * One-time Review→Publish token. Consumed whether or not publish later succeeds.
+	 *
+	 * @return true|WP_Error
+	 */
+	private function consume_publish_token( $video_id, $token, $fingerprint ) {
+		$key  = $this->publish_token_key( $video_id );
+		$data = get_transient( $key );
+		delete_transient( $key );
+		if ( ! is_array( $data ) || empty( $data['token'] ) ) {
+			return new WP_Error( 'tw_publish_token', 'Review this video again, then publish. The confirmation expired.' );
+		}
+		if ( ! hash_equals( (string) $data['token'], (string) $token ) ) {
+			return new WP_Error( 'tw_publish_token', 'Review this video again, then publish. The confirmation was invalid.' );
+		}
+		if ( ! hash_equals( (string) ( $data['fingerprint'] ?? '' ), (string) $fingerprint ) ) {
+			return new WP_Error( 'tw_publish_token', 'This video changed after review. Run Review again, then publish.' );
+		}
+		return true;
+	}
+
+	private function send_rate_error( WP_Error $err ) {
+		$data = $err->get_error_data();
+		if ( is_array( $data ) && ! empty( $data['needs_confirm'] ) ) {
+			wp_send_json_error(
+				array(
+					'code'           => $err->get_error_code(),
+					'message'        => $err->get_error_message(),
+					'needs_confirm'  => true,
+				)
+			);
+		}
+		wp_send_json_error( $err->get_error_message() );
+	}
+
+	private function pace_acked() {
+		return '1' === $this->post( 'pace_ack' );
 	}
 
 	/** Block AI calls until Channel identity is saved. */

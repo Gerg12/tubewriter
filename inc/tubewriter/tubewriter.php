@@ -41,6 +41,7 @@ require_once TW_DIR . 'includes/class-tw-ai.php';
 require_once TW_DIR . 'includes/class-tw-history.php';
 require_once TW_DIR . 'includes/class-tw-plan.php';
 require_once TW_DIR . 'includes/class-tw-index.php';
+require_once TW_DIR . 'includes/class-tw-rate-limit.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
 
@@ -55,19 +56,35 @@ add_action( TW_Settings::CRON_CLEANUP_THUMBS, function () {
 function tw_theme_activate() {
 	TW_Settings::activate();
 	TW_Index::maybe_install();
+	tw_ensure_caps();
+	TW_Frontend::register_rewrites();
+	flush_rewrite_rules();
+	update_option( 'tw_front_rewrite', TW_VERSION, false );
+}
+
+/** Ensure the UploadWriter role and use_uploadwriter capability exist. */
+function tw_ensure_caps() {
 	if ( ! get_role( 'tubewriter' ) ) {
 		add_role(
 			'tubewriter',
 			'UploadWriter',
 			array(
-				'read'         => true,
-				'upload_files' => true,
+				'read'             => true,
+				'upload_files'     => true,
+				'use_uploadwriter' => true,
 			)
 		);
+		return;
 	}
-	TW_Frontend::register_rewrites();
-	flush_rewrite_rules();
-	update_option( 'tw_front_rewrite', TW_VERSION, false );
+	$role = get_role( 'tubewriter' );
+	if ( $role && ! $role->has_cap( 'use_uploadwriter' ) ) {
+		$role->add_cap( 'use_uploadwriter' );
+	}
+}
+
+/** True when the current user may use the front UploadWriter app. */
+function tw_user_can_app() {
+	return current_user_can( 'use_uploadwriter' ) || current_user_can( 'manage_options' );
 }
 add_action( 'after_switch_theme', 'tw_theme_activate' );
 
@@ -81,17 +98,7 @@ function tw_bootstrap() {
 	TW_Settings::maybe_upgrade_thumb_prompts();
 	TW_Settings::schedule_thumb_cleanup();
 	TW_Index::maybe_install();
-
-	if ( ! get_role( 'tubewriter' ) ) {
-		add_role(
-			'tubewriter',
-			'UploadWriter',
-			array(
-				'read'         => true,
-				'upload_files' => true,
-			)
-		);
-	}
+	tw_ensure_caps();
 
 	new TW_Frontend();
 

@@ -99,13 +99,22 @@ class TW_Frontend {
 			exit;
 		}
 
+		if ( in_array( $view, array( 'account', 'schedule' ), true ) && is_user_logged_in() && ! tw_user_can_app() ) {
+			wp_safe_redirect( home_url( '/' ) );
+			exit;
+		}
+
 		if ( in_array( $view, array( 'login', 'register', 'home' ), true ) && is_user_logged_in() && 'home' !== $view ) {
-			wp_safe_redirect( self::url( 'account' ) );
+			if ( tw_user_can_app() ) {
+				wp_safe_redirect( self::url( 'account' ) );
+			} else {
+				wp_safe_redirect( home_url( '/' ) );
+			}
 			exit;
 		}
 
 		if ( 'home' === $view && is_user_logged_in() ) {
-			wp_safe_redirect( self::url( 'account' ) );
+			wp_safe_redirect( tw_user_can_app() ? self::url( 'account' ) : home_url( '/' ) );
 			exit;
 		}
 
@@ -891,6 +900,12 @@ class TW_Frontend {
 		$user = wp_signon( $creds, is_ssl() );
 		if ( is_wp_error( $user ) ) {
 			$this->flash( 'Could not log in. Check your email/username and password.', 'error' );
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		if ( ! user_can( $user, 'use_uploadwriter' ) && ! user_can( $user, 'manage_options' ) ) {
+			wp_logout();
+			$this->flash( 'That account cannot use UploadWriter.', 'error' );
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}

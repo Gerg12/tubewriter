@@ -444,6 +444,17 @@ class TW_Index {
 		return 'draft' === $privacy;
 	}
 
+	/** True when this video id is in the current account's local index. */
+	public static function exists( $video_id ) {
+		global $wpdb;
+		$video_id = (string) $video_id;
+		if ( '' === $video_id ) {
+			return false;
+		}
+		$found = $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM ' . self::table() . ' WHERE user_id = %d AND id = %s LIMIT 1', self::uid(), $video_id ) ); // phpcs:ignore
+		return (bool) $found;
+	}
+
 	/** Re-fetch publishAt for indexed private and draft videos. */
 	private static function refresh_private_schedules( $run ) {
 		global $wpdb;

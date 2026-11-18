@@ -506,11 +506,35 @@ window.TWAjax = window.TWAjax || {
 			})
 			.then(function (json) {
 				if (!json.success) {
-					throw new Error(typeof json.data === 'string' ? json.data : 'Something went wrong.');
+					var msg = 'Something went wrong.';
+					if (typeof json.data === 'string') {
+						msg = json.data;
+					} else if (json.data && json.data.message) {
+						msg = json.data.message;
+					}
+					var err = new Error(msg);
+					if (json.data && typeof json.data === 'object') {
+						err.tw = json.data;
+					}
+					throw err;
 				}
 				TWAjax.notifyUsage(json.data);
 				return json.data;
 			});
+	}
+
+	/** YouTube writes: soft pace dialog once, then retry with pace_ack. */
+	function callWrite(action, extra) {
+		return call(action, extra).catch(function (err) {
+			if (err && err.tw && err.tw.needs_confirm) {
+				if (!window.confirm(err.tw.message || err.message)) {
+					throw new Error('Cancelled.');
+				}
+				var retry = Object.assign({}, extra || {}, { pace_ack: '1' });
+				return call(action, retry);
+			}
+			throw err;
+		});
 	}
 
 	function wire(button, label, run) {
@@ -2178,7 +2202,7 @@ window.TWAjax = window.TWAjax || {
 				return null;
 			}
 			say('Uploading thumbnail to YouTube…', 'info');
-			return call('thumb_upload').then(function (d) {
+			return callWrite('thumb_upload').then(function (d) {
 				saved.thumb_uploaded = d.uploaded || Math.floor(Date.now() / 1000);
 				if (d.url) {
 					el.thumbPreview.src = d.url + (d.url.indexOf('?') > -1 ? '&' : '?') + 't=' + Date.now();
@@ -2476,10 +2500,11 @@ window.TWAjax = window.TWAjax || {
 		if (!window.confirm('Last check. TubeWriter will back up the current details, then:\n\n' + list + '\n\nGo ahead?')) {
 			return null;
 		}
-		return call('publish', {
+		return callWrite('publish', {
 			pkg: JSON.stringify(pkgFromForm()),
 			opts: JSON.stringify(optsFromForm()),
-			fingerprint: S.plan.fingerprint
+			fingerprint: S.plan.fingerprint,
+			publish_token: S.plan.publish_token || ''
 		}).then(function (d) {
 			S.plan = null;
 			S.published = !!d.ok;
@@ -2530,7 +2555,7 @@ window.TWAjax = window.TWAjax || {
 			return;
 		}
 		busy(b, true, 'Restoring...');
-		call('restore', { entry: b.getAttribute('data-restore') }).then(function (d) {
+		callWrite('restore', { entry: b.getAttribute('data-restore') }).then(function (d) {
 			say(d.ok ? 'Restored. The details from before the restore were backed up.' : 'Restore failed.', d.ok ? 'success' : 'error', d.results.map(function (r) { return r.text; }));
 			renderHistory(d.history);
 			staleReview();
