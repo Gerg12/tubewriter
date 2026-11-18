@@ -1,60 +1,23 @@
 <?php
 /**
- * The template for displaying 404 pages (not found)
+ * Branded 404 for UploadWriter.
  *
- * @link https://codex.wordpress.org/Creating_an_Error_404_Page
- *
- * @package HPM_Theme
+ * @package UploadWriter
  */
 
 get_header();
 ?>
-
-	<main id="primary" class="site-main">
-
-		<section class="error-404 not-found">
-			<header class="page-header">
-				<h1 class="page-title"><?php esc_html_e( 'Oops! That page can&rsquo;t be found.', 'hpm-theme' ); ?></h1>
-			</header><!-- .page-header -->
-
-			<div class="page-content">
-				<p><?php esc_html_e( 'It looks like nothing was found at this location. Maybe try one of the links below or a search?', 'hpm-theme' ); ?></p>
-
-					<?php
-					get_search_form();
-
-					the_widget( 'WP_Widget_Recent_Posts' );
-					?>
-
-					<div class="widget widget_categories">
-						<h2 class="widget-title"><?php esc_html_e( 'Most Used Categories', 'hpm-theme' ); ?></h2>
-						<ul>
-							<?php
-							wp_list_categories(
-								array(
-									'orderby'    => 'count',
-									'order'      => 'DESC',
-									'show_count' => 1,
-									'title_li'   => '',
-									'number'     => 10,
-								)
-							);
-							?>
-						</ul>
-					</div><!-- .widget -->
-
-					<?php
-					/* translators: %1$s: smiley */
-					$hpm_theme_archive_content = '<p>' . sprintf( esc_html__( 'Try looking in the monthly archives. %1$s', 'hpm-theme' ), convert_smilies( ':)' ) ) . '</p>';
-					the_widget( 'WP_Widget_Archives', 'dropdown=1', "after_title=</h2>$hpm_theme_archive_content" );
-
-					the_widget( 'WP_Widget_Tag_Cloud' );
-					?>
-
-			</div><!-- .page-content -->
-		</section><!-- .error-404 -->
-
-	</main><!-- #main -->
-
+<main id="primary" tabindex="-1" class="uw-404">
+	<section class="uw-wrap uw-404-inner">
+		<p class="uw-eyebrow">PAGE NOT FOUND</p>
+		<h1>That page took a wrong turn.</h1>
+		<p class="uw-404-lead">The link may be outdated, or the page may have moved. Head home, or open your workspace if you already have an account.</p>
+		<div class="uw-404-actions">
+			<a class="uw-button" href="<?php echo esc_url( home_url( '/' ) ); ?>">Back to UploadWriter.com <span aria-hidden="true">↗</span></a>
+			<a class="uw-text-link" href="<?php echo esc_url( home_url( '/pricing/' ) ); ?>">See pricing</a>
+			<a class="uw-text-link" href="<?php echo esc_url( uw_app_url() ); ?>">Open workspace</a>
+		</div>
+	</section>
+</main>
 <?php
 get_footer();

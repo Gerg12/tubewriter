@@ -769,6 +769,60 @@ body.uw-site {
   margin:0
 }
 
+.uw-footer--app {
+  width:min(var(--uw-container),calc(100% - (var(--uw-gutter) * 2)));
+  margin:32px auto 24px;
+  padding:20px 0 8px;
+  border-top:1px solid var(--uw-line);
+}
+
+.uw-footer--app .uw-footer-links {
+  flex-wrap:wrap;
+  gap:16px 24px;
+}
+
+.tw-connect-legal {
+  margin:12px 0 0;
+  font-size:0.92rem;
+  line-height:1.5;
+  color:var(--tw-muted,#6d7067);
+}
+
+.tw-connect-legal a {
+  color:inherit;
+  text-decoration:underline;
+  text-underline-offset:2px;
+}
+
+.uw-404 {
+  padding:72px 0 96px;
+  min-height:60vh;
+}
+
+.uw-404-inner {
+  max-width:40rem;
+}
+
+.uw-404 h1 {
+  margin:0 0 16px;
+  font-size:clamp(2rem,4vw,3rem);
+  line-height:1.15;
+}
+
+.uw-404-lead {
+  margin:0 0 28px;
+  font-size:1.125rem;
+  line-height:1.6;
+  color:var(--uw-muted,#6d7067);
+}
+
+.uw-404-actions {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:16px 28px;
+}
+
 /* Shared creator workspace: solid surfaces, clear hierarchy, and the same UploadWriter palette. */
 body.tw-app {
   --tw-font:'DM Sans',Arial,sans-serif;

@@ -196,6 +196,13 @@ class TW_Frontend {
 		}
 
 		if ( in_array( $view, array( 'login', 'register' ), true ) ) { echo '<a class="uw-app-home-link" href="' . esc_url( home_url( '/' ) ) . '">&larr; Back to UploadWriter.com</a>'; }
+		echo '<footer class="uw-footer uw-footer--app">';
+		echo '<div class="uw-footer-links">';
+		echo '<a href="' . esc_url( get_privacy_policy_url() ? get_privacy_policy_url() : home_url( '/privacy-policy/' ) ) . '">Privacy Policy</a>';
+		echo '<a href="' . esc_url( home_url( '/terms-of-use/' ) ) . '">Terms of Use</a>';
+		echo '<a href="mailto:hello@uploadwriter.com">Contact</a>';
+		echo '<span>&copy; ' . esc_html( wp_date( 'Y' ) ) . ' Gregory S Johnson LLC</span>';
+		echo '</div></footer>';
 		wp_footer();
 		echo '</body></html>';
 	}
@@ -454,10 +461,12 @@ class TW_Frontend {
 								<button type="submit" class="tw-btn tw-btn--danger">Disconnect</button>
 							</form>
 						</div>
+						<p class="tw-connect-legal">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
 						<?php $this->render_connect_paste_form(); ?>
 					<?php else : ?>
 						<p class="tw-muted">Connect the Google account that owns your channel. <?php echo esc_html( TW_BRAND ); ?> only asks for YouTube manage access.</p>
 						<a class="tw-btn tw-btn--primary" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Connect YouTube</a>
+						<p class="tw-connect-legal">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
 						<?php $this->render_connect_paste_form(); ?>
 					<?php endif; ?>
 					<p class="tw-quota-line">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>

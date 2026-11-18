@@ -2328,6 +2328,7 @@ class TW_Admin {
 				<a class="button button-primary" target="_blank" rel="noopener" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
 				opens Google in a new tab. Pick the account that owns the channel and allow access.
 				If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to UploadWriter (unsafe)</strong>.
+				<p class="description">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
 			</li>
 			<li>Google then opens a <strong>This site can't be reached</strong> page at 127.0.0.1. That is expected. Copy the entire address from the address bar.</li>
 			<li>

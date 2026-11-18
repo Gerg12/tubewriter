@@ -347,4 +347,6 @@ require get_template_directory() . '/inc/pricing.php';
 
 require get_template_directory() . '/inc/brand.php';
 
+require get_template_directory() . '/inc/muse.php';
+
 require get_template_directory() . '/inc/document.php';
