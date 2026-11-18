@@ -1,8 +1,8 @@
 /* Full-width document stream: constrain blocks, never the article itself. */
 .uw-document, .editor-styles-wrapper {
-  --uw-reading: 760px;
-  --uw-wide: 1200px;
-  --uw-document-gutter: clamp(20px, 4vw, 48px);
+  --uw-reading: var(--uw-container, 1440px);
+  --uw-wide: var(--uw-container, 1440px);
+  --uw-document-gutter: var(--uw-gutter, 32px);
 }
 .uw-site .uw-document { padding: 0 0 clamp(64px, 8vw, 120px); background: var(--uw-paper); }
 .uw-document .uw-article { margin: 0; padding: 0; width: 100%; max-width: none; }
@@ -20,7 +20,7 @@
 .uw-document-meta .updated:not(.published) { display: none; }
 .uw-document .uw-document-image { width: min(var(--uw-wide), calc(100% - 2 * var(--uw-document-gutter))); margin: 0 auto 48px; }
 .uw-document-image img { display: block; width: 100%; height: auto; border-radius: 8px; }
-.uw-content-grid { display: grid; grid-template-columns: [full-start] minmax(var(--uw-document-gutter), 1fr) [wide-start] minmax(0, 220px) [content-start] min(var(--uw-reading), calc(100% - 2 * var(--uw-document-gutter))) [content-end] minmax(0, 220px) [wide-end] minmax(var(--uw-document-gutter), 1fr) [full-end]; }
+.uw-content-grid { display: grid; grid-template-columns: [full-start] minmax(var(--uw-document-gutter), 1fr) [wide-start content-start] min(var(--uw-container), calc(100% - 2 * var(--uw-document-gutter))) [content-end wide-end] minmax(var(--uw-document-gutter), 1fr) [full-end]; }
 .uw-content-grid > * { grid-column: content; min-width: 0; max-width: 100%; }
 .uw-content-grid > :is(.alignwide, .uw-width-wide) { grid-column: wide; width: 100%; max-width: none; margin-inline: 0; }
 .uw-content-grid > :is(.alignfull, .uw-width-full) { grid-column: full; width: 100%; max-width: none; margin-inline: 0; }
@@ -107,3 +107,4 @@
 @media (max-width: 600px) {
   .uw-document .comment-form { grid-template-columns: minmax(0,1fr); }
 }
+

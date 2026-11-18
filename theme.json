@@ -1,6 +1,7 @@
 {
   "version": 3,
   "settings": {
-    "layout": { "contentSize": "760px", "wideSize": "1200px" }
+    "layout": { "contentSize": "var(--uw-container, 1440px)", "wideSize": "var(--uw-container, 1440px)" }
   }
 }
+
