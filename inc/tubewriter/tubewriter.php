@@ -23,9 +23,9 @@ define( 'TW_BRAND', 'UploadWriter' );
 // the browser shows a "can't connect" page and the user pastes that URL back into TubeWriter.
 define( 'TW_REDIRECT_URI', 'http://127.0.0.1:8765/' );
 define( 'TW_SCOPE', 'https://www.googleapis.com/auth/youtube.force-ssl' );
-define( 'TW_DEFAULT_MODEL', 'gemini-3.5-flash-lite' );
+define( 'TW_DEFAULT_MODEL', 'gemini-3.8-flash' );
 define( 'TW_DEFAULT_IMAGE_MODEL', 'gemini-2.5-flash-image' );
-define( 'TW_DEFAULT_OPENAI_IMAGE_MODEL', 'chatgpt-image-latest' );
+define( 'TW_DEFAULT_OPENAI_IMAGE_MODEL', 'gpt-image-2.5-sunburst' );
 define( 'TW_DEFAULT_OPENAI_MODEL', 'gpt-4.1' );
 define( 'TW_DEFAULT_IMAGE_PROVIDER', 'openai' );
 
@@ -86,6 +86,20 @@ function tw_ensure_caps() {
 function tw_user_can_app() {
 	return current_user_can( 'use_uploadwriter' ) || current_user_can( 'manage_options' );
 }
+
+/**
+ * True when the current user may use AI thumbnail brief/create.
+ * Site admins always can. Other UploadWriter users only when the site setting is on.
+ */
+function tw_user_can_thumbnails() {
+	if ( current_user_can( 'manage_options' ) ) {
+		return true;
+	}
+	if ( ! tw_user_can_app() ) {
+		return false;
+	}
+	return TW_Settings::thumb_ai_for_users();
+}
 add_action( 'after_switch_theme', 'tw_theme_activate' );
 
 add_action( 'switch_theme', array( 'TW_Settings', 'deactivate' ) );
@@ -96,6 +110,8 @@ add_action( 'switch_theme', array( 'TW_Settings', 'deactivate' ) );
 function tw_bootstrap() {
 	TW_Settings::maybe_upgrade_prompt();
 	TW_Settings::maybe_upgrade_thumb_prompts();
+	TW_Settings::maybe_upgrade_gemini_model();
+	TW_Settings::maybe_upgrade_openai_image_model();
 	TW_Settings::schedule_thumb_cleanup();
 	TW_Index::maybe_install();
 	tw_ensure_caps();

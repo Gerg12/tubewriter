@@ -2136,17 +2136,34 @@ window.TWAjax = window.TWAjax || {
 		});
 	}
 
+	function canThumbnails() {
+		return !!Number(TW.canThumbnails || 0);
+	}
+
+	function imageFamilyLabel() {
+		return textProvider() === 'openai' ? 'ChatGPT / OpenAI image' : 'Gemini image';
+	}
+
 	if ($('tw-thumb-describe')) {
 		wire($('tw-thumb-describe'), 'Writing brief...', function () {
+			if (!canThumbnails()) {
+				throw new Error('AI thumbnail tools are turned off for this account.');
+			}
 			if (!warnIfSpent('thumbDescribe', 'a thumbnail brief for this video')) {
 				return null;
 			}
+			if (!S.shots.length && S.refs && S.refs.length) {
+				say('Saved references alone are not sent. Drag up to two into the paste box above (1 = background, 2 = PiP), then try again.', 'error');
+				return null;
+			}
+			var who = textProviderLabel();
 			say(S.shots.length
-				? 'Reading the screenshots and drafting a thumbnail brief…'
-				: 'Drafting a thumbnail brief from the title and description…', 'info');
+				? who + ' is reading the screenshots plus title, description and transcript…'
+				: who + ' is drafting a thumbnail brief from the title, description and transcript (no screenshots pasted)…', 'info');
 			return call('thumb_describe', {
 				images: JSON.stringify(shotPayload()),
-				pkg: JSON.stringify(pkgFromForm())
+				pkg: JSON.stringify(pkgFromForm()),
+				provider: textProvider()
 			}).then(function (d) {
 				spent.thumbDescribe = true;
 				saved.thumb_described = 1;
@@ -2158,8 +2175,15 @@ window.TWAjax = window.TWAjax || {
 
 	if ($('tw-thumb-create')) {
 		wire($('tw-thumb-create'), 'Creating thumbnail...', function () {
+			if (!canThumbnails()) {
+				throw new Error('AI thumbnail tools are turned off for this account.');
+			}
 			if (!el.thumbDesc.value.trim()) {
 				throw new Error('Write or generate a thumbnail description first.');
+			}
+			if (!S.shots.length && S.refs && S.refs.length) {
+				say('Saved references alone are not sent. Drag up to two into the paste box above (1 = background, 2 = PiP), then try again.', 'error');
+				return null;
 			}
 			if (spent.thumbGenerate) {
 				if (!warnIfSpent('thumbGenerate', 'a thumbnail image for this video')) {
@@ -2167,18 +2191,18 @@ window.TWAjax = window.TWAjax || {
 				}
 			} else {
 				var confirmMsg = S.shots.length
-					? 'Create a thumbnail from this description and your pasted screenshots?\n\nThis only generates the image. It does not upload to YouTube yet.'
-					: 'Create a thumbnail from this description (no screenshots pasted)?\n\nThis only generates the image. It does not upload to YouTube yet.';
+					? 'Create a thumbnail from this description and your pasted screenshots?\n\nImage 1 = background. Image 2 = picture-in-picture.\nUses ' + imageFamilyLabel() + '.\nThis only generates the image. It does not upload to YouTube yet.'
+					: 'Create a thumbnail from this description (no screenshots pasted)?\n\nUses ' + imageFamilyLabel() + '.\nThis only generates the image. It does not upload to YouTube yet.';
 				if (!window.confirm(confirmMsg)) {
 					return null;
 				}
 			}
-			var who = (TW.imageProviderLabel || 'the image model');
-			say('Creating the thumbnail with ' + who + '. This can take a minute.', 'info');
+			say('Creating the thumbnail with ' + imageFamilyLabel() + '. This can take a minute.', 'info');
 			return call('thumb_generate', {
 				images: JSON.stringify(shotPayload()),
 				thumb_description: el.thumbDesc.value,
 				pkg: JSON.stringify(pkgFromForm()),
+				provider: textProvider(),
 				game_logo_id: S.logos.game.id || 0,
 				game_logo_pos: S.logos.game.pos,
 				channel_logo_id: S.logos.channel.id || 0,

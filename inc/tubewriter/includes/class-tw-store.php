@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class TW_Store {
 
-	const SITE_ONLY = array( 'client_id', 'client_secret' );
+	const SITE_ONLY = array( 'client_id', 'client_secret', 'thumb_ai_for_users' );
 
 	const SECRETS = array( 'gemini_key', 'openai_key', 'client_secret' );
 

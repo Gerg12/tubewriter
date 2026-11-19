@@ -152,6 +152,7 @@ class TW_Frontend {
 				'front'              => 1,
 				'imageProvider'      => is_user_logged_in() ? TW_Settings::get( 'image_provider' ) : TW_DEFAULT_IMAGE_PROVIDER,
 				'imageProviderLabel' => is_user_logged_in() ? TW_Settings::image_provider_label() : '',
+				'canThumbnails'      => ( is_user_logged_in() && tw_user_can_thumbnails() ) ? 1 : 0,
 				'settingsUrl'        => self::url( 'account' ) . ( TW_Settings::identity_complete() ? '#tw-keys' : '#tw-voice' ),
 				'accountUrl'         => self::url( 'account' ),
 				'scheduleUrl'        => self::url( 'schedule' ),
@@ -435,12 +436,13 @@ class TW_Frontend {
 							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
 						</button>
 					</div>
-					<label for="tw_image_provider">Thumbnail image provider</label>
+					<label for="tw_image_provider">Thumbnail image provider (fallback)</label>
 					<select id="tw_image_provider" name="tw_image_provider">
 						<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id_key => $label ) : ?>
 							<option value="<?php echo esc_attr( $id_key ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id_key ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 					</select>
+					<p class="tw-muted">AI thumbnail create is off for regular users until a site admin enables it in WordPress admin → UploadWriter → Settings. Admins always have it. The Gemini / ChatGPT picker next to Generate chooses the image family; this setting is the fallback.</p>
 					<button type="submit" class="tw-btn tw-btn--primary">Save keys</button>
 				</form>
 

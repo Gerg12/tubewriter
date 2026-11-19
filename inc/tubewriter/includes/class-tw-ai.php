@@ -24,10 +24,10 @@ class TW_AI {
 		self::$last_usage = $usage;
 	}
 
-	/** Tried in order when the chosen text model is busy or never answers. */
+	/** Tried in order when the chosen text model is busy or never answers. Skip other lite models; those spike together. */
 	const TEXT_FALLBACKS = array(
-		'gemini-3.5-flash-lite',
-		'gemini-flash-lite-latest',
+		'gemini-3.8-flash',
+		'gemini-flash-latest',
 	);
 
 	/** JSON contract appended after the channel voice prompt. Built from identity. */
@@ -140,12 +140,13 @@ TXT;
 	/**
 	 * Write a thumbnail brief from title, description, transcript and optional screenshots.
 	 *
-	 * @param array $input  Same shape as generate().
-	 * @param array $images List of {mime: string, data: string} (base64, no data: prefix). May be empty.
-	 * @param array $pkg    Optional current draft package for title/body context.
+	 * @param array  $input    Same shape as generate().
+	 * @param array  $images   List of {mime: string, data: string} (base64, no data: prefix). May be empty.
+	 * @param array  $pkg      Optional current draft package for title/body context.
+	 * @param string $provider gemini or openai (same picker as Generate).
 	 * @return array{description: string}|WP_Error
 	 */
-	public static function describe_thumbnail( array $input, array $images, array $pkg = array() ) {
+	public static function describe_thumbnail( array $input, array $images, array $pkg = array(), $provider = 'gemini' ) {
 		$images = self::normalize_images( $images );
 		if ( is_wp_error( $images ) ) {
 			return $images;
@@ -155,11 +156,11 @@ TXT;
 		$body  = trim( (string) ( $pkg['body'] ?? '' ) );
 		$shot_count = count( $images );
 		if ( $shot_count > 1 ) {
-			$shots = 'Two screenshots are attached, in order. Image 1 is always the full-bleed main background. Image 2 is always the picture-in-picture card in the upper right. Never swap them. Never set inset to "No inset". base_imagery describes Image 1 only. inset describes Image 2 only. Do not invent a new foreground character. Inspect the lower left of Image 1. Keep an avatar only if one is already drawn there. If that corner is empty gameplay, composition must say channel logo only. Never invent a bald man, anime commander, or mascot. Exactly one game logo for the whole thumbnail.';
+			$shots = 'Two inspiration screenshots are attached, in order. Image 1 is always the full-frame background photo. Image 2 is always the picture-in-picture photo in the upper right. Never swap them. Never set inset to "No inset". Keep Image 1 wide — do not describe a zoomed crop that cuts off the sides. base_imagery describes Image 1 only. inset describes Image 2 only. Do not invent a new foreground character. Inspect the lower left of Image 1. Keep an avatar only if one is already drawn there. If that corner is empty gameplay, composition must say channel logo only. Never invent a bald man, anime commander, or mascot. Exactly one game logo for the whole thumbnail. Keep headline and logos 150px+ inside every edge with breathing room on the left and right.';
 		} elseif ( 1 === $shot_count ) {
-			$shots = 'Only one screenshot is attached. It is the full-bleed main background. Set inset to "No inset". Do not invent a new foreground character. Inspect the lower left. Keep an avatar only if one is already drawn there. If that corner is empty gameplay, composition must say channel logo only. Never invent a bald man, anime commander, or mascot. Exactly one game logo for the whole thumbnail.';
+			$shots = 'Only one screenshot is attached. It is the full-frame main background. Keep it wide — do not describe a zoomed crop that cuts off the sides. Set inset to "No inset". Do not invent a new foreground character. Inspect the lower left. Keep an avatar only if one is already drawn there. If that corner is empty gameplay, composition must say channel logo only. Never invent a bald man, anime commander, or mascot. Exactly one game logo for the whole thumbnail. Keep headline and logos 150px+ inside every edge with breathing room on the left and right.';
 		} else {
-			$shots = 'No screenshots are attached. Invent the full-bleed gameplay background from the draft title, description and transcript. Set inset to "No inset". base_imagery must describe a vivid scene that fits this video. Lower left is channel logo only. Never invent an avatar. Exactly one game logo for the whole thumbnail.';
+			$shots = 'No screenshots are attached. Invent the full-bleed gameplay background from the draft title, description, transcript and timestamps. Set inset to "No inset". base_imagery must describe a vivid scene that fits this video. Lower left is channel logo only. Never invent an avatar. Exactly one game logo for the whole thumbnail. Keep headline and logos 150px+ inside every edge.';
 		}
 		$user  = "DRAFT TITLE: " . ( $title !== '' ? $title : ( $input['current_title'] ?: '(none)' ) ) . "\n\n"
 			. "DRAFT DESCRIPTION BODY:\n" . ( $body !== '' ? mb_substr( $body, 0, 2500 ) : '(empty)' ) . "\n\n"
@@ -168,18 +169,22 @@ TXT;
 			. 'Fill the six JSON fields for this video.';
 
 		$system = TW_Settings::prompt_for_ai( 'thumb_prompt' ) . "\n" . self::THUMB_DESCRIBE_CONTRACT;
-		$parts  = array_merge( array( array( 'text' => $user ) ), self::image_parts( $images ) );
-		$json   = self::request(
-			TW_Settings::get( 'model' ),
-			$system,
-			$parts,
-			array(
-				'responseMimeType' => 'application/json',
-				'responseSchema'   => self::THUMB_DESCRIBE_SCHEMA,
-				'temperature'      => 0.7,
-			),
-			true
-		);
+		if ( 'openai' === self::text_provider( $provider ) ) {
+			$json = self::openai_chat( TW_Settings::get( 'openai_model' ), $system, $user, true, $images );
+		} else {
+			$parts = array_merge( array( array( 'text' => $user ) ), self::image_parts( $images ) );
+			$json  = self::request(
+				TW_Settings::get( 'model' ),
+				$system,
+				$parts,
+				array(
+					'responseMimeType' => 'application/json',
+					'responseSchema'   => self::THUMB_DESCRIBE_SCHEMA,
+					'temperature'      => 0.7,
+				),
+				true
+			);
+		}
 		if ( is_wp_error( $json ) ) {
 			return $json;
 		}
@@ -233,7 +238,7 @@ TXT;
 				$inset = 'Positioned in the upper right as a small action card, showcasing ' . $subject;
 			}
 			if ( false === stripos( $inset, 'thin' ) || false === stripos( $inset, 'border' ) ) {
-				$inset = rtrim( $inset, " ." ) . '. Thin 3-6px accent border (steel or cyan) with a soft drop shadow. No thick gold frame. Keep it at least 100px from the top and right edges, and small enough that every letter of the headline stays fully on the canvas.';
+				$inset = rtrim( $inset, " ." ) . '. Thin 3-6px accent border (steel or cyan) with a soft drop shadow. No thick gold frame. Keep it at least 150px from the top and right edges, and small enough that every letter of the headline stays fully on the canvas.';
 			}
 			if ( $shot_count > 1 && false === stripos( $inset, 'Image 2' ) ) {
 				$inset = rtrim( $inset, " ." ) . '. This card is Image 2 only. Never use Image 2 as the main background.';
@@ -241,11 +246,11 @@ TXT;
 		}
 
 		if ( $shot_count > 1 ) {
-			$roles   = "Image 1 is the full-bleed main background. Image 2 is only the picture-in-picture card. Never swap them.\n\n";
+			$roles   = "Image 1 is the full-frame background photo. Image 2 is only the picture-in-picture card. Never swap them. Keep Image 1's left and right sides visible — do not zoom-crop the background.\n\n";
 			$subject = "Enhance Image 1 lightly as the main background. Keep it recognizable as that exact screenshot. Same camera, characters, armor, weapons, environment. Do not repaint it into a new illustration. Do not invent a new foreground character.\n\n";
 			$lower   = "Inspect the lower-left of Image 1. If an illustrated creator avatar is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If that corner is empty gameplay, channel logo ONLY. Never invent a bald cartoon man, anime commander, cat, mascot, or armored portrait from memory.\n\n";
 		} elseif ( 1 === $shot_count ) {
-			$roles   = "Only Image 1 is attached. It is the full-bleed main background. No picture-in-picture.\n\n";
+			$roles   = "Only Image 1 is attached. It is the full-frame main background. No picture-in-picture. Keep its left and right sides visible — do not zoom-crop.\n\n";
 			$subject = "Enhance Image 1 lightly as the main background. Keep it recognizable as that exact screenshot. Same camera, characters, armor, weapons, environment. Do not repaint it into a new illustration. Do not invent a new foreground character.\n\n";
 			$lower   = "Inspect the lower-left of Image 1. If an illustrated creator avatar is already drawn there, keep that exact face, outfit, colors, mascot, and pose. If that corner is empty gameplay, channel logo ONLY. Never invent a bald cartoon man, anime commander, cat, mascot, or armored portrait from memory.\n\n";
 		} else {
@@ -255,7 +260,7 @@ TXT;
 		}
 
 		return "7. Custom 16:9 Thumbnail Concept\n"
-			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. When a screenshot is attached, enhance it lightly and keep it recognizable. Headline, logos, and any inset stay at least 100px from every edge (prefer ~150px for the headline). Never crop a word. Flush edges are a failed thumbnail.\n"
+			. "Canvas: 1920x1080. Exact 16:9 widescreen. No black bars. When a screenshot is attached, enhance it lightly and keep it recognizable. SAFE ZONE: headline, logos, and any inset stay at least 150px from every edge (prefer ~180px for the headline). Leave empty gameplay breathing room on the left and right. Never crop a word. Flush edges are a failed thumbnail.\n"
 			. "\n"
 			. $roles
 			. 'Composition Style: ' . $composition . "\n"
@@ -270,15 +275,15 @@ TXT;
 			. "Lower-Left Character:\n"
 			. "\n"
 			. $lower
-			. 'Channel branding: ' . $logo_brief . " Prefer the attached channel logo file when present. At least 120px in from the left and bottom. Do not invent an avatar unless one is already drawn in Image 1.\n"
+			. 'Channel branding: ' . $logo_brief . " Prefer the attached channel logo file when present. At least 150px in from the left and bottom. Do not invent an avatar unless one is already drawn in Image 1.\n"
 			. "\n"
 			. "Official Game Logo (exactly one):\n"
 			. "\n"
-			. 'Place exactly one authentic official ' . $game . " logo when a logo file is not being pasted by the app afterward. Never two copies. Top right when there is no inset; bottom right when there is an inset, raised above the duration badge. Keep it 120px+ from the edges.\n"
+			. 'Place exactly one authentic official ' . $game . " logo when a logo file is not being pasted by the app afterward. Never two copies. Top right when there is no inset; bottom right when there is an inset, raised above the duration badge. Keep it 150px+ from the edges.\n"
 			. "\n"
 			. "Headline Typography (Top-Left):\n"
 			. "\n"
-			. "Line 1 is larger than Line 2. Both lines sit in the upper-left headline box, about 8 percent in from the top and left, with clear empty gameplay around them. No letter is cut off. A slight dynamic tilt is fine.\n"
+			. "Line 1 is larger than Line 2. Both lines sit in the upper-left headline box, about 10 percent in from the top and left, with clear empty gameplay around them. No letter is cut off. A slight dynamic tilt is fine.\n"
 			. "\n"
 			. 'Line 1: ' . $line1 . "\n"
 			. "\n"
@@ -309,13 +314,16 @@ TXT;
 
 	/**
 	 * Create a 16:9 thumbnail image from the approved brief and optional screenshots.
-	 * Uses OpenAI or Gemini based on Settings > image provider.
+	 * Editor Gemini/ChatGPT picker chooses the image family when $provider is set;
+	 * otherwise Settings > image provider is used.
 	 *
 	 * @param string $description Approved brief.
 	 * @param array  $images      List of {mime, data}. May be empty.
+	 * @param array  $logos      Corner logo files for post-compose.
+	 * @param string $provider   Optional editor text provider (openai|gemini).
 	 * @return array{mime: string, data: string}|WP_Error
 	 */
-	public static function generate_thumbnail( $description, array $images, array $logos = array() ) {
+	public static function generate_thumbnail( $description, array $images, array $logos = array(), $provider = '' ) {
 		$description = trim( (string) $description );
 		if ( '' === $description ) {
 			return new WP_Error( 'tw_ai', 'Approve or write a thumbnail description first.' );
@@ -327,8 +335,11 @@ TXT;
 
 		// Screenshots only go to the image model. Corner logos are pasted in code
 		// afterward at fixed safe insets so we never get a doubled "photo frame".
-		$prompt = self::render_prompt( $description, count( $images ), $logos );
-		if ( 'openai' === TW_Settings::get( 'image_provider' ) ) {
+		$prompt   = self::render_prompt( $description, count( $images ), $logos );
+		$family   = '' !== trim( (string) $provider )
+			? self::text_provider( $provider )
+			: TW_Settings::get( 'image_provider' );
+		if ( 'openai' === $family ) {
 			$image = $images ? self::openai_edit( $prompt, $images ) : self::openai_generate( $prompt );
 		} else {
 			$image = self::gemini_image( $prompt, $images );
@@ -347,7 +358,7 @@ TXT;
 
 	/**
 	 * Paste attached channel/game logo PNGs onto the finished 16:9 card at a fixed
-	 * ~120px inset. Background stays one continuous full-bleed image.
+	 * ~150px inset. Background stays one continuous full-bleed image.
 	 *
 	 * @param string $b64   Fitted thumbnail, raw base64.
 	 * @param array  $logos List of {data, mime, pos, label}.
@@ -370,7 +381,7 @@ TXT;
 
 		$out_w  = imagesx( $dst );
 		$out_h  = imagesy( $dst );
-		$margin = 120;
+		$margin = 150;
 		$placed = false;
 
 		foreach ( $logos as $logo ) {
@@ -450,8 +461,9 @@ TXT;
 
 	/**
 	 * Force a generated thumbnail to 1920x1080. A near-16:9 frame is scaled.
-	 * A 3:2 or square frame is center-cropped to 16:9 so the final card stays
-	 * one seamless full-bleed image (no letterbox matte).
+	 * A taller 3:2 frame (legacy OpenAI size) is center-cropped on the top and
+	 * bottom only — width is kept so left/right safe margins survive. Square or
+	 * wider frames crop the excess axis. No letterbox matte.
 	 *
 	 * @param string $b64 Raw base64, no data: prefix.
 	 * @return string Base64 PNG, or the original string when GD cannot run.
@@ -508,22 +520,23 @@ TXT;
 
 	/**
 	 * Landscape size this OpenAI image model will accept.
-	 * chatgpt-image-latest only allows three fixed sizes, and 1536x1024 is 3:2.
-	 * gpt-image-2 and newer accept a real 16:9 frame. 1920x1080 itself is rejected
-	 * because 1080 is not divisible by 16, so we ask for 2048x1152 and scale down.
+	 * Legacy chatgpt-image-latest / gpt-image-1 only allow 1536x1024 (3:2).
+	 * gpt-image-2 and newer accept true 16:9 (both sides divisible by 16).
+	 * 1920x1080 is rejected because 1080 is not divisible by 16, so we ask for
+	 * 1536x864 and scale up to 1920x1080.
 	 *
 	 * @param string $model
 	 * @return string
 	 */
 	private static function openai_image_size( $model ) {
 		$model = strtolower( (string) $model );
-		$fixed = array( 'chatgpt-image-latest', 'gpt-image-1', 'gpt-image-1.5', 'dall-e-2', 'dall-e-3' );
+		$fixed = array( 'chatgpt-image-latest', 'gpt-image-1', 'gpt-image-1.5', 'gpt-image-1-mini', 'dall-e-2', 'dall-e-3' );
 		foreach ( $fixed as $name ) {
-			if ( $model === $name ) {
+			if ( $model === $name || 0 === strpos( $model, $name . '-' ) ) {
 				return '1536x1024';
 			}
 		}
-		return '2048x1152';
+		return '1536x864';
 	}
 
 	/** Standing render instructions + the approved per-video brief. */
@@ -534,25 +547,25 @@ TXT;
 		$has_logos  = ( '' !== $logo_block );
 
 		if ( $shot_count > 1 ) {
-			$shots = 'Two screenshots are attached. ENHANCE ONLY. Image 1 is ONE full-bleed background — never duplicate it as a border/frame. Image 2 is the upper-right inset only, 120px+ from top and right, thin steel/cyan border. Never swap them. Do not invent a hero or avatar. Headline 120px+ in.';
+			$shots = 'Two reference screenshots are attached as shot1.png then shot2.png. ENHANCE ONLY — the finished card must still look like those photos. shot1/Image 1 = ONE full-frame background (keep left and right sides; do not zoom-crop). shot2/Image 2 = distinct upper-right PiP card only, 150px+ from top and right, thin steel/cyan border. Never swap them. Never blend Image 2 into the background. Do not invent a hero or avatar. Headline 150px+ in with breathing room on the sides.';
 		} elseif ( 1 === $shot_count ) {
-			$shots = 'One screenshot is attached. ENHANCE ONLY. It is ONE full-bleed background — never duplicate it as a border/frame. No picture-in-picture. Do not invent a hero or avatar. Headline 120px+ in.';
+			$shots = 'One reference screenshot is attached as shot1.png. ENHANCE ONLY — keep it recognizable. It is ONE full-frame background (keep left and right sides; do not zoom-crop). No picture-in-picture. Do not invent a hero or avatar. Headline 150px+ in with breathing room on the sides.';
 		} else {
-			$shots = 'No screenshots are attached. Invent ONE full-bleed gameplay background from the brief. No picture-in-picture. Headline 120px+ in. Do not invent an avatar.';
+			$shots = 'No screenshots are attached. Invent ONE full-bleed gameplay background from the brief. No picture-in-picture. Headline 150px+ in. Do not invent an avatar.';
 		}
 		if ( $has_logos ) {
 			$shots .= ' Do not paint channel/game logos — the app pastes those later. Leave those corners empty.';
 		} else {
-			$shots .= ' Paint the channel logo lower-left and one official game logo (upper-right, or lower-right if there is an inset), each at least 120px from the edges.';
+			$shots .= ' Paint the channel logo lower-left and one official game logo (upper-right, or lower-right if there is an inset), each at least 150px from the edges.';
 		}
 
 		$size = self::openai_image_size( TW_Settings::get( 'openai_image_model' ) );
 		$frame = ( '1536x1024' === $size )
-			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep every graphic at least 120px inside this taller canvas so the trim still leaves 100px+ padding on the final 16:9 frame.'
-			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep every graphic at least 120px from every edge. Prefer about 150px for the headline.';
+			? 'Paint on a 1536x1024 canvas. The top and bottom are then trimmed and the picture is saved at 1920x1080, which is 16:9. Keep every graphic at least 180px inside this taller canvas so the trim still leaves 150px+ padding on the final 16:9 frame. Leave empty gameplay on the left and right.'
+			: 'Paint on a ' . $size . ' canvas. That is exact 16:9. It is saved at 1920x1080. Keep every graphic at least 150px from every edge. Prefer about 180px for the headline. Leave empty gameplay breathing room on the left and right.';
 		$edge_safe = $has_logos
-			? '[EDGE-SAFE] One continuous background to the rim. Never a doubled photo frame. Headline and inset stay at least 120px from every edge. Do not paint corner logos — leave those corners empty for the app.'
-			: '[EDGE-SAFE] One continuous background to the rim. Never a doubled photo frame. Headline, channel logo, game logo, and inset stay at least 120px from every edge. Prefer ~150px for the headline.';
+			? '[EDGE-SAFE] One continuous background to the rim. Never a doubled photo frame. Never zoom-crop the sides of Image 1. Headline and inset stay at least 150px from every edge. Do not paint corner logos — leave those corners empty for the app.'
+			: '[EDGE-SAFE] One continuous background to the rim. Never a doubled photo frame. Never zoom-crop the sides of Image 1. Headline, channel logo, game logo, and inset stay at least 150px from every edge. Prefer ~180px for the headline.';
 		return $standing . "\n\n"
 			. $frame . " Keep every letter inside its content box. Do not clip a letter.\n\n"
 			. $shots . "\n\n"
@@ -587,7 +600,7 @@ TXT;
 		}
 		return "CORNER LOGOS (app will paste these after you finish — do not paint them)\n"
 			. implode( "\n", $corners ) . "\n"
-			. "Leave those corners empty of logos and wordmarks. Do not invent a channel logo, game logo, or duplicate badge. Keep the headline and any inset at least 120px from every edge so they do not collide with the pasted logos.";
+			. "Leave those corners empty of logos and wordmarks. Do not invent a channel logo, game logo, or duplicate badge. Keep the headline and any inset at least 150px from every edge so they do not collide with the pasted logos.";
 	}
 
 	/** Gemini native image generation with reference screenshots. */
@@ -668,6 +681,14 @@ TXT;
 			'quality'       => $quality,
 			'output_format' => 'png',
 		);
+		// gpt-image-1.x honors input_fidelity; gpt-image-2+ always uses high fidelity.
+		$model_l = strtolower( (string) $model );
+		if (
+			false !== strpos( $model_l, 'gpt-image-1' )
+			|| 'chatgpt-image-latest' === $model_l
+		) {
+			$fields['input_fidelity'] = 'high';
+		}
 		foreach ( $fields as $name => $value ) {
 			$body .= '--' . $boundary . "\r\n";
 			$body .= 'Content-Disposition: form-data; name="' . $name . "\"\r\n\r\n";
@@ -731,7 +752,7 @@ TXT;
 			} elseif ( 429 === $code ) {
 				$msg = 'OpenAI rate limit or quota hit. Wait and try again. ' . $msg;
 			} elseif ( 404 === $code ) {
-				$msg = 'OpenAI image model "' . $model . '" not found. Try chatgpt-image-latest or gpt-image-2.5-sunburst in Settings. ' . $msg;
+				$msg = 'OpenAI image model "' . $model . '" not found. Try gpt-image-2.5-sunburst or gpt-image-2.5-flare in Settings. ' . $msg;
 			}
 			return new WP_Error( 'tw_ai', wp_strip_all_tags( $msg ) );
 		}
@@ -767,9 +788,10 @@ TXT;
 	 * @param string $system
 	 * @param string $user_text
 	 * @param bool   $raw
+	 * @param array  $images Optional screenshots as {mime, data} for vision (thumbnail briefs).
 	 * @return mixed|WP_Error
 	 */
-	private static function openai_chat( $model, $system, $user_text, $raw ) {
+	private static function openai_chat( $model, $system, $user_text, $raw, array $images = array() ) {
 		self::$last_usage = null;
 		$key = TW_Settings::get( 'openai_key' );
 		if ( ! $key ) {
@@ -782,6 +804,25 @@ TXT;
 		}
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 180 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		}
+
+		$user_content = (string) $user_text;
+		if ( $images ) {
+			$parts = array(
+				array(
+					'type' => 'text',
+					'text' => (string) $user_text,
+				),
+			);
+			foreach ( $images as $img ) {
+				$parts[] = array(
+					'type'      => 'image_url',
+					'image_url' => array(
+						'url' => 'data:' . $img['mime'] . ';base64,' . $img['data'],
+					),
+				);
+			}
+			$user_content = $parts;
 		}
 
 		$response = wp_remote_post(
@@ -799,7 +840,7 @@ TXT;
 						'response_format' => array( 'type' => 'json_object' ),
 						'messages'        => array(
 							array( 'role' => 'system', 'content' => (string) $system ),
-							array( 'role' => 'user', 'content' => (string) $user_text ),
+							array( 'role' => 'user', 'content' => $user_content ),
 						),
 					)
 				),
@@ -887,7 +928,7 @@ TXT;
 	/** True when Gemini is overloaded or asking the caller to retry shortly. */
 	private static function demand_message( $msg ) {
 		$msg = strtolower( (string) $msg );
-		foreach ( array( 'high demand', 'unavailable', 'overloaded', 'resource exhausted', 'try again later' ) as $bit ) {
+		foreach ( array( 'high demand', 'unavailable', 'overloaded', 'resource exhausted', 'try again later', 'busy right now', 'temporarily' ) as $bit ) {
 			if ( false !== strpos( $msg, $bit ) ) {
 				return true;
 			}
@@ -922,8 +963,10 @@ TXT;
 		}
 
 		$image     = ( 'image' === $mode );
-		$timeout   = $image ? 150 : 45;
-		$max_tries = $image ? 3 : 1;
+		$timeout   = $image ? 150 : 90;
+		// Text used to try once then fail over to other lite models that were also busy.
+		// Retry the chosen model before switching; Google 503 spikes are usually brief.
+		$max_tries = $image ? 3 : 2;
 
 		$body = array(
 			'contents'         => array(
@@ -1099,13 +1142,17 @@ TXT;
 			if ( $next_model === $model ) {
 				continue;
 			}
+			sleep( 2 );
 			$next = self::request( $next_model, $system, $parts, $gen_config, $mode, false );
 			if ( ! is_wp_error( $next ) ) {
 				return $next;
 			}
 			$tried[] = $next_model . ': ' . $next->get_error_message();
 		}
-		return new WP_Error( 'tw_ai', 'Gemini did not finish. ' . implode( ' ', $tried ) );
+		return new WP_Error(
+			'tw_ai',
+			'Gemini did not finish. ' . implode( ' ', $tried ) . ' Pick ChatGPT next to Generate and try that, or wait a minute and retry Gemini.'
+		);
 	}
 
 	/**

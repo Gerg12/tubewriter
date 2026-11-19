@@ -51,6 +51,7 @@ class TW_Admin {
 				'nonce'              => wp_create_nonce( 'tw_ajax' ),
 				'imageProvider'      => TW_Settings::get( 'image_provider' ),
 				'imageProviderLabel' => TW_Settings::image_provider_label(),
+				'canThumbnails'      => tw_user_can_thumbnails() ? 1 : 0,
 				'settingsUrl'        => admin_url( 'admin.php?page=tubewriter-settings' ),
 			)
 		);
@@ -120,7 +121,7 @@ class TW_Admin {
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
 								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Other options: <code>gemini-3.6-flash</code>, <code>gemini-3.8-flash</code>. If the model you type here is busy or does not answer, UploadWriter tries <code>gemini-3.5-flash-lite</code>, then <code>gemini-flash-lite-latest</code>. Used for metadata and thumbnail briefs.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Alternate: <code>gemini-flash-latest</code>. Lite models are not recommended. If this model is busy or does not answer, UploadWriter retries, then tries <code>gemini-3.8-flash</code>, then <code>gemini-flash-latest</code>. Used for metadata and thumbnail briefs when Gemini is selected next to Generate.</p>
 							</td>
 						</tr>
 						<tr>
@@ -138,6 +139,16 @@ class TW_Admin {
 							</td>
 						</tr>
 						<tr>
+							<th>AI thumbnail access</th>
+							<td>
+								<label for="tw_thumb_ai_for_users">
+									<input type="checkbox" id="tw_thumb_ai_for_users" name="tw_thumb_ai_for_users" value="1" <?php checked( TW_Settings::thumb_ai_for_users() ); ?>>
+									Let UploadWriter users (not just admins) use Write thumbnail description and Create thumbnail
+								</label>
+								<p class="description">Off by default while the feature is being tuned. Site admins always see it. Other accounts only see pick/upload until you turn this on.</p>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="tw_image_provider">Thumbnail image provider</label></th>
 							<td>
 								<select id="tw_image_provider" name="tw_image_provider">
@@ -145,14 +156,14 @@ class TW_Admin {
 										<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
 									<?php endforeach; ?>
 								</select>
-								<p class="description">Gemini still writes the thumbnail brief. This only chooses who creates the final image from your screenshots.</p>
+								<p class="description">Fallback when the editor picker is not sent. Create thumbnail follows the Gemini / ChatGPT picker next to Generate (ChatGPT → OpenAI image, Gemini → Gemini image). The brief always uses that same picker.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_openai_image_model">OpenAI image model</label></th>
 							<td>
 								<input type="text" id="tw_openai_image_model" name="tw_openai_image_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_image_model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_IMAGE_MODEL ); ?></code> (tracks ChatGPT's current image model). Alternatives: <code>gpt-image-2.5-sunburst</code> (more precise edits), <code>gpt-image-2.5-flare</code> (faster).</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_IMAGE_MODEL ); ?></code> (true 16:9). Alternatives: <code>gpt-image-2.5-flare</code> (faster). Avoid <code>chatgpt-image-latest</code> — it only outputs 3:2 and gets cropped.</p>
 							</td>
 						</tr>
 						<tr>
@@ -571,7 +582,7 @@ class TW_Admin {
 						<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
 					</span>
 				</p>
-				<p class="description">Switching models only changes who writes the draft. YouTube sign-in is separate. If the Gemini model in Settings is busy or does not answer, UploadWriter tries gemini-3.5-flash-lite, then gemini-flash-lite-latest. You can also pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
+				<p class="description">This picker also writes the thumbnail brief in step 3. YouTube sign-in is separate. If Gemini is busy, UploadWriter retries, then tries gemini-3.8-flash and gemini-flash-latest. Or pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
 			</section>
 
 			<!-- STEP 2 (same page as the source, so the draft can be compared with what it came from) -->
@@ -654,21 +665,33 @@ class TW_Admin {
 			<section class="tw-card tw-step" data-step="3" hidden>
 				<h2>Step 3: Thumbnail</h2>
 				<?php
+				$can_thumbs = tw_user_can_thumbnails();
 				$help(
-					'Optional. Screenshots are optional. Gemini writes a packaged thumbnail concept from your title, description and transcript (plus any pasted shots), then the image model builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.',
-					array(
-						'Paste screenshots if you have them: <strong>Ctrl+V</strong> or Add image. First paste is the main background. Second is the picture-in-picture. Saved in the Media Library for this video. Skip this if you want a text-only concept.',
-						'Click <strong>Write thumbnail description</strong>. The concept uses a top-left hook, channel logo and game logo. The hook does not repeat the title.',
-						'Edit the brief if you want, then click <strong>Create thumbnail</strong>. Standing layout rules live in Settings under Thumbnail render instructions.',
-						'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below. Use <strong>Remove logo</strong> or <strong>Remove thumbnail</strong> to clear the wrong one.',
-						'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Download or Open in Studio only if you will finish the upload yourself. Skip this step anytime with Next.',
-					)
+					$can_thumbs
+						? 'Optional. Paste inspiration screenshots when you have them. The same Gemini or ChatGPT picker from step 1 writes a packaged thumbnail concept from your title, description, transcript/timestamps and pasted shots, then that same family builds the card. Or pick an existing image from the Media Library. Upload to YouTube only when you click that button and confirm.'
+						: 'Optional. Choose a finished thumbnail from the Media Library, or upload one to YouTube when ready. AI thumbnail brief and create are hidden until a site admin turns them on in UploadWriter → Settings.',
+					$can_thumbs
+						? array(
+							'Paste inspiration screenshots: <strong>Ctrl+V</strong> or Add image into the paste box (not only Saved references). First image is the background photo. Second is the picture-in-picture photo. Max two.',
+							'Click <strong>Write thumbnail description</strong>. Uses the Gemini or ChatGPT model selected next to Generate, with title, description, transcript/timestamps, and your pasted shots.',
+							'Edit the brief if you want, then click <strong>Create thumbnail</strong>. ChatGPT selected → OpenAI image model. Gemini selected → Gemini image model. Safe margins stay ~150px in from every edge.',
+							'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below.',
+							'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Skip this step anytime with Next.',
+						)
+						: array(
+							'Use <strong>Choose finished thumbnail</strong> to pick a PNG or JPEG from the Media Library.',
+							'Upload to YouTube only when you click that button and confirm.',
+							'Skip this step anytime with Next.',
+						)
 				);
 				?>
-				<p class="description" id="tw-thumb-provider">Image provider: <strong><?php echo esc_html( TW_Settings::image_provider_label() ); ?></strong>. Change it in Settings.</p>
+				<?php if ( $can_thumbs ) : ?>
+				<p class="description" id="tw-thumb-provider">Brief + image follow the Gemini / ChatGPT picker next to Generate. Settings image provider is the fallback. Active OpenAI image model: <strong><?php echo esc_html( TW_Settings::get( 'openai_image_model' ) ); ?></strong>.</p>
+				<?php endif; ?>
+				<?php if ( $can_thumbs ) : ?>
 				<div id="tw-thumb-zone" class="tw-thumb-zone" tabindex="0" role="button" aria-label="Paste screenshot area">
-					<p class="tw-thumb-zone-title">Paste screenshots here (optional)</p>
-					<p class="description">Optional. Press Ctrl+V while this box is focused, or click Add image. First image is the main background. Second is the picture-in-picture. Max two. Skip this and write from title and description alone.</p>
+					<p class="tw-thumb-zone-title">Paste inspiration screenshots here</p>
+					<p class="description">Press Ctrl+V while this box is focused, or click Add image. First image = background photo. Second = picture-in-picture photo. Max two. These must appear here (not only under Saved references) to be sent to the model. Skip only if you want a text-only concept.</p>
 					<div id="tw-thumb-shots" class="tw-thumb-shots"></div>
 					<div class="tw-inline">
 						<button type="button" class="button" id="tw-thumb-add">Add image</button>
@@ -679,7 +702,7 @@ class TW_Admin {
 
 				<div id="tw-thumb-refs" class="tw-thumb-refs">
 					<p class="tw-thumb-zone-title">Saved references</p>
-					<p class="description">Pasted thumbnails for this video stay in the Media Library. Look, copy, or delete one.</p>
+					<p class="description">Pasted thumbnails for this video stay in the Media Library. Drag one into the paste box above to use it as Image 1 or 2, or Look / Copy.</p>
 					<div id="tw-thumb-ref-list" class="tw-thumb-shots"></div>
 				</div>
 
@@ -701,7 +724,9 @@ class TW_Admin {
 
 				<label for="tw-thumb-desc">Thumbnail description</label>
 				<textarea id="tw-thumb-desc" rows="22" class="large-text" placeholder="The numbered 16:9 concept appears here. Edit any line, then create the thumbnail."></textarea>
+				<?php endif; ?>
 
+				<?php if ( $can_thumbs ) : ?>
 				<div class="tw-thumb-block tw-thumb-logos">
 					<p class="tw-thumb-zone-title">1. Corner logos</p>
 					<p class="description">Optional. Transparent PNG badges for the corners only. Do not put a finished 16:9 thumbnail here.</p>
@@ -756,12 +781,15 @@ class TW_Admin {
 					</div>
 					<p class="description">Headline stays top left. Channel logo defaults to the bottom left. Game logo defaults to the top right. With two screenshots, the first is always the main background and the second is always the picture-in-picture in the top right, so the game logo moves to the bottom right.</p>
 				</div>
+				<?php endif; ?>
 
 				<div class="tw-thumb-block tw-thumb-build">
-					<p class="tw-thumb-zone-title">2. Finished thumbnail</p>
-					<p class="description">Create the full 16:9 YouTube card from the brief above, or pick one you already made. This is separate from the corner logos.</p>
+					<p class="tw-thumb-zone-title"><?php echo esc_html( $can_thumbs ? '2. Finished thumbnail' : 'Finished thumbnail' ); ?></p>
+					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one you already made. This is separate from the corner logos.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
 					<p class="tw-actions-left tw-inline">
+						<?php if ( $can_thumbs ) : ?>
 						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
+						<?php endif; ?>
 						<button type="button" class="button button-hero" id="tw-thumb-pick">Choose finished thumbnail</button>
 					</p>
 
@@ -1418,13 +1446,14 @@ class TW_Admin {
 
 	public function ajax_thumb_describe() {
 		$this->ajax_guard();
+		$this->require_thumbnails();
 		$this->require_identity();
 		$input  = $this->input();
 		$images = $this->images_from_post();
 		if ( is_wp_error( $images ) ) {
 			wp_send_json_error( $images->get_error_message() );
 		}
-		$out = TW_AI::describe_thumbnail( $input, $images, $this->pkg_from_post() );
+		$out = TW_AI::describe_thumbnail( $input, $images, $this->pkg_from_post(), $this->text_provider() );
 		if ( is_wp_error( $out ) ) {
 			wp_send_json_error( $out->get_error_message() );
 		}
@@ -1451,6 +1480,7 @@ class TW_Admin {
 
 	public function ajax_thumb_generate() {
 		$this->ajax_guard();
+		$this->require_thumbnails();
 		$this->require_identity();
 		$input       = $this->input();
 		$description = $this->post( 'thumb_description', true );
@@ -1462,7 +1492,7 @@ class TW_Admin {
 		if ( is_wp_error( $logos ) ) {
 			wp_send_json_error( $logos->get_error_message() );
 		}
-		$image = TW_AI::generate_thumbnail( $description, $images, $logos );
+		$image = TW_AI::generate_thumbnail( $description, $images, $logos, $this->text_provider() );
 		if ( is_wp_error( $image ) ) {
 			wp_send_json_error( $image->get_error_message() );
 		}
@@ -2075,8 +2105,15 @@ class TW_Admin {
 	}
 
 	private function images_from_post() {
-		$raw = json_decode( wp_unslash( $_POST['images'] ?? '' ), true ); // phpcs:ignore
-		return is_array( $raw ) ? $raw : array();
+		$posted = wp_unslash( $_POST['images'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		if ( '' === $posted || null === $posted ) {
+			return array();
+		}
+		$raw = json_decode( $posted, true );
+		if ( ! is_array( $raw ) ) {
+			return new WP_Error( 'tw_ai', 'Could not read the pasted screenshots. Paste them again into the inspiration box, then retry.' );
+		}
+		return $raw;
 	}
 
 	/**
@@ -2318,6 +2355,13 @@ class TW_Admin {
 	/** Gemini or ChatGPT, from the editor dropdown. */
 	private function text_provider() {
 		return TW_AI::text_provider( $this->post( 'provider' ) );
+	}
+
+	/** AI thumbnail brief/create: admins always; other users only when the site setting is on. */
+	private function require_thumbnails() {
+		if ( ! tw_user_can_thumbnails() ) {
+			wp_send_json_error( 'AI thumbnail tools are turned off for this account. Ask a site admin to enable them in UploadWriter Settings.', 403 );
+		}
 	}
 
 	/** Google sign-in steps. The paste box is how a Desktop OAuth client finishes. */

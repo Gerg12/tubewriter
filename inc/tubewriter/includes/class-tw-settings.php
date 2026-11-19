@@ -23,6 +23,7 @@ class TW_Settings {
 		'prompt',
 		'thumb_prompt',
 		'thumb_render_prompt',
+		'thumb_ai_for_users',
 		'default_time',
 		'default_language',
 		'default_category',
@@ -43,6 +44,7 @@ class TW_Settings {
 		'default_language'     => 'en',
 		'default_category'     => '20',
 		'openai_image_quality' => 'high',
+		'thumb_ai_for_users'   => '',
 	);
 
 	/** Example values shown in onboarding (Gregatron). Not auto-saved for new users. */
@@ -181,6 +183,26 @@ class TW_Settings {
 	}
 
 	/**
+	 * Move sites still on chronically overloaded lite text models onto gemini-3.8-flash.
+	 * Runs once per flag. Leaves non-lite custom models alone.
+	 */
+	public static function maybe_upgrade_gemini_model() {
+		if ( get_option( 'tw_gemini_model_v3', false ) ) {
+			return;
+		}
+		$current = strtolower( trim( (string) get_option( 'tw_model', '' ) ) );
+		$lite    = (
+			'' === $current
+			|| false !== strpos( $current, 'lite' )
+			|| in_array( $current, array( 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite' ), true )
+		);
+		if ( $lite ) {
+			update_option( 'tw_model', TW_DEFAULT_MODEL, false );
+		}
+		update_option( 'tw_gemini_model_v3', 1, false );
+	}
+
+	/**
 	 * Replace the stock "plain screenshot, little or no text" thumbnail prompts
 	 * with the packaged card template. Leave a prompt alone once it has been edited
 	 * away from those stock lines.
@@ -199,6 +221,7 @@ class TW_Settings {
 			|| false !== strpos( $brief, 'A picture-in-picture inset only when a second screenshot shows a different moment' )
 			|| false !== strpos( $brief, 'The target layout is a polished gameplay card, not a poster' )
 			|| false !== strpos( $brief, 'The target layout is a polished ChatGPT-style gameplay card' )
+			|| false !== strpos( $brief, 'Headline, logos, and any inset stay at least 100px from every edge' )
 			|| (
 				false !== strpos( $brief, 'You look at up to two gameplay screenshots plus the draft title, description and transcript.' )
 				&& false === strpos( $brief, 'channel logo only, UNLESS' )
@@ -206,6 +229,10 @@ class TW_Settings {
 			|| (
 				false !== strpos( $brief, 'Describe only what the screenshots show.' )
 				&& false === strpos( $brief, 'Prefer attached screenshots when present' )
+			)
+			|| (
+				false !== strpos( $brief, 'Exact 16:9. Image 1 full-bleed to the rim when attached.' )
+				&& false === strpos( $brief, 'SAFE ZONE' )
 			)
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
@@ -238,6 +265,7 @@ class TW_Settings {
 			|| false !== strpos( $render, 'WHEN SCREENSHOTS ARE ATTACHED (ENHANCE ONLY)' )
 			|| false !== strpos( $render, 'Controlled cinematic S-curve' )
 			|| false !== strpos( $render, 'Corner logos are pasted later by the app. Do not paint channel or game logos.' )
+			|| false !== strpos( $render, 'Every overlay sits at least 120px in from the edges' )
 			|| (
 				false === strpos( $render, 'LOGOS (normal case — no logo PNG attached)' )
 				&& (
@@ -247,9 +275,34 @@ class TW_Settings {
 					|| false !== strpos( $render, 'You are the thumbnail art director' )
 				)
 			)
+			|| (
+				false !== strpos( $render, 'You are the thumbnail art director' )
+				&& false === strpos( $render, 'SAFE ZONE' )
+			)
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}
+	}
+
+	/**
+	 * Move sites off deprecated chatgpt-image-latest (3:2 only) onto a true 16:9 model.
+	 * Runs once. Leaves a custom non-default model alone.
+	 */
+	public static function maybe_upgrade_openai_image_model() {
+		if ( get_option( 'tw_openai_image_model_v2', false ) ) {
+			return;
+		}
+		$current = strtolower( trim( (string) get_option( 'tw_openai_image_model', '' ) ) );
+		$legacy  = (
+			'' === $current
+			|| 'chatgpt-image-latest' === $current
+			|| 'gpt-image-1' === $current
+			|| 'gpt-image-1.5' === $current
+		);
+		if ( $legacy ) {
+			update_option( 'tw_openai_image_model', TW_DEFAULT_OPENAI_IMAGE_MODEL, false );
+		}
+		update_option( 'tw_openai_image_model_v2', 1, false );
 	}
 
 	public static function default_thumb_prompt() {
@@ -511,6 +564,9 @@ class TW_Settings {
 		$quality = sanitize_text_field( wp_unslash( $post['tw_openai_image_quality'] ?? '' ) );
 		self::set( 'openai_image_quality', isset( self::OPENAI_QUALITIES[ $quality ] ) ? $quality : self::DEFAULTS['openai_image_quality'] );
 
+		// Site-only gate: off by default so AI thumbnails stay admin-only until ready.
+		self::set( 'thumb_ai_for_users', empty( $post['tw_thumb_ai_for_users'] ) ? '' : '1' );
+
 		$time = sanitize_text_field( wp_unslash( $post['tw_default_time'] ?? '' ) );
 		self::set( 'default_time', preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : self::DEFAULTS['default_time'] );
 		$lang = sanitize_text_field( wp_unslash( $post['tw_default_language'] ?? '' ) );
@@ -532,5 +588,10 @@ class TW_Settings {
 	public static function image_provider_label() {
 		$provider = self::get( 'image_provider' );
 		return self::IMAGE_PROVIDERS[ $provider ] ?? $provider;
+	}
+
+	/** True when non-admin UploadWriter users may use AI thumbnail brief/create. */
+	public static function thumb_ai_for_users() {
+		return '1' === (string) self::get( 'thumb_ai_for_users' );
 	}
 }
