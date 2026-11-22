@@ -724,6 +724,7 @@ function uw_muse_rest_schema() {
 				'costs_units'       => array(
 					'pull_captions'     => 250,
 					'push_or_restore'   => 50,
+					'push_with_schedule'=> 50,
 					'privacy_change'    => 50,
 					'thumbnail_upload'  => 50,
 					'quick_sync'        => 'about 8-20',
@@ -740,11 +741,12 @@ function uw_muse_rest_schema() {
 					'ai_generate_revise_gemini_or_chatgpt',
 					'dry_run_push_or_restore',
 					'dry_run_privacy_change',
+					'dry_run_push_with_schedule',
 					'schema_status_settings_reads',
 					'unlisted_watch_page_transcript_panel',
 				),
 				'confirm_before_spend' => 'Before any costs_units action, report estimated units and wait for explicit human OK unless they already asked for that exact spend.',
-				'privacy_workaround'   => 'Private videos have no signed-out transcript. Prefer PATCH privacy to unlisted (~50 units), read the watch-page transcript panel signed out (0 units), PATCH transcript, then privacy back to private and schedule. Avoid pull_captions (250) when this path works.',
+				'privacy_workaround'   => 'Private videos have no signed-out transcript. Prefer PATCH privacy to unlisted (~50 units), read the watch-page transcript panel signed out (0 units), PATCH transcript, then push with schedule_at (sets private + publishAt in one ~50 unit write). Avoid pull_captions (250) when this path works.',
 			),
 			'permissions'       => array(
 				'push'    => uw_muse_can_push(),
@@ -790,7 +792,19 @@ function uw_muse_rest_schema() {
 				'privacy_values' => array( 'private', 'unlisted', 'public' ),
 				'pkg'          => array( 'titles', 'title', 'body', 'chapters_heading', 'chapters', 'tags', 'hashtags' ),
 				'generate'     => array( 'notes', 'transcript', 'seed_title', 'seed_desc' ),
-				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint', 'privacy' ),
+				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint', 'privacy', 'schedule_at', 'publish_at', 'schedule' ),
+				'schedule_at'  => array(
+					'format'    => 'ISO 8601 datetime',
+					'timezone'  => 'Prefer UTC with trailing Z. Example: 2026-12-23T12:30:00Z is 7:30 AM America/New_York (site timezone).',
+					'aliases'   => array( 'publish_at' ),
+					'or'        => 'schedule: { mode: "schedule"|"set", date: "YYYY-MM-DD", time: "HH:MM" } in site timezone ' . wp_timezone_string(),
+					'cost'      => 'Same as push_or_restore: ~50 units total. Scheduling sets privacyStatus=private and publishAt in that one write; do not also charge a privacy_change.',
+					'dry_run'   => 'dry_run:true returns schedule.mode=schedule, schedule.at (UTC Z), schedule.label (local + TZ abbrev), schedule.timezone, actions, and fingerprint covering that exact schedule.',
+				),
+				'opts_schedule'=> array(
+					'mode' => array( 'keep', 'set', 'schedule', 'now' ),
+					'note' => 'PATCH opts.schedule mode "schedule" is stored as "set". date+time are site timezone (' . wp_timezone_string() . '). Push uses stored opts.schedule when schedule_at is omitted.',
+				),
 				'restore'      => array( 'entry_id', 'confirm' ),
 				'pages_posts'  => array( 'external_id', 'title', 'slug', 'content_html', 'update', 'categories', 'tags', 'featured_media' ),
 				'settings'     => class_exists( 'TW_Settings' ) ? TW_Settings::IDENTITY_KEYS : array(),
@@ -803,8 +817,10 @@ function uw_muse_rest_schema() {
 				'PATCH /muse/settings (identity) requires a user key. Site keys get 403.',
 				'PATCH privacy is top-level only (private|unlisted|public). Do not put privacy inside opts. User keys only. Site keys get 403.',
 				'Privacy change: dry_run:true first (0 write units, may use 1 for videos.list), then confirm_push:true + fingerprint. Real change ~50 units. Never publishes or sets publishAt by itself.',
-				'Prefer Unlisted → read watch-page transcript signed out (free) → paste transcript → Private → schedule, instead of pull_captions (250).',
-				'Scheduling works from Private or Unlisted. A schedule write sets privacyStatus to private and publishAt; it stays private until that time, then goes public.',
+				'Prefer Unlisted → read watch-page transcript signed out (free) → paste transcript → push with schedule_at (private + publishAt, ~50), instead of pull_captions (250).',
+				'Scheduling works from Private or Unlisted. A schedule write sets privacyStatus to private and publishAt; it stays private until that time, then goes public. Never publishes immediately.',
+				'Push schedule: POST /muse/videos/{id}/push-to-youtube with schedule_at (UTC Z preferred) or publish_at, or schedule:{mode:"schedule",date,time} in ' . wp_timezone_string() . '. Example: {"dry_run":true,"schedule_at":"2026-12-23T12:30:00Z"} → 7:30 AM Eastern. Real push ~50 units total (not 50+50). Re-send the same schedule_at with confirm_push and the dry_run fingerprint.',
+				'GET /muse/schedule is a read-only calendar; times are UTC with a trailing Z. Site default publish time is 07:30 ' . wp_timezone_string() . '.',
 				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only. Sync/restore stay off for site keys.',
 				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day). Site key cap 0 means unlimited / not tracked.',
 				'YouTube project quota is 10,000 units/day (midnight Pacific). Pull captions = 250. Prefer pasted transcripts and local index reads. See youtube_quota on this schema.',
@@ -812,7 +828,7 @@ function uw_muse_rest_schema() {
 				'Do not pull captions when transcript is already stored or captions_status is ok/none.',
 				'Royal MCP is separate (Authorization: Bearer).',
 				'POST /muse/pages and /muse/posts are site-key only, drafts only. Never publishes.',
-				'Push requires confirm_push:true. Use dry_run:true first. Optional push privacy (top-level) shows in dry-run actions.',
+				'Push requires confirm_push:true. Use dry_run:true first. Optional push privacy and schedule_at show in dry-run actions; fingerprint covers both.',
 				'Never sign in to Google, YouTube, or wp-admin in a browser as Muse.',
 			),
 		)
@@ -991,14 +1007,15 @@ function uw_muse_rest_youtube_status() {
 				'muse_cap'     => $cap,
 				'resets'       => 'midnight America/Los_Angeles',
 				'expensive'    => array(
-					'pull_captions'  => 250,
-					'privacy_change' => 50,
-					'push_restore'  => 50,
-					'thumb_upload'  => 50,
-					'quick_sync'    => 'about 8-20',
+					'pull_captions'      => 250,
+					'privacy_change'     => 50,
+					'push_restore'       => 50,
+					'push_with_schedule' => 50,
+					'thumb_upload'       => 50,
+					'quick_sync'         => 'about 8-20',
 				),
-				'free'         => array( 'local_index', 'saved_draft', 'paste_transcript', 'ai_generate', 'dry_run' ),
-				'note'         => 'Confirm with the human before any expensive action. Prefer paste over caption pulls.',
+				'free'         => array( 'local_index', 'saved_draft', 'paste_transcript', 'ai_generate', 'dry_run', 'dry_run_push_with_schedule' ),
+				'note'         => 'Confirm with the human before any expensive action. Prefer paste over caption pulls. Push with schedule_at is one ~50 unit write (private + publishAt).',
 			),
 		)
 	);
@@ -1075,6 +1092,117 @@ function uw_muse_normalize_pkg( $raw ) {
 	);
 }
 
+/**
+ * Normalize a Go-live mode from Muse or the editor.
+ * Muse may send "schedule"; the plan/engine uses "set".
+ *
+ * @param string $mode Raw mode.
+ * @return string keep|set|now
+ */
+function uw_muse_normalize_schedule_mode( $mode ) {
+	$mode = (string) $mode;
+	if ( 'schedule' === $mode ) {
+		return 'set';
+	}
+	return in_array( $mode, array( 'keep', 'set', 'now' ), true ) ? $mode : 'keep';
+}
+
+/**
+ * Muse-facing schedule object (mode "schedule" instead of internal "set").
+ *
+ * @param array $schedule From TW_Plan::build.
+ * @return array{mode: string, at: string, label: string, timezone: string}
+ */
+function uw_muse_schedule_for_response( array $schedule ) {
+	$mode = (string) ( $schedule['mode'] ?? 'keep' );
+	if ( 'set' === $mode ) {
+		$mode = 'schedule';
+	}
+	return array(
+		'mode'     => $mode,
+		'at'       => (string) ( $schedule['at'] ?? '' ),
+		'label'    => (string) ( $schedule['label'] ?? '' ),
+		'timezone' => wp_timezone_string(),
+	);
+}
+
+/**
+ * Fingerprint for a Muse push dry-run. Covers live YouTube state plus the exact
+ * schedule and optional privacy so confirm_push cannot swap the go-live action.
+ *
+ * @param string $youtube_fp From TW_YouTube::fingerprint.
+ * @param array  $schedule   From TW_Plan::build (internal mode keep|set|now).
+ * @param string $privacy    Optional top-level privacy when schedule is keep.
+ * @return string
+ */
+function uw_muse_push_fingerprint( $youtube_fp, array $schedule, $privacy = '' ) {
+	$payload = array(
+		'yt'         => (string) $youtube_fp,
+		'sched_mode' => (string) ( $schedule['mode'] ?? 'keep' ),
+		'sched_at'   => (string) ( $schedule['at'] ?? '' ),
+		'privacy'    => (string) $privacy,
+	);
+	return substr( md5( wp_json_encode( $payload ) ), 0, 12 );
+}
+
+/**
+ * Apply push-body schedule fields onto opts.schedule.
+ * Accepts schedule_at / publish_at (ISO 8601, prefer …Z UTC) or schedule{mode,date,time}.
+ * date+time without an offset use the site timezone (America/New_York on production).
+ *
+ * @param array $body Push JSON body.
+ * @param array $opts Normalized opts.
+ * @return array|WP_Error Updated opts, or error.
+ */
+function uw_muse_apply_push_schedule( array $body, array $opts ) {
+	$raw_at = '';
+	if ( array_key_exists( 'schedule_at', $body ) && '' !== trim( (string) $body['schedule_at'] ) ) {
+		$raw_at = trim( (string) $body['schedule_at'] );
+	} elseif ( array_key_exists( 'publish_at', $body ) && '' !== trim( (string) $body['publish_at'] ) ) {
+		$raw_at = trim( (string) $body['publish_at'] );
+	}
+
+	if ( '' !== $raw_at ) {
+		try {
+			// Trailing Z → UTC. Offset present → that zone. Bare local → site timezone.
+			if ( preg_match( '/Z$/i', $raw_at ) ) {
+				$dt = new DateTime( $raw_at, new DateTimeZone( 'UTC' ) );
+			} elseif ( preg_match( '/[+-]\d{2}:?\d{2}$/', $raw_at ) ) {
+				$dt = new DateTime( $raw_at );
+			} else {
+				$dt = new DateTime( $raw_at, wp_timezone() );
+			}
+		} catch ( Exception $e ) {
+			return new WP_Error(
+				'uw_muse_schedule',
+				'schedule_at / publish_at must be a valid datetime. Prefer UTC with Z, e.g. 2026-12-23T12:30:00Z (7:30 AM America/New_York).',
+				array( 'status' => 400 )
+			);
+		}
+		$dt->setTimezone( wp_timezone() );
+		$opts['schedule'] = array(
+			'mode' => 'set',
+			'date' => $dt->format( 'Y-m-d' ),
+			'time' => $dt->format( 'H:i' ),
+		);
+		return $opts;
+	}
+
+	if ( isset( $body['schedule'] ) && is_array( $body['schedule'] ) ) {
+		$sc   = $body['schedule'];
+		$mode = uw_muse_normalize_schedule_mode( $sc['mode'] ?? 'keep' );
+		$date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', (string) ( $sc['date'] ?? '' ) ) ? (string) $sc['date'] : '';
+		$time = preg_match( '/^\d{2}:\d{2}$/', (string) ( $sc['time'] ?? '' ) ) ? (string) $sc['time'] : '';
+		$opts['schedule'] = array(
+			'mode' => $mode,
+			'date' => $date,
+			'time' => $time,
+		);
+	}
+
+	return $opts;
+}
+
 function uw_muse_default_opts( array $state = array() ) {
 	$opts = isset( $state['opts'] ) && is_array( $state['opts'] ) ? $state['opts'] : array();
 	$pl   = (array) ( $opts['playlist'] ?? array() );
@@ -1092,7 +1220,7 @@ function uw_muse_default_opts( array $state = array() ) {
 			'privacy'   => sanitize_text_field( $pl['privacy'] ?? 'public' ),
 		),
 		'schedule' => array(
-			'mode' => in_array( $sc['mode'] ?? '', array( 'keep', 'set', 'now' ), true ) ? $sc['mode'] : 'keep',
+			'mode' => uw_muse_normalize_schedule_mode( $sc['mode'] ?? 'keep' ),
 			'date' => preg_match( '/^\d{4}-\d{2}-\d{2}$/', (string) ( $sc['date'] ?? '' ) ) ? $sc['date'] : '',
 			'time' => preg_match( '/^\d{2}:\d{2}$/', (string) ( $sc['time'] ?? '' ) ) ? $sc['time'] : '',
 		),
@@ -1549,6 +1677,11 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 		$opts['privacy'] = (string) $body['privacy'];
 	}
 
+	$opts = uw_muse_apply_push_schedule( $body, $opts );
+	if ( is_wp_error( $opts ) ) {
+		return $opts;
+	}
+
 	if ( empty( $pkg['title'] ) && empty( $pkg['titles'] ) ) {
 		return new WP_Error( 'uw_muse_no_pkg', 'No generated package on this draft. Generate or PATCH pkg first.', array( 'status' => 400 ) );
 	}
@@ -1558,32 +1691,34 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 		return $video;
 	}
 	$plan = TW_Plan::build( $video, $pkg, $opts, $duration );
+	$fp   = uw_muse_push_fingerprint( $plan['fingerprint'], $plan['schedule'], (string) ( $plan['privacy'] ?? '' ) );
 
 	if ( $dry_run || ! $confirm || ! $can_push ) {
-		$note = 'Pass confirm_push:true and fingerprint from this dry_run to push. dry_run:true never calls YouTube write.';
+		$note = 'Pass confirm_push:true and fingerprint from this dry_run to push. Re-send the same schedule_at (or schedule) and privacy. dry_run:true never calls YouTube write.';
 		if ( ! $can_push ) {
 			$note = 'Muse push is off for this key. Dry run only. Turn on "Let Muse push changes to YouTube" on the account (or the site Muse setting for the site key).';
 		}
 		return rest_ensure_response(
 			array(
-				'dry_run'     => true,
-				'pushed'      => false,
-				'id'          => $video_id,
-				'fingerprint' => $plan['fingerprint'],
-				'errors'      => $plan['errors'],
-				'warnings'    => $plan['warnings'],
-				'actions'     => $plan['actions'],
-				'details'     => array(
+				'dry_run'      => true,
+				'pushed'       => false,
+				'id'           => $video_id,
+				'fingerprint'  => $fp,
+				'errors'       => $plan['errors'],
+				'warnings'     => $plan['warnings'],
+				'actions'      => $plan['actions'],
+				'details'      => array(
 					'title'       => $plan['details']['title'] ?? '',
 					'tags'        => $plan['details']['tags'] ?? array(),
 					'categoryId'  => $plan['details']['categoryId'] ?? '',
 					'language'    => $plan['details']['defaultLanguage'] ?? '',
 					'description' => mb_substr( (string) ( $plan['details']['description'] ?? '' ), 0, 400 ),
 				),
-				'schedule'    => $plan['schedule'],
-				'privacy'     => $plan['privacy'] ?? '',
-				'push_allowed'=> $can_push,
-				'note'        => $note,
+				'schedule'     => uw_muse_schedule_for_response( $plan['schedule'] ),
+				'privacy'      => $plan['privacy'] ?? '',
+				'push_allowed' => $can_push,
+				'units_estimate' => 50,
+				'note'         => $note,
 			)
 		);
 	}
@@ -1597,8 +1732,16 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	if ( '' === $fingerprint ) {
 		return new WP_Error( 'uw_muse_fingerprint', 'fingerprint from dry_run is required for a real push.', array( 'status' => 400 ) );
 	}
+	if ( ! hash_equals( $fp, $fingerprint ) ) {
+		return new WP_Error(
+			'uw_muse_fingerprint',
+			'fingerprint from dry_run is required and must match this exact push (YouTube state + schedule + privacy). Re-run dry_run with the same schedule_at.',
+			array( 'status' => 409 )
+		);
+	}
 
-	$result = TW_Plan::publish( $video_id, $pkg, $opts, $duration, $fingerprint );
+	// TW_Plan::publish re-checks the live YouTube fingerprint after a fresh fetch.
+	$result = TW_Plan::publish( $video_id, $pkg, $opts, $duration, $plan['fingerprint'] );
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
@@ -1625,12 +1768,18 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	}
 	TW_Index::set_tw_status( $video_id, 'pushed' );
 
+	$sched_out = uw_muse_schedule_for_response( (array) ( $result['schedule'] ?? array() ) );
+	if ( isset( $result['schedule'] ) ) {
+		$result['schedule'] = $sched_out;
+	}
+
 	return rest_ensure_response(
 		array(
 			'dry_run'     => false,
 			'pushed'      => true,
 			'id'          => $video_id,
 			'youtube_url' => 'https://www.youtube.com/watch?v=' . $video_id,
+			'schedule'    => $sched_out,
 			'result'      => $result,
 			'quota'       => uw_muse_quota_snapshot( 50 ),
 			'history'     => TW_History::summary( $video_id ),
