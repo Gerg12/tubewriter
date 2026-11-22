@@ -10,57 +10,24 @@ class TW_Admin {
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_init', array( 'TW_Index', 'maybe_install' ) );
-		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
 
 		add_action( 'admin_post_tw_save_settings', array( $this, 'save_settings' ) );
-		add_action( 'admin_post_tw_connect', array( $this, 'connect' ) );
-		add_action( 'admin_post_tw_disconnect', array( $this, 'disconnect' ) );
-		add_action( 'admin_post_tw_reset_prompt', array( $this, 'reset_prompt' ) );
-		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
-		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
 		add_action( 'show_user_profile', array( $this, 'user_thumb_ai_field' ) );
 		add_action( 'edit_user_profile', array( $this, 'user_thumb_ai_field' ) );
 		add_action( 'personal_options_update', array( $this, 'save_user_thumb_ai_field' ) );
 		add_action( 'edit_user_profile_update', array( $this, 'save_user_thumb_ai_field' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_library', 'thumb_library_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'privacy', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_library', 'thumb_library_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
 
 	public function menu() {
-		add_menu_page( 'UploadWriter', 'UploadWriter', self::CAP, 'tubewriter', array( $this, 'page_videos' ), 'dashicons-video-alt3', 26 );
-		add_submenu_page( 'tubewriter', 'Videos', 'Videos', self::CAP, 'tubewriter', array( $this, 'page_videos' ) );
-		add_submenu_page( 'tubewriter', 'UploadWriter History', 'History', self::CAP, 'tubewriter-history', array( $this, 'page_history' ) );
-		add_submenu_page( 'tubewriter', 'UploadWriter Settings', 'Settings', self::CAP, 'tubewriter-settings', array( $this, 'page_settings' ) );
-	}
-
-	public function assets( $hook ) {
-		if ( false === strpos( (string) $hook, 'tubewriter' ) ) {
-			return;
-		}
-		$script_deps = array();
-		if ( isset( $_GET['video'] ) && '' !== (string) wp_unslash( $_GET['video'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			wp_enqueue_media();
-			$script_deps[] = 'media-editor';
-		}
-		wp_enqueue_style( 'tubewriter', TW_URL . 'assets/admin.css', array(), filemtime( TW_DIR . 'assets/admin.css' ) );
-		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $script_deps, filemtime( TW_DIR . 'assets/admin.js' ), true );
-		wp_localize_script(
-			'tubewriter',
-			'TW',
-			array(
-				'ajax'               => admin_url( 'admin-ajax.php' ),
-				'nonce'              => wp_create_nonce( 'tw_ajax' ),
-				'imageProvider'      => TW_Settings::get( 'image_provider' ),
-				'imageProviderLabel' => TW_Settings::image_provider_label(),
-				'hasOpenAI'          => TW_Settings::get( 'openai_key' ) ? 1 : 0,
-				'canThumbnails'      => tw_user_can_thumbnails() ? 1 : 0,
-				'thumbLibrary'       => TW_Thumb_Library::usage(),
-				'settingsUrl'        => admin_url( 'admin.php?page=tubewriter-settings' ),
-				'showQuota'          => 1,
-			)
-		);
+		// wp-admin: app keys / platform gates only. Editor, videos, identity live on /tubewriter/.
+		add_menu_page( 'UploadWriter', 'UploadWriter', self::CAP, 'tubewriter', array( $this, 'page_settings' ), 'dashicons-video-alt3', 26 );
+		add_submenu_page( 'tubewriter', 'UploadWriter Settings', 'Settings', self::CAP, 'tubewriter', array( $this, 'page_settings' ) );
+		// Hidden alias so old Settings bookmarks still open.
+		add_submenu_page( null, 'UploadWriter Settings', 'Settings', self::CAP, 'tubewriter-settings', array( $this, 'page_settings' ) );
 	}
 
 	/* ---------------------------------------------------------------- Settings */
@@ -69,36 +36,26 @@ class TW_Admin {
 		if ( ! current_user_can( self::CAP ) ) {
 			return;
 		}
-		$connected  = TW_OAuth::is_connected();
-		$configured = TW_Settings::get( 'client_id' ) && TW_Settings::get( 'client_secret' );
-		$channel    = TW_Store::get( 'channel', array() );
-		$tz         = wp_timezone_string();
+		// Old admin editor deep links → front-end app.
+		$video_id = isset( $_GET['video'] ) ? sanitize_text_field( wp_unslash( $_GET['video'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( $video_id && class_exists( 'TW_Frontend' ) ) {
+			wp_safe_redirect( TW_Frontend::url( 'account' ) . '?video=' . rawurlencode( $video_id ) );
+			exit;
+		}
+
+		$account_url = class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) : home_url( '/tubewriter/account/' );
+		$tz          = wp_timezone_string();
 		?>
 		<div class="wrap tw-wrap">
 			<h1>UploadWriter Settings</h1>
 			<?php $this->notice(); ?>
 
-			<div class="tw-card">
-				<h2>1. Connect YouTube</h2>
-				<?php if ( $connected ) : ?>
-					<p class="tw-ok">Connected<?php echo $channel ? ' to <strong>' . esc_html( $channel['title'] ) . '</strong>' : ''; ?>.</p>
-					<?php if ( TW_OAuth::needs_reconnect() ) : ?>
-						<div class="notice notice-error inline"><p>Please reconnect YouTube. UploadWriter switched Google OAuth clients and needs your approval again.</p></div>
-					<?php endif; ?>
-					<?php $this->reconnect_steps( TW_OAuth::needs_reconnect() ? 'Reconnect YouTube' : 'Sign in again' ); ?>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:12px;">
-						<?php wp_nonce_field( 'tw_disconnect' ); ?>
-						<input type="hidden" name="action" value="tw_disconnect">
-						<button class="button">Disconnect</button>
-					</form>
-				<?php elseif ( ! $configured ) : ?>
-					<p>Add <code>UPLOADWRITER_GOOGLE_CLIENT_ID</code> and <code>UPLOADWRITER_GOOGLE_CLIENT_SECRET</code> to <code>wp-config.php</code>, or save them below first.</p>
-				<?php else : ?>
-					<?php if ( TW_OAuth::needs_reconnect() ) : ?>
-						<div class="notice notice-error inline"><p>Please reconnect YouTube. Your previous connection is no longer valid.</p></div>
-					<?php endif; ?>
-					<?php $this->reconnect_steps( 'Connect YouTube' ); ?>
-				<?php endif; ?>
+			<div class="notice notice-info inline">
+				<p>
+					Videos, channel identity, and YouTube connect live on the front-end app:
+					<a href="<?php echo esc_url( $account_url ); ?>"><?php echo esc_html( $account_url ); ?></a>.
+					This screen is for site app keys and access gates only.
+				</p>
 			</div>
 
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
@@ -106,8 +63,8 @@ class TW_Admin {
 				<input type="hidden" name="action" value="tw_save_settings">
 
 				<div class="tw-card">
-					<h2>2. Credentials</h2>
-					<p class="description">Use a Google Cloud <strong>Web application</strong> OAuth client. Authorized redirect URI must be exactly <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code> (trailing slash). Prefer defining credentials in <code>wp-config.php</code> (see constants below) instead of storing them in the database.</p>
+					<h2>1. App credentials</h2>
+					<p class="description">Google Cloud <strong>Web application</strong> OAuth client for every UploadWriter account. Authorized redirect URI must be exactly <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code> (trailing slash). Prefer <code>wp-config.php</code> constants over the database.</p>
 					<?php if ( TW_Settings::google_credentials_from_config() ) : ?>
 						<div class="notice notice-success inline"><p>Google Client ID and Secret are loaded from <code>wp-config.php</code> constants. The fields below are ignored while those constants are set.</p></div>
 					<?php endif; ?>
@@ -123,28 +80,31 @@ class TW_Admin {
 							<td><input type="password" id="tw_client_secret" name="tw_client_secret" class="regular-text code" autocomplete="off" value="" <?php disabled( TW_Settings::google_credentials_from_config() ); ?> placeholder="<?php echo esc_attr( TW_Settings::google_credentials_from_config() ? 'Set via UPLOADWRITER_GOOGLE_CLIENT_SECRET' : TW_Store::secret_placeholder( 'client_secret' ) ); ?>"></td>
 						</tr>
 						<tr>
-							<th><label for="tw_gemini_key">Gemini API key</label></th>
-							<td><input type="password" id="tw_gemini_key" name="tw_gemini_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'gemini_key' ) ); ?>"></td>
+							<th><label for="tw_gemini_key">Default Gemini API key</label></th>
+							<td>
+								<input type="password" id="tw_gemini_key" name="tw_gemini_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'gemini_key' ) ); ?>">
+								<p class="description">Optional site fallback. Front-end users add their own keys under Account → Keys &amp; voice.</p>
+							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
 								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. If this model is busy, UploadWriter retries, tries <code>gemini-3.5-flash-lite</code>, then finishes with ChatGPT when an OpenAI key is saved. Used for metadata and thumbnail briefs when Gemini is selected next to Generate.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>.</p>
 							</td>
 						</tr>
 						<tr>
-							<th><label for="tw_openai_key">OpenAI API key</label></th>
+							<th><label for="tw_openai_key">Default OpenAI API key</label></th>
 							<td>
 								<input type="password" id="tw_openai_key" name="tw_openai_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'openai_key' ) ); ?>">
-								<p class="description">From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>. Used for ChatGPT text in the editor and for OpenAI thumbnails.</p>
+								<p class="description">Optional site fallback. From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_openai_model">OpenAI text model</label></th>
 							<td>
 								<input type="text" id="tw_openai_model" name="tw_openai_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_model' ) ); ?>">
-								<p class="description">Used when you pick ChatGPT next to Generate. Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_MODEL ); ?></code>. If ChatGPT says this model was not found, paste a current model name from <a href="https://platform.openai.com/docs/models" target="_blank" rel="noopener">platform.openai.com/docs/models</a>.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_MODEL ); ?></code>.</p>
 							</td>
 						</tr>
 						<tr>
@@ -154,7 +114,7 @@ class TW_Admin {
 									<input type="checkbox" id="tw_beta_access" name="tw_beta_access" value="1" <?php checked( TW_Settings::beta_access() ); ?>>
 									Require approval before new signups can use UploadWriter
 								</label>
-								<p class="description">When on, new accounts are created but stay locked until you approve them under Users → Edit. Each signup also emails <code>hello@uploadwriter.com</code>. Existing accounts keep working. Site admins are never blocked.</p>
+								<p class="description">When on, new accounts stay locked until you approve them under Users → Edit. Site admins are never blocked.</p>
 							</td>
 						</tr>
 						<tr>
@@ -164,7 +124,7 @@ class TW_Admin {
 									<input type="checkbox" id="tw_thumb_ai_for_users" name="tw_thumb_ai_for_users" value="1" <?php checked( TW_Settings::thumb_ai_for_users() ); ?>>
 									Let all UploadWriter users use Write thumbnail description and Create thumbnail
 								</label>
-								<p class="description">Off by default while the feature is being tuned. Site admins always see it. To allow only some people, leave this unchecked and enable <strong>AI thumbnails</strong> on each user under Users → Edit.</p>
+								<p class="description">Off by default. Site admins always see it. Or enable per user under Users → Edit.</p>
 							</td>
 						</tr>
 						<tr>
@@ -175,14 +135,13 @@ class TW_Admin {
 										<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
 									<?php endforeach; ?>
 								</select>
-								<p class="description">Fallback when the editor picker is not sent. Create thumbnail follows the Gemini / ChatGPT picker next to Generate (ChatGPT → OpenAI image, Gemini → Gemini image). The brief always uses that same picker.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_openai_image_model">OpenAI image model</label></th>
 							<td>
 								<input type="text" id="tw_openai_image_model" name="tw_openai_image_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_image_model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_IMAGE_MODEL ); ?></code> (true 16:9). Alternatives: <code>gpt-image-2.5-flare</code> (faster). Avoid <code>chatgpt-image-latest</code> — it only outputs 3:2 and gets cropped.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_IMAGE_MODEL ); ?></code>.</p>
 							</td>
 						</tr>
 						<tr>
@@ -193,22 +152,21 @@ class TW_Admin {
 										<option value="<?php echo esc_attr( $id ); ?>" <?php selected( TW_Settings::get( 'openai_image_quality' ), $id ); ?>><?php echo esc_html( $label ); ?></option>
 									<?php endforeach; ?>
 								</select>
-								<p class="description">Same choice as the ChatGPT picker. Instant is the fast pass. High is the finished thumbnail.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_image_model">Gemini image model</label></th>
 							<td>
 								<input type="text" id="tw_image_model" name="tw_image_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'image_model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_IMAGE_MODEL ); ?></code>. Only used when the image provider is Gemini.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_IMAGE_MODEL ); ?></code>.</p>
 							</td>
 						</tr>
 					</table>
 				</div>
 
 				<div class="tw-card">
-					<h2>3. Publishing defaults</h2>
-					<p class="description">Starting values in the editor. You can change them per video.</p>
+					<h2>2. Publishing defaults</h2>
+					<p class="description">Site fallbacks when a front-end account has not set its own. Schedules use WordPress timezone: <strong><?php echo esc_html( $tz ); ?></strong> (<a href="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>">Settings &gt; General</a>).</p>
 					<table class="form-table">
 						<tr>
 							<th><label for="tw_default_time">Default publish time</label></th>
@@ -233,76 +191,7 @@ class TW_Admin {
 					</table>
 				</div>
 
-				<?php
-				$id = TW_Settings::identity();
-				$identity_fields = array(
-					'channel_name'       => 'Channel name',
-					'channel_short'      => 'Short name / initials',
-					'creator_name'       => 'Creator first name (first-person voice)',
-					'brand_tag'          => 'Brand tag (last YouTube tag)',
-					'brand_hashtag'      => 'Brand hashtag',
-					'warning_title'      => 'Description warning title',
-					'warning_close'      => 'Warning closing line (exact)',
-					'chapters_heading'   => 'Chapters heading',
-					'channel_logo_brief' => 'Channel logo description (for thumbnails)',
-				);
-				?>
-				<div class="tw-card" id="tw-channel-identity">
-					<h2>4. Channel identity <?php echo TW_Settings::identity_complete() ? '' : '<span class="tw-chip">Required</span>'; ?></h2>
-					<p class="description">Required before Generate. Front-end users set this on their own account. Site-level values here are for the WordPress admin workflow only. Example placeholders show Gregatron Games so you can see the shape.</p>
-					<table class="form-table">
-						<?php foreach ( $identity_fields as $key => $label ) : ?>
-							<tr>
-								<th><label for="tw_<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $label ); ?></label></th>
-								<td>
-									<?php if ( 'channel_logo_brief' === $key ) : ?>
-										<textarea id="tw_<?php echo esc_attr( $key ); ?>" name="tw_<?php echo esc_attr( $key ); ?>" rows="3" class="large-text" placeholder="<?php echo esc_attr( TW_Settings::identity_example( $key ) ); ?>"><?php echo esc_textarea( $id[ $key ] ); ?></textarea>
-									<?php else : ?>
-										<input type="text" id="tw_<?php echo esc_attr( $key ); ?>" name="tw_<?php echo esc_attr( $key ); ?>" class="large-text" value="<?php echo esc_attr( $id[ $key ] ); ?>" placeholder="<?php echo esc_attr( TW_Settings::identity_example( $key ) ); ?>">
-									<?php endif; ?>
-									<p class="description">Example: <?php echo esc_html( TW_Settings::identity_example( $key ) ); ?></p>
-								</td>
-							</tr>
-						<?php endforeach; ?>
-					</table>
-				</div>
-
-				<div class="tw-card">
-					<h2>5. Channel voice prompt</h2>
-					<p class="description">Tone, warning skeleton, chapter style, tags and hashtags. Use <code>{{channel_name}}</code>, <code>{{warning_title}}</code>, <code>{{brand_hashtag}}</code>, and the other identity tokens. JSON output rules are added automatically.</p>
-					<textarea name="tw_prompt" rows="28" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'prompt' ) ); ?></textarea>
-				</div>
-
-				<div class="tw-card">
-					<h2>6. Thumbnail brief prompt</h2>
-					<p class="description">Gemini reads the title, description, transcript and any pasted screenshots, then writes a thumbnail concept: hook text, picture-in-picture, channel logo and game logo. Screenshots are optional. JSON rules are added automatically.</p>
-					<textarea name="tw_thumb_prompt" rows="24" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_prompt' ) ); ?></textarea>
-				</div>
-
-				<div class="tw-card">
-					<h2>7. Thumbnail render instructions</h2>
-					<p class="description">Standing layout sent with every Create thumbnail, before the approved brief. This is the stencil headline, inset card, avatar, channel logo, game logo and safe zones. Per-video specifics stay in the brief on step 3.</p>
-					<textarea name="tw_thumb_render_prompt" rows="22" class="large-text code tw-prompt"><?php echo esc_textarea( TW_Settings::get( 'thumb_render_prompt' ) ); ?></textarea>
-				</div>
-
-				<p class="description">Schedules use your WordPress timezone: <strong><?php echo esc_html( $tz ); ?></strong>. Change it under <a href="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>">Settings &gt; General</a>.</p>
 				<?php submit_button( 'Save settings' ); ?>
-			</form>
-
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your prompt with the packaged template?');">
-				<?php wp_nonce_field( 'tw_reset_prompt' ); ?>
-				<input type="hidden" name="action" value="tw_reset_prompt">
-				<button class="button-link tw-danger-link">Reset voice prompt to default</button>
-			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your thumbnail brief prompt with the default?');">
-				<?php wp_nonce_field( 'tw_reset_thumb_prompt' ); ?>
-				<input type="hidden" name="action" value="tw_reset_thumb_prompt">
-				<button class="button-link tw-danger-link">Reset thumbnail brief prompt to default</button>
-			</form>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('Replace your thumbnail render instructions with the default?');">
-				<?php wp_nonce_field( 'tw_reset_thumb_render_prompt' ); ?>
-				<input type="hidden" name="action" value="tw_reset_thumb_render_prompt">
-				<button class="button-link tw-danger-link">Reset thumbnail render instructions to default</button>
 			</form>
 		</div>
 		<?php
@@ -312,18 +201,6 @@ class TW_Admin {
 		$this->guard( 'tw_save_settings' );
 		TW_Settings::save_from_post( $_POST ); // phpcs:ignore WordPress.Security.NonceVerification
 		$this->back( 'settings', 'Settings saved.' );
-	}
-
-	public function reset_prompt() {
-		$this->guard( 'tw_reset_prompt' );
-		TW_Settings::set( 'prompt', TW_Settings::default_prompt() );
-		$this->back( 'settings', 'Prompt reset to the default.' );
-	}
-
-	public function reset_thumb_prompt() {
-		$this->guard( 'tw_reset_thumb_prompt' );
-		TW_Settings::set( 'thumb_prompt', TW_Settings::default_thumb_prompt() );
-		$this->back( 'settings', 'Thumbnail brief prompt reset to the default.' );
 	}
 
 	/** Checkboxes on Users → Profile / Edit for beta approval, Muse, and AI thumbnail access. */
@@ -439,101 +316,8 @@ class TW_Admin {
 		}
 	}
 
-	public function reset_thumb_render_prompt() {
-		$this->guard( 'tw_reset_thumb_render_prompt' );
-		TW_Settings::set( 'thumb_render_prompt', TW_Settings::default_thumb_render_prompt() );
-		$this->back( 'settings', 'Thumbnail render instructions reset to the default.' );
-	}
-
-	public function connect() {
-		$this->guard( 'tw_connect', 'GET' );
-		TW_Context::clear();
-		wp_redirect( TW_OAuth::auth_url() ); // phpcs:ignore WordPress.Security.SafeRedirect
-		exit;
-	}
-
-	public function disconnect() {
-		$this->guard( 'tw_disconnect' );
-		TW_OAuth::disconnect();
-		$this->back( 'settings', 'Disconnected.' );
-	}
-
-	/* ---------------------------------------------------------------- Videos */
-
-	public function page_videos() {
-		if ( ! current_user_can( self::CAP ) ) {
-			return;
-		}
-		$video_id = isset( $_GET['video'] ) ? sanitize_text_field( wp_unslash( $_GET['video'] ) ) : ''; // phpcs:ignore
-		if ( $video_id ) {
-			$this->page_editor( $video_id );
-			return;
-		}
-
-		echo '<div class="wrap tw-wrap"><h1 class="wp-heading-inline">UploadWriter</h1>';
-		$this->notice();
-		if ( TW_OAuth::needs_reconnect() ) {
-			echo '<div class="notice notice-error"><p>Please reconnect YouTube. Open <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a> and connect again.</p></div>';
-		}
-
-		if ( ! TW_Settings::is_configured() || ! TW_OAuth::is_connected() ) {
-			$settings = esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) );
-			echo '<div class="tw-card"><p>';
-			if ( ! TW_Settings::identity_complete() ) {
-				echo 'Finish setup first: fill in <strong>Channel identity</strong>, credentials, and connect YouTube in <a href="' . $settings . '">Settings</a>.';
-			} else {
-				echo 'Finish setup first: add your credentials and connect YouTube in <a href="' . $settings . '">Settings</a>.';
-			}
-			echo '</p></div></div>';
-			return;
-		}
-
-		$indexed      = TW_Index::count_all();
-		$scheduled_n  = TW_Index::count_scheduled();
-		$synced       = (int) TW_Store::get( 'index_synced', 0 );
-		$full         = (int) TW_Store::get( 'index_full', 0 );
-		$sched_note   = (string) TW_Store::get( 'scheduled_sync_note', '' );
-		$est          = max( 2, (int) ceil( max( $indexed, 50 ) / 50 ) * 2 ) + 16;
-		?>
-		<div class="tw-sync" id="tw-sync" data-empty="<?php echo $indexed ? '0' : '1'; ?>">
-			<div class="tw-sync-readout">
-				<span class="spinner tw-sync-spinner" id="tw-sync-spinner" aria-hidden="true"></span>
-				<span class="tw-sync-status" id="tw-sync-status" role="status" aria-live="polite">
-					<?php if ( $indexed ) : ?>
-						<?php echo esc_html( number_format_i18n( $indexed ) ); ?> videos indexed.
-						Last synced <?php echo esc_html( human_time_diff( $synced ) ); ?> ago<?php echo $full ? ', last full sync ' . esc_html( human_time_diff( $full ) ) . ' ago' : ''; ?>.
-					<?php else : ?>
-						Your video list is stored on this site so searching and filtering cost nothing. Build it once with Full sync.
-					<?php endif; ?>
-				</span>
-				<div class="tw-sync-progress" id="tw-sync-progress" hidden>
-					<div class="tw-sync-progress-bar" id="tw-sync-progress-bar" style="width:0%"></div>
-				</div>
-			</div>
-			<button type="button" class="button" data-sync="quick">Quick sync (newest 100, drafts and scheduled, about 8 units)</button>
-			<button type="button" class="button" data-sync="full">Full sync (about <?php echo esc_html( number_format_i18n( $est ) ); ?> units)</button>
-			<button type="button" class="button button-primary" data-sync="drafts">Compare drafts (add missing only)</button>
-			<span class="description">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
-			<?php if ( $sched_note ) : ?>
-				<p class="description tw-sync-warn"><?php echo esc_html( $sched_note ); ?></p>
-			<?php endif; ?>
-		</div>
-		<p class="description tw-sched-hint">YouTube's API has no Draft status (Studio drafts look like private). <strong>Compare drafts</strong> moves already-indexed private uploads into Draft, then searches for draft candidates and only adds ones you do not have yet. It does not re-download the whole channel.</p>
-		<?php if ( $indexed && ! $scheduled_n ) : ?>
-			<p class="description tw-sched-hint">No scheduled videos in the index yet. Run <strong>Quick sync</strong> or <strong>Full sync</strong>, then open the <strong>Scheduled</strong> tab below (orange).</p>
-		<?php endif; ?>
-		<?php
-		$table = new TW_Videos_Table();
-		$table->prepare_items();
-		$table->views();
-		echo '<form method="get" class="tw-list-form"><input type="hidden" name="page" value="tubewriter">';
-		$table->search_box( 'Search title and description', 'tw-search' );
-		$table->display();
-		echo '</form></div>';
-	}
-
 	public function page_editor( $video_id, $back_url = '' ) {
-		$back_url = $back_url ? $back_url : admin_url( 'admin.php?page=tubewriter' );
+		$back_url = $back_url ? $back_url : ( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) . '#tw-videos' : home_url( '/tubewriter/account/#tw-videos' ) );
 		echo '<div class="wrap tw-wrap">';
 		echo '<p><a href="' . esc_url( $back_url ) . '">&larr; All videos</a></p>';
 
@@ -773,6 +557,7 @@ class TW_Admin {
 					</div>
 				</div>
 				<p class="description">Game title is not available through YouTube's API. Step 7 links you straight to it in Studio.</p>
+				<p class="tw-current-line" id="tw-privacy-current">Visibility on YouTube: <strong id="tw-privacy-label"></strong></p>
 
 				<details class="tw-preview">
 					<summary>Full description preview</summary>
@@ -980,16 +765,32 @@ class TW_Admin {
 					'Picks when the video goes public. Step 7 still needs your confirm before anything changes on YouTube.',
 					array(
 						'Choose <strong>Publish now</strong> to make it public as soon as you confirm in step 7.',
-						'Choose <strong>Schedule it</strong> to pick a future date and time, or <strong>Leave as is</strong> to keep it private (or keep the current schedule) and only update the details.',
+						'Choose <strong>Schedule it</strong> to pick a future date and time, or <strong>Leave as is</strong> to keep the current visibility (or schedule) and only update the details.',
+						'Private and Unlisted videos can be scheduled. Scheduling sets the video to private until the chosen time, then it goes public.',
+						'Visibility below saves to YouTube as soon as you apply it (about 50 API units). Default is Keep current.',
 						'Click a day on the calendar. <span class="tw-key tw-key-sched">Scheduled</span> and <span class="tw-key tw-key-pub">Published</span> labels show existing uploads, empty days are open.',
 						'Scheduled times start at your default from Settings (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( wp_timezone_string() ) . ').',
 					)
 				);
 				?>
+				<div class="tw-privacy-box">
+					<label for="tw-privacy">Visibility on YouTube</label>
+					<div class="tw-inline">
+						<select id="tw-privacy">
+							<option value="">Keep current</option>
+							<option value="private">Private</option>
+							<option value="unlisted">Unlisted</option>
+							<option value="public">Public</option>
+						</select>
+						<button type="button" class="button" id="tw-privacy-apply">Apply visibility</button>
+					</div>
+					<p class="description" id="tw-privacy-hint" hidden>Unlisted is not searchable and does not show on the channel page, but anyone with the link can watch it. Useful so a signed-out browser can read the transcript panel without a 250-unit caption pull.</p>
+					<p class="description">Saves immediately to YouTube when you click Apply (not part of step 7). Opening the editor does not change visibility.</p>
+				</div>
 				<div class="tw-sched-layout">
 					<div class="tw-sched-side">
 						<p id="tw-sched-current" class="tw-current-line"></p>
-						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so visibility can't be changed here. You can still update the title, description and other details.</p></div>
+						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is public, so it can't be scheduled or published-now from here. Set visibility to Private or Unlisted first, or leave Go live as is and only update the details.</p></div>
 						<div id="tw-sched-controls">
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="now"> <span class="tw-choice-copy">Publish now<span class="description">Goes public when you confirm in step 7.</span></span></label></p>
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> <span class="tw-choice-copy">Schedule it</span></label></p>
@@ -1000,7 +801,7 @@ class TW_Admin {
 									<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
 								</div>
 							</div>
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> <span class="tw-choice-copy">Leave as is<span class="description">Stays private (or keeps the current schedule). Only the details change.</span></span></label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> <span class="tw-choice-copy">Leave as is<span class="description">Keeps the current visibility or schedule. Only the details change.</span></span></label></p>
 						</div>
 					</div>
 					<div class="tw-cal uw-calendar tw-editor-calendar">
@@ -1098,33 +899,6 @@ class TW_Admin {
 		</div>
 		</div>
 		<?php
-	}
-
-	public function page_history() {
-		if ( ! current_user_can( self::CAP ) ) {
-			return;
-		}
-		echo '<div class="wrap tw-wrap"><h1>UploadWriter History</h1>';
-		echo '<p class="description">Every change UploadWriter made, newest first. Open a video to see its backups and restore an older version.</p>';
-		$log = TW_History::log_entries();
-		if ( ! $log ) {
-			echo '<div class="tw-card"><p>No changes yet.</p></div></div>';
-			return;
-		}
-		echo '<table class="widefat striped"><thead><tr><th>When</th><th>Video</th><th>Action</th><th>Result</th><th>What changed</th></tr></thead><tbody>';
-		foreach ( $log as $e ) {
-			printf(
-				'<tr><td>%s</td><td><a href="%s">%s</a></td><td>%s</td><td><span class="tw-badge tw-badge-%s">%s</span></td><td><ul class="tw-mini">%s</ul></td></tr>',
-				esc_html( wp_date( 'M j, Y g:ia', $e['time'] ) ),
-				esc_url( admin_url( 'admin.php?page=tubewriter&video=' . rawurlencode( $e['video'] ) ) ),
-				esc_html( $e['title'] ?: $e['video'] ),
-				esc_html( ucfirst( $e['action'] ) ),
-				esc_attr( 'done' === $e['status'] ? 'public' : 'private' ),
-				esc_html( $e['status'] ),
-				implode( '', array_map( function ( $c ) { return '<li>' . esc_html( $c ) . '</li>'; }, (array) $e['changes'] ) )
-			);
-		}
-		echo '</tbody></table></div>';
 	}
 
 	/* ---------------------------------------------------------------- AJAX */
@@ -1972,6 +1746,41 @@ class TW_Admin {
 	}
 
 	/**
+	 * Set YouTube privacy immediately (private|unlisted|public). ~50 units when it changes.
+	 * Uses the same helper as Muse PATCH privacy (immediate mode for the signed-in user).
+	 */
+	public function ajax_privacy() {
+		$this->ajax_guard();
+		$video_id = $this->post( 'video' );
+		$privacy  = $this->post( 'privacy' );
+		$owned    = $this->assert_writable_video( $video_id );
+		if ( is_wp_error( $owned ) ) {
+			wp_send_json_error( $owned->get_error_message() );
+		}
+		if ( ! function_exists( 'uw_muse_apply_privacy' ) ) {
+			wp_send_json_error( 'Privacy helper is not loaded.' );
+		}
+		$result = uw_muse_apply_privacy( $video_id, $privacy, false, true, '', true );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message() );
+		}
+		$index_privacy = TW_Index::privacy_of( $video_id );
+		$badge         = $index_privacy ? $index_privacy : ( $result['privacyStatus'] ?? $privacy );
+		wp_send_json_success(
+			array(
+				'privacy'       => $badge,
+				'privacyStatus' => $result['privacyStatus'] ?? $privacy,
+				'written'       => ! empty( $result['written'] ),
+				'units_used'    => (int) ( $result['units_used'] ?? 0 ),
+				'quota'         => TW_YouTube::quota_used(),
+				'message'       => ! empty( $result['written'] )
+					? 'Visibility set to ' . $privacy . ' on YouTube.'
+					: 'Already ' . $privacy . ' on YouTube.',
+			)
+		);
+	}
+
+	/**
 	 * Re-fetch one video from YouTube and update the local index (about 1 unit).
 	 * Does not write to YouTube. Used by the editor Refresh from YouTube control.
 	 */
@@ -2073,7 +1882,14 @@ class TW_Admin {
 		TW_Index::refresh_one( $input['video'] );
 		if ( ! empty( $result['wrote'] ) ) {
 			$sched = (array) ( $result['schedule'] ?? array() );
-			TW_Index::apply_visibility( $input['video'], $sched['mode'] ?? 'keep', $sched['at'] ?? '' );
+			$mode  = $sched['mode'] ?? 'keep';
+			if ( 'keep' === $mode ) {
+				$opt_privacy = (string) ( $opts['privacy'] ?? '' );
+				if ( in_array( $opt_privacy, array( 'private', 'unlisted', 'public' ), true ) ) {
+					$mode = $opt_privacy;
+				}
+			}
+			TW_Index::apply_visibility( $input['video'], $mode, $sched['at'] ?? '' );
 		}
 		TW_Index::set_tw_status( $input['video'], 'pushed' );
 		$result['history'] = TW_History::summary( $input['video'] );
@@ -2638,35 +2454,19 @@ class TW_Admin {
 		}
 	}
 
-	/** Google Web OAuth connect control (same-window redirect to /tubewriter/oauth/). */
-	private function reconnect_steps( $button_label ) {
-		?>
-		<p>
-			<a class="button button-primary" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
-		</p>
-		<p class="description">You will approve access on Google, then return to <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code>. If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to UploadWriter (unsafe)</strong>.</p>
-		<p class="description">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
-		<p class="description">A Google Cloud project left in <strong>Testing</strong> expires refresh tokens about every 7 days. Publish the app under Google Auth Platform → Audience to stop that.</p>
-		<?php
-	}
-
 	private function ajax_guard() {
 		check_ajax_referer( 'tw_ajax', 'nonce' );
-		$front = ! empty( $_POST['tw_front'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
-		if ( $front ) {
-			if ( ! is_user_logged_in() ) {
-				wp_send_json_error( 'Please log in again.', 403 );
-			}
-			if ( ! tw_user_can_app() ) {
-				wp_send_json_error( 'Not allowed.', 403 );
-			}
-			TW_Context::set_user( get_current_user_id() );
-			return;
+		// Editor AJAX is front-end only (TW.front → tw_front=1). Site-scoped admin AJAX is retired.
+		if ( empty( $_POST['tw_front'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			wp_send_json_error( 'Use the UploadWriter app at /tubewriter/account/.', 403 );
 		}
-		if ( ! current_user_can( self::CAP ) ) {
+		if ( ! is_user_logged_in() ) {
+			wp_send_json_error( 'Please log in again.', 403 );
+		}
+		if ( ! tw_user_can_app() ) {
 			wp_send_json_error( 'Not allowed.', 403 );
 		}
-		TW_Context::clear();
+		TW_Context::set_user( get_current_user_id() );
 	}
 
 	/**
@@ -2757,14 +2557,14 @@ class TW_Admin {
 		return '1' === $this->post( 'pace_ack' );
 	}
 
-	/** Block AI calls until Channel identity is saved. */
+	/** Block AI calls until Channel identity is saved on the front-end account. */
 	private function require_identity() {
 		if ( TW_Settings::identity_complete() ) {
 			return;
 		}
-		$url = TW_Context::is_user()
-			? home_url( '/tubewriter/account/#tw-voice' )
-			: admin_url( 'admin.php?page=tubewriter-settings#tw-channel-identity' );
+		$url = class_exists( 'TW_Frontend' )
+			? TW_Frontend::url( 'account' ) . '#tw-voice'
+			: home_url( '/tubewriter/account/#tw-voice' );
 		wp_send_json_error( 'Set up your channel identity first: ' . $url );
 	}
 
@@ -2772,13 +2572,12 @@ class TW_Admin {
 		if ( ! current_user_can( self::CAP ) ) {
 			wp_die( 'Not allowed.' );
 		}
-		check_admin_referer( $action ); // Works for both the GET connect link and POST forms.
+		check_admin_referer( $action );
 	}
 
 	private function back( $page, $message, $type = 'success' ) {
 		set_transient( 'tw_notice_' . get_current_user_id(), array( 'message' => $message, 'type' => $type ), 60 );
-		$slug = 'settings' === $page ? 'tubewriter-settings' : 'tubewriter';
-		wp_safe_redirect( admin_url( 'admin.php?page=' . $slug ) );
+		wp_safe_redirect( admin_url( 'admin.php?page=tubewriter' ) );
 		exit;
 	}
 

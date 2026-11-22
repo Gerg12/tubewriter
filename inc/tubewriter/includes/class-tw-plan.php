@@ -47,19 +47,22 @@ class TW_Plan {
 		);
 
 		// Go live: keep, schedule for later, or publish now.
+		// Scheduling is allowed from Private or Unlisted; the write sets private + publishAt
+		// (or public for "now"). Public videos stay locked to "Leave as is".
 		$schedule = array( 'mode' => 'keep', 'at' => '', 'label' => '' );
 		$sched_in = (array) ( $opts['schedule'] ?? array() );
 		$sched_mode = (string) ( $sched_in['mode'] ?? 'keep' );
+		$can_go_live = TW_YouTube::can_schedule_from_privacy( $current['privacyStatus'] );
 		if ( 'now' === $sched_mode ) {
-			if ( 'private' !== $current['privacyStatus'] ) {
-				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be published now from here. Set Go live to "Leave as is".';
+			if ( ! $can_go_live ) {
+				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be published now from here. Set privacy to Private or Unlisted first, or set Go live to "Leave as is".';
 			} else {
 				$schedule['mode']  = 'now';
 				$schedule['label'] = 'Public now';
 			}
 		} elseif ( 'set' === $sched_mode ) {
-			if ( 'private' !== $current['privacyStatus'] ) {
-				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be scheduled. Set Go live to "Leave as is".';
+			if ( ! $can_go_live ) {
+				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be scheduled. Set privacy to Private or Unlisted first, or set Go live to "Leave as is".';
 			} else {
 				try {
 					$dt = new DateTime( trim( ( $sched_in['date'] ?? '' ) . ' ' . ( $sched_in['time'] ?? '' ) ), wp_timezone() );
@@ -75,6 +78,17 @@ class TW_Plan {
 					$errors[] = 'Pick a date and time for the schedule.';
 				}
 			}
+		}
+
+		// Optional privacy flip (keep schedule). Used by Muse dry-run/push and review.
+		$want_privacy = (string) ( $opts['privacy'] ?? '' );
+		if ( $want_privacy && ! in_array( $want_privacy, TW_YouTube::PRIVACY_VALUES, true ) ) {
+			$errors[]     = 'privacy must be private, unlisted, or public.';
+			$want_privacy = '';
+		}
+		if ( $want_privacy && 'keep' !== $schedule['mode'] ) {
+			// Schedule/now already owns status; ignore a conflicting privacy opt.
+			$want_privacy = '';
 		}
 
 		// Playlist.
@@ -115,7 +129,17 @@ class TW_Plan {
 		if ( 'now' === $schedule['mode'] ) {
 			$next_sched = 'Public now';
 		} elseif ( 'set' === $schedule['mode'] ) {
-			$next_sched = 'Goes public ' . $schedule['label'];
+			$from = 'unlisted' === $current['privacyStatus'] ? ' (from Unlisted → Private until then)' : '';
+			$next_sched = 'Goes public ' . $schedule['label'] . $from;
+		}
+
+		$next_privacy = $current['privacyStatus'];
+		if ( 'now' === $schedule['mode'] ) {
+			$next_privacy = 'public';
+		} elseif ( 'set' === $schedule['mode'] ) {
+			$next_privacy = 'private'; // scheduled until publishAt
+		} elseif ( $want_privacy ) {
+			$next_privacy = $want_privacy;
 		}
 
 		$rows = array(
@@ -125,6 +149,7 @@ class TW_Plan {
 			self::row( 'category', 'Category', $cat_name( $current['categoryId'] ), $cat_name( $cat ) ),
 			self::row( 'language', 'Video language', $lang_name( $current['defaultLanguage'] ), $lang_name( $lang ) ),
 			self::row( 'audio', 'Audio language', $lang_name( $current['defaultAudioLanguage'] ), $lang_name( $lang ) ),
+			self::row( 'privacy', 'Visibility', ucfirst( $current['privacyStatus'] ), ucfirst( $next_privacy ) ),
 			self::row( 'schedule', 'Go live', $current_sched, $next_sched ),
 		);
 		$pl_text = 'Not added to a playlist';
@@ -166,10 +191,18 @@ class TW_Plan {
 				case 'audio':
 					$actions[] = 'Set audio language to ' . $lang_name( $lang );
 					break;
+				case 'privacy':
+					// Schedule/now already describe the visibility shift; only list a standalone flip.
+					if ( 'keep' === $schedule['mode'] && $want_privacy ) {
+						$actions[] = 'Set visibility to ' . $want_privacy;
+					}
+					break;
 				case 'schedule':
 					$actions[] = 'now' === $schedule['mode']
 						? 'Make it public now'
-						: 'Schedule it to go public ' . $schedule['label'];
+						: ( 'unlisted' === $current['privacyStatus']
+							? 'Set to private and schedule it to go public ' . $schedule['label']
+							: 'Schedule it to go public ' . $schedule['label'] );
 					break;
 				case 'playlist':
 					$actions[] = $pl_text;
@@ -187,6 +220,7 @@ class TW_Plan {
 			'actions'     => $actions,
 			'details'     => $details,
 			'schedule'    => $schedule,
+			'privacy'     => $want_privacy,
 			'playlist'    => $playlist,
 			'fingerprint' => TW_YouTube::fingerprint( $current ),
 			'current'     => $current,
@@ -236,14 +270,23 @@ class TW_Plan {
 		$ok      = true;
 		$wrote   = false;
 
-		// 2. Video details and schedule.
-		$write = TW_YouTube::write_video( $video, $plan['details'], $plan['schedule']['mode'], $plan['schedule']['at'] );
+		// 2. Video details, optional privacy, and schedule.
+		$write = TW_YouTube::write_video(
+			$video,
+			$plan['details'],
+			$plan['schedule']['mode'],
+			$plan['schedule']['at'],
+			(string) ( $plan['privacy'] ?? '' )
+		);
 		if ( is_wp_error( $write ) ) {
 			$results[] = array( 'ok' => false, 'text' => 'Video details NOT updated: ' . $write->get_error_message() );
 			$ok        = false;
 		} else {
 			$wrote     = true;
 			$results[] = array( 'ok' => true, 'text' => 'Title, description, tags, category and language updated' );
+			if ( ! empty( $plan['privacy'] ) && 'keep' === $plan['schedule']['mode'] ) {
+				$results[] = array( 'ok' => true, 'text' => 'Visibility set to ' . $plan['privacy'] );
+			}
 			if ( 'now' === $plan['schedule']['mode'] ) {
 				$results[] = array( 'ok' => true, 'text' => 'Made public on YouTube' );
 			} elseif ( 'set' === $plan['schedule']['mode'] ) {

@@ -1303,20 +1303,11 @@ class TW_Frontend {
 		}
 
 		$result = TW_OAuth::complete_redirect( $code, $state );
-		// complete_redirect sets TW_Context from the verified state (user or site/admin).
-		$is_admin_connect = ! TW_Context::is_user() && current_user_can( 'manage_options' );
-		if ( $is_admin_connect ) {
-			$done_url = admin_url( 'admin.php?page=tubewriter-settings' );
-		}
+		// Always land on the front-end account after OAuth (admin no longer hosts YouTube connect).
 
 		if ( is_wp_error( $result ) ) {
-			if ( $is_admin_connect ) {
-				set_transient( 'tw_notice_' . get_current_user_id(), array( 'message' => $result->get_error_message(), 'type' => 'error' ), 60 );
-			} else {
-				$this->flash( $result->get_error_message(), 'error' );
-				$done_url = self::url( 'account' );
-			}
-			wp_safe_redirect( $done_url );
+			$this->flash( $result->get_error_message(), 'error' );
+			wp_safe_redirect( self::url( 'account' ) );
 			exit;
 		}
 
@@ -1329,13 +1320,8 @@ class TW_Frontend {
 			$type = 'success';
 		}
 
-		if ( $is_admin_connect ) {
-			set_transient( 'tw_notice_' . get_current_user_id(), array( 'message' => $msg, 'type' => $type ), 60 );
-		} else {
-			$this->flash( $msg, $type );
-			$done_url = self::url( 'account' );
-		}
-		wp_safe_redirect( $done_url );
+		$this->flash( $msg, $type );
+		wp_safe_redirect( self::url( 'account' ) );
 		exit;
 	}
 

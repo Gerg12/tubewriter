@@ -210,7 +210,7 @@ class TW_Index {
 	 * until the next Quick sync.
 	 *
 	 * @param string $video_id
-	 * @param string $mode       now|set|clear|keep
+	 * @param string $mode       now|set|clear|keep|private|unlisted|public
 	 * @param string $publish_at RFC3339 UTC when mode is set.
 	 */
 	public static function apply_visibility( $video_id, $mode, $publish_at = '' ) {
@@ -230,6 +230,10 @@ class TW_Index {
 			$row['publish_at'] = $publish_at ? gmdate( 'Y-m-d H:i:s', strtotime( $publish_at ) ) : null;
 		} elseif ( 'clear' === $mode ) {
 			$row['privacy']    = 'draft';
+			$row['publish_at'] = null;
+		} elseif ( in_array( $mode, array( 'private', 'unlisted', 'public' ), true ) ) {
+			// Direct privacy flip (Muse / editor). Private unscheduled stays draft in the library.
+			$row['privacy']    = ( 'private' === $mode ) ? 'draft' : $mode;
 			$row['publish_at'] = null;
 		} else {
 			return;

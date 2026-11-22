@@ -184,7 +184,6 @@ function tw_bootstrap() {
 	}
 
 	if ( is_admin() ) {
-		require_once TW_DIR . 'includes/class-tw-videos-table.php';
 		new TW_Admin();
 	}
 }

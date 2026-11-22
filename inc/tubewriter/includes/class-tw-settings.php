@@ -654,7 +654,7 @@ class TW_Settings {
 		$cat = sanitize_text_field( wp_unslash( $post['tw_default_category'] ?? '' ) );
 		self::set( 'default_category', isset( self::CATEGORIES[ $cat ] ) ? $cat : '20' );
 
-		self::save_identity_from_post( $post, true );
+		// Channel identity + voice prompts are saved only on the front-end account form.
 	}
 
 	public static function is_configured() {

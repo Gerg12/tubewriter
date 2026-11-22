@@ -1049,6 +1049,8 @@ window.TWAjax = window.TWAjax || {
 				boot.publishAtLocal = d.publishAtLocal || null;
 				applyLiveHeader(d);
 				staleReview();
+				// Step 5 helpers are declared later in this scope (hoisted); refresh can update schedule UI.
+				try { toggleSchedule(); } catch (e) { /* step 5 not wired yet */ }
 
 				var notes = ['Updated the local list and header from YouTube.'];
 				var dirty = false;
@@ -2486,22 +2488,98 @@ window.TWAjax = window.TWAjax || {
 
 	/* ================================================================ step 5 */
 
-	var canSchedule = cur.privacyStatus === 'private';
+	var canSchedule = cur.privacyStatus === 'private' || cur.privacyStatus === 'unlisted';
+
+	function privacyLabel(status) {
+		status = status || cur.privacyStatus || '';
+		if (status === 'private' && boot.publishAtLocal) {
+			return 'scheduled';
+		}
+		return status || 'unknown';
+	}
+
+	function syncPrivacyLabel() {
+		var label = $('tw-privacy-label');
+		if (label) {
+			label.textContent = privacyLabel();
+		}
+	}
 
 	function currentScheduleText() {
 		if (boot.publishAtLocal) {
 			return 'Right now on YouTube: scheduled for ' + boot.publishAtLocal.date + ' at ' + boot.publishAtLocal.time + '.';
 		}
-		return 'Right now on YouTube: ' + (canSchedule ? 'private, not scheduled.' : cur.privacyStatus + '.');
+		if (cur.privacyStatus === 'private') {
+			return 'Right now on YouTube: private, not scheduled.';
+		}
+		if (cur.privacyStatus === 'unlisted') {
+			return 'Right now on YouTube: unlisted. Scheduling will set it private until the go-live time.';
+		}
+		return 'Right now on YouTube: ' + (cur.privacyStatus || 'unknown') + '.';
 	}
 
 	function toggleSchedule() {
+		canSchedule = cur.privacyStatus === 'private' || cur.privacyStatus === 'unlisted';
 		$('tw-sched-locked').hidden = canSchedule;
 		$('tw-sched-controls').hidden = !canSchedule;
 		$('tw-sched-set').hidden = radio('tw-sched-mode') !== 'set';
 		$('tw-sched-current').textContent = currentScheduleText();
+		syncPrivacyLabel();
 		renderCalendar();
 	}
+
+	(function wirePrivacy() {
+		var sel = $('tw-privacy');
+		var hint = $('tw-privacy-hint');
+		var apply = $('tw-privacy-apply');
+		if (!sel || !apply) {
+			return;
+		}
+		syncPrivacyLabel();
+		sel.addEventListener('change', function () {
+			if (hint) {
+				hint.hidden = sel.value !== 'unlisted';
+			}
+		});
+		wire(apply, 'Saving...', function () {
+			var next = sel.value;
+			if (!next) {
+				say('Pick Private, Unlisted, or Public, then Apply. Keep current does nothing.', 'info');
+				return null;
+			}
+			if (next === cur.privacyStatus) {
+				say('Already ' + next + ' on YouTube.', 'info');
+				sel.value = '';
+				if (hint) {
+					hint.hidden = true;
+				}
+				return null;
+			}
+			var msg = 'Set this video to ' + next + ' on YouTube now? About 50 API units.';
+			if (next === 'unlisted') {
+				msg += '\n\nUnlisted is not searchable and not on the channel page, but anyone with the link can watch it.';
+			}
+			if (!window.confirm(msg)) {
+				return null;
+			}
+			return call('privacy', { privacy: next }).then(function (d) {
+				cur.privacyStatus = d.privacyStatus || next;
+				canSchedule = cur.privacyStatus === 'private' || cur.privacyStatus === 'unlisted';
+				if (d.privacy) {
+					applyLiveHeader({ privacy: d.privacy, current: { title: $('tw-head-title') ? $('tw-head-title').textContent : '' } });
+				}
+				sel.value = '';
+				if (hint) {
+					hint.hidden = true;
+				}
+				if (cur.privacyStatus !== 'private') {
+					boot.publishAtLocal = null;
+				}
+				toggleSchedule();
+				say(d.message || ('Visibility set to ' + next + '.'), 'success');
+			});
+		});
+	})();
 	document.querySelectorAll('input[name="tw-sched-mode"]').forEach(function (r) {
 		r.addEventListener('change', function () {
 			if (radio('tw-sched-mode') === 'set' && !el.schedTime.value) {
@@ -2577,7 +2655,7 @@ window.TWAjax = window.TWAjax || {
 
 	function pickScheduleDate(key) {
 		if (!canSchedule) {
-			say('This video is not private, so it cannot be scheduled.', 'error');
+			say('This video is public, so it cannot be scheduled. Set visibility to Private or Unlisted first.', 'error');
 			return;
 		}
 		setRadio('tw-sched-mode', 'set');
@@ -2638,7 +2716,7 @@ window.TWAjax = window.TWAjax || {
 	});
 	$('tw-cal-next-open').addEventListener('click', function () {
 		if (!canSchedule) {
-			say('This video is not private, so it cannot be scheduled.', 'error');
+			say('This video is public, so it cannot be scheduled. Set visibility to Private or Unlisted first.', 'error');
 			return;
 		}
 		function jump() {

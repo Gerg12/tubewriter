@@ -38,6 +38,15 @@ const UW_MUSE_LOG_MAX     = 50;
 /** @var int|null Resolved account for this request. 0 = site/admin storage. */
 $GLOBALS['uw_muse_user_id'] = null;
 
+/** Front-end editor URL for a video (wp-admin no longer hosts the editor). */
+function uw_muse_video_edit_url( $video_id ) {
+	$video_id = (string) $video_id;
+	if ( class_exists( 'TW_Frontend' ) ) {
+		return TW_Frontend::url( 'account' ) . '?video=' . rawurlencode( $video_id );
+	}
+	return home_url( '/tubewriter/account/?video=' . rawurlencode( $video_id ) );
+}
+
 function uw_muse_base_url() {
 	return home_url( '/wp-json/uw/v1' );
 }
@@ -715,6 +724,7 @@ function uw_muse_rest_schema() {
 				'costs_units'       => array(
 					'pull_captions'     => 250,
 					'push_or_restore'   => 50,
+					'privacy_change'    => 50,
 					'thumbnail_upload'  => 50,
 					'quick_sync'        => 'about 8-20',
 					'full_sync_per_50'  => 2,
@@ -729,9 +739,12 @@ function uw_muse_rest_schema() {
 					'paste_transcript',
 					'ai_generate_revise_gemini_or_chatgpt',
 					'dry_run_push_or_restore',
+					'dry_run_privacy_change',
 					'schema_status_settings_reads',
+					'unlisted_watch_page_transcript_panel',
 				),
 				'confirm_before_spend' => 'Before any costs_units action, report estimated units and wait for explicit human OK unless they already asked for that exact spend.',
+				'privacy_workaround'   => 'Private videos have no signed-out transcript. Prefer PATCH privacy to unlisted (~50 units), read the watch-page transcript panel signed out (0 units), PATCH transcript, then privacy back to private and schedule. Avoid pull_captions (250) when this path works.',
 			),
 			'permissions'       => array(
 				'push'    => uw_muse_can_push(),
@@ -769,10 +782,15 @@ function uw_muse_rest_schema() {
 					'opts',
 					'thumb_description',
 					'step',
+					'privacy',
+					'dry_run',
+					'confirm_push',
+					'fingerprint',
 				),
+				'privacy_values' => array( 'private', 'unlisted', 'public' ),
 				'pkg'          => array( 'titles', 'title', 'body', 'chapters_heading', 'chapters', 'tags', 'hashtags' ),
 				'generate'     => array( 'notes', 'transcript', 'seed_title', 'seed_desc' ),
-				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint' ),
+				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint', 'privacy' ),
 				'restore'      => array( 'entry_id', 'confirm' ),
 				'pages_posts'  => array( 'external_id', 'title', 'slug', 'content_html', 'update', 'categories', 'tags', 'featured_media' ),
 				'settings'     => class_exists( 'TW_Settings' ) ? TW_Settings::IDENTITY_KEYS : array(),
@@ -780,17 +798,21 @@ function uw_muse_rest_schema() {
 			'notes'             => array(
 				'Always send ' . UW_MUSE_HEADER . ' and Content-Type: application/json.',
 				'User scope (Account → Keys & voice → Muse): that user’s identity, toggles, videos, and OAuth. No posts/pages/media.',
-				'Site scope (UploadWriter → Muse): promotional draft posts/pages/media, plus the site/admin video index. Not /tubewriter/account/.',
-				'If GET /muse/status shows user_id 0 and login site, Muse has the site key. Swap to a per-user key for front-end account work.',
-				'PATCH /muse/settings (identity) requires a user key. Site keys get 403 so they cannot write site options the front end ignores.',
+				'Site scope (UploadWriter → Muse): promotional draft posts/pages/media only. Video work uses a per-user Muse key on /tubewriter/account/.',
+				'If GET /muse/status shows user_id 0 and login site, Muse has the site key. Swap to a per-user key for video / identity work.',
+				'PATCH /muse/settings (identity) requires a user key. Site keys get 403.',
+				'PATCH privacy is top-level only (private|unlisted|public). Do not put privacy inside opts. User keys only. Site keys get 403.',
+				'Privacy change: dry_run:true first (0 write units, may use 1 for videos.list), then confirm_push:true + fingerprint. Real change ~50 units. Never publishes or sets publishAt by itself.',
+				'Prefer Unlisted → read watch-page transcript signed out (free) → paste transcript → Private → schedule, instead of pull_captions (250).',
+				'Scheduling works from Private or Unlisted. A schedule write sets privacyStatus to private and publishAt; it stays private until that time, then goes public.',
 				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only. Sync/restore stay off for site keys.',
 				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day). Site key cap 0 means unlimited / not tracked.',
 				'YouTube project quota is 10,000 units/day (midnight Pacific). Pull captions = 250. Prefer pasted transcripts and local index reads. See youtube_quota on this schema.',
-				'Before any YouTube spend (captions, real push, restore, sync, thumbnail, live video fetch), check youtube_quota, tell the human the cost, and wait for OK unless they already asked for that spend.',
+				'Before any YouTube spend (captions, privacy, real push, restore, sync, thumbnail, live video fetch), check youtube_quota, tell the human the cost, and wait for OK unless they already asked for that spend.',
 				'Do not pull captions when transcript is already stored or captions_status is ok/none.',
 				'Royal MCP is separate (Authorization: Bearer).',
 				'POST /muse/pages and /muse/posts are site-key only, drafts only. Never publishes.',
-				'Push requires confirm_push:true. Use dry_run:true first.',
+				'Push requires confirm_push:true. Use dry_run:true first. Optional push privacy (top-level) shows in dry-run actions.',
 				'Never sign in to Google, YouTube, or wp-admin in a browser as Muse.',
 			),
 		)
@@ -828,7 +850,7 @@ function uw_muse_rest_status() {
 	$cap     = uw_muse_daily_unit_cap();
 	$note    = $is_user
 		? 'User Muse key. Reads/writes this WordPress user’s front-end account (identity, toggles, videos, OAuth).'
-		: 'Site Muse key (UploadWriter → Muse). This is site/admin storage, not /tubewriter/account/. Empty identity and video counts here are expected. Create a per-user key under Account → Keys & voice → Muse and put that key in Muse for Greg’s front-end account.';
+		: 'Site Muse key (UploadWriter → Muse). For draft posts/pages/media only — not the video editor. Use a per-user Muse key from Account → Keys & voice for /tubewriter/account/.';
 
 	return rest_ensure_response(
 		array(
@@ -889,7 +911,7 @@ function uw_muse_rest_settings_get() {
 		'No API keys, OAuth tokens, or Muse key in this response.',
 	);
 	if ( ! $is_user ) {
-		$notes[] = 'Site Muse key: identity here is site/admin options, not the front-end account at /tubewriter/account/. Empty fields usually mean no site identity was saved. Use a per-user Muse key for that account.';
+		$notes[] = 'Site Muse key: identity is not used for the video editor. Use a per-user Muse key for /tubewriter/account/.';
 	} else {
 		$notes[] = 'User Muse key: identity is this account’s user meta (same fields as Account → Keys & voice).';
 	}
@@ -969,7 +991,8 @@ function uw_muse_rest_youtube_status() {
 				'muse_cap'     => $cap,
 				'resets'       => 'midnight America/Los_Angeles',
 				'expensive'    => array(
-					'pull_captions' => 250,
+					'pull_captions'  => 250,
+					'privacy_change' => 50,
 					'push_restore'  => 50,
 					'thumb_upload'  => 50,
 					'quick_sync'    => 'about 8-20',
@@ -1076,12 +1099,43 @@ function uw_muse_default_opts( array $state = array() ) {
 	);
 }
 
+/**
+ * YouTube-facing privacyStatus from a local index row (draft → private). Free; no API call.
+ *
+ * @param array $row Index row.
+ * @return string private|unlisted|public|''
+ */
+function uw_muse_privacy_status( array $row ) {
+	$p = (string) ( $row['privacy'] ?? '' );
+	if ( 'draft' === $p ) {
+		return 'private';
+	}
+	if ( in_array( $p, array( 'private', 'unlisted', 'public' ), true ) ) {
+		return $p;
+	}
+	return $p;
+}
+
+function uw_muse_quota_snapshot( $units_used = 0 ) {
+	$cap = uw_muse_daily_unit_cap();
+	return array(
+		'units_used'           => (int) $units_used,
+		'muse_youtube_cap'     => $cap,
+		'muse_youtube_used'    => uw_muse_quota_used(),
+		'muse_youtube_remaining' => $cap > 0 ? max( 0, $cap - uw_muse_quota_used() ) : null,
+		'youtube_project_cap'  => 10000,
+		'youtube_project_used' => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
+		'youtube_project_remaining' => class_exists( 'TW_YouTube' ) ? max( 0, 10000 - TW_YouTube::quota_used() ) : null,
+	);
+}
+
 function uw_muse_video_payload( array $row, array $state = array() ) {
 	$pkg = uw_muse_normalize_pkg( $state['pkg'] ?? array() );
 	return array(
 		'id'               => $row['id'],
 		'title'            => $row['title'],
 		'privacy'          => $row['privacy'],
+		'privacyStatus'    => uw_muse_privacy_status( $row ),
 		'publish_at'       => $row['publish_at'],
 		'published_at'     => $row['published_at'],
 		'views'            => (int) $row['views'],
@@ -1091,7 +1145,7 @@ function uw_muse_video_payload( array $row, array $state = array() ) {
 		'captions_status'  => $row['captions_status'],
 		'has_package'      => ! empty( $state['pkg'] ),
 		'youtube_url'      => 'https://www.youtube.com/watch?v=' . $row['id'],
-		'edit_url'         => admin_url( 'admin.php?page=tubewriter&video=' . rawurlencode( $row['id'] ) ),
+		'edit_url'         => uw_muse_video_edit_url( $row['id'] ),
 		'transcript'       => (string) ( $state['transcript'] ?? '' ),
 		'notes'            => (string) ( $state['notes'] ?? '' ),
 		'seed_title'       => (string) ( $state['seed_title'] ?? '' ),
@@ -1138,7 +1192,7 @@ function uw_muse_rest_videos_list( WP_REST_Request $request ) {
 			'published_at'    => $row['published_at'],
 			'publish_at'      => $row['publish_at'],
 			'thumb'           => $row['thumb'],
-			'edit_url'        => admin_url( 'admin.php?page=tubewriter&video=' . rawurlencode( $row['id'] ) ),
+			'edit_url'        => uw_muse_video_edit_url( $row['id'] ),
 		);
 	}
 	return rest_ensure_response(
@@ -1160,6 +1214,118 @@ function uw_muse_rest_videos_get( WP_REST_Request $request ) {
 	return rest_ensure_response( uw_muse_video_payload( $row, uw_muse_get_state( $video_id ) ) );
 }
 
+/**
+ * Apply a privacy change for Muse or the editor. Shared helper.
+ *
+ * @param string $video_id    Video id.
+ * @param string $privacy     private|unlisted|public
+ * @param bool   $dry_run     Preview only.
+ * @param bool   $confirm     Real write when true (with fingerprint), unless $immediate.
+ * @param string $fingerprint From dry_run.
+ * @param bool   $immediate   Signed-in editor path: one write after confirm dialog, no Muse fingerprint.
+ * @return array|WP_Error
+ */
+function uw_muse_apply_privacy( $video_id, $privacy, $dry_run = false, $confirm = false, $fingerprint = '', $immediate = false ) {
+	if ( ! class_exists( 'TW_YouTube' ) ) {
+		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	$privacy = (string) $privacy;
+	if ( ! in_array( $privacy, TW_YouTube::PRIVACY_VALUES, true ) ) {
+		return new WP_Error( 'uw_muse_privacy', 'privacy must be private, unlisted, or public.', array( 'status' => 400 ) );
+	}
+
+	$video = TW_YouTube::get_video( $video_id );
+	if ( is_wp_error( $video ) ) {
+		return $video;
+	}
+	$snap    = TW_YouTube::snapshot( $video );
+	$current = (string) ( $snap['privacyStatus'] ?? '' );
+	$fp      = TW_YouTube::fingerprint( $snap );
+	$changed = ( $current !== $privacy );
+
+	$actions = array();
+	if ( $changed ) {
+		$actions[] = 'Set visibility from ' . $current . ' to ' . $privacy;
+	} else {
+		$actions[] = 'Visibility already ' . $privacy . ' (no YouTube write)';
+	}
+
+	if ( ! $immediate && ( $dry_run || ! $confirm ) ) {
+		return array(
+			'dry_run'       => true,
+			'written'       => false,
+			'id'            => $video_id,
+			'privacy'       => $privacy,
+			'privacyStatus' => $current,
+			'would_change'  => $changed,
+			'actions'       => $actions,
+			'fingerprint'   => $fp,
+			'cost_units'    => $changed ? 50 : 0,
+			'note'          => $changed
+				? 'Pass confirm_push:true and fingerprint from this dry_run to apply. dry_run never writes privacy.'
+				: 'Already at the requested privacy. No write needed.',
+			'quota'         => uw_muse_quota_snapshot( 1 ), // videos.list ~1
+		);
+	}
+
+	if ( ! $immediate && ! hash_equals( $fp, (string) $fingerprint ) ) {
+		return new WP_Error(
+			'uw_muse_fingerprint',
+			'fingerprint from dry_run is required and must match the current YouTube state. Re-run dry_run.',
+			array( 'status' => 400 )
+		);
+	}
+
+	if ( ! $changed ) {
+		$row = uw_muse_get_video_row( $video_id );
+		return array(
+			'dry_run'       => false,
+			'written'       => false,
+			'id'            => $video_id,
+			'privacy'       => $privacy,
+			'privacyStatus' => $current,
+			'would_change'  => false,
+			'actions'       => $actions,
+			'units_used'    => 1,
+			'quota'         => uw_muse_quota_snapshot( 1 ),
+			'video'         => $row ? uw_muse_video_payload( $row, uw_muse_get_state( $video_id ) ) : null,
+		);
+	}
+
+	if ( ! $immediate ) {
+		$quota = uw_muse_quota_check( 50 );
+		if ( is_wp_error( $quota ) ) {
+			return $quota;
+		}
+	}
+
+	$write = TW_YouTube::set_privacy( $video, $privacy );
+	if ( is_wp_error( $write ) ) {
+		return $write;
+	}
+
+	if ( ! $immediate ) {
+		uw_muse_quota_add( 50 );
+		uw_muse_log( 'privacy', $video_id, array( 'status' => 'ok', 'note' => $privacy ) );
+	}
+	TW_Index::apply_visibility( $video_id, $privacy );
+
+	$row = uw_muse_get_video_row( $video_id );
+	return array(
+		'dry_run'       => false,
+		'written'       => true,
+		'id'            => $video_id,
+		'privacy'       => $privacy,
+		'privacyStatus' => $privacy,
+		'would_change'  => true,
+		'actions'       => $actions,
+		'units_used'    => 50,
+		'quota'         => uw_muse_quota_snapshot( 50 ),
+		'youtube_url'   => 'https://www.youtube.com/watch?v=' . $video_id,
+		'video'         => $row ? uw_muse_video_payload( $row, uw_muse_get_state( $video_id ) ) : null,
+	);
+}
+
 function uw_muse_rest_videos_update( WP_REST_Request $request ) {
 	$video_id = uw_muse_video_id( $request );
 	$row      = uw_muse_get_video_row( $video_id );
@@ -1170,6 +1336,38 @@ function uw_muse_rest_videos_update( WP_REST_Request $request ) {
 	$body    = is_array( $body ) ? $body : array();
 	$changed = array();
 	$extra   = array( 'saved' => time() );
+
+	if ( isset( $body['opts'] ) && is_array( $body['opts'] ) && array_key_exists( 'privacy', $body['opts'] ) ) {
+		return new WP_Error(
+			'uw_muse_privacy',
+			'privacy belongs at the top level of PATCH /muse/videos/{id}, not inside opts.',
+			array( 'status' => 400 )
+		);
+	}
+
+	$privacy_result = null;
+	if ( array_key_exists( 'privacy', $body ) ) {
+		if ( uw_muse_is_site_scope() ) {
+			return new WP_Error(
+				'uw_muse_user_only',
+				'Video privacy changes need a per-user Muse key. Site keys cannot change YouTube privacy.',
+				array( 'status' => 403 )
+			);
+		}
+		$privacy_result = uw_muse_apply_privacy(
+			$video_id,
+			(string) $body['privacy'],
+			! empty( $body['dry_run'] ),
+			! empty( $body['confirm_push'] ),
+			(string) ( $body['fingerprint'] ?? '' )
+		);
+		if ( is_wp_error( $privacy_result ) ) {
+			return $privacy_result;
+		}
+		$changed[] = 'privacy';
+		// Privacy dry-run or write is the only action when privacy is present with confirm/dry_run flags.
+		// Still allow draft fields in the same request when not a dry-run preview-only.
+	}
 
 	foreach ( array( 'transcript', 'notes', 'seed_title', 'seed_desc', 'thumb_description' ) as $field ) {
 		if ( ! array_key_exists( $field, $body ) ) {
@@ -1209,19 +1407,38 @@ function uw_muse_rest_videos_update( WP_REST_Request $request ) {
 		unset( $status );
 	}
 
+	// Privacy-only dry_run: do not persist draft fields in a preview call.
+	if ( $privacy_result && ! empty( $privacy_result['dry_run'] ) && empty( $body['confirm_push'] ) ) {
+		return rest_ensure_response(
+			array_merge(
+				$privacy_result,
+				array(
+					'changed' => array( 'privacy' ),
+				)
+			)
+		);
+	}
+
 	$state = uw_muse_save_state( $video_id, $extra );
 	$row   = uw_muse_get_video_row( $video_id );
-	if ( $changed ) {
+	if ( $changed && ! ( $privacy_result && ! empty( $privacy_result['written'] ) ) ) {
 		uw_muse_log( 'draft_update', $video_id, array( 'status' => 'ok' ) );
 	}
-	return rest_ensure_response(
-		array(
-			'id'      => $video_id,
-			'changed' => $changed,
-			'status'  => $row['tw_status'] ?? '',
-			'video'   => uw_muse_video_payload( $row, $state ),
-		)
+
+	$out = array(
+		'id'      => $video_id,
+		'changed' => array_values( array_unique( $changed ) ),
+		'status'  => $row['tw_status'] ?? '',
+		'video'   => uw_muse_video_payload( $row, $state ),
 	);
+	if ( $privacy_result ) {
+		$out['privacy_result'] = $privacy_result;
+		$out['quota']          = $privacy_result['quota'] ?? uw_muse_quota_snapshot( (int) ( $privacy_result['units_used'] ?? 0 ) );
+		if ( ! empty( $privacy_result['video'] ) ) {
+			$out['video'] = $privacy_result['video'];
+		}
+	}
+	return rest_ensure_response( $out );
 }
 
 function uw_muse_rest_videos_generate( WP_REST_Request $request ) {
@@ -1298,7 +1515,7 @@ function uw_muse_rest_videos_generate( WP_REST_Request $request ) {
 			'warnings'     => $check['warnings'] ?? array(),
 			'description'  => $check['description'] ?? '',
 			'tw_status'    => 'draft',
-			'edit_url'     => admin_url( 'admin.php?page=tubewriter&video=' . rawurlencode( $video_id ) ),
+			'edit_url'     => uw_muse_video_edit_url( $video_id ),
 			'ai_usage'     => TW_AI::last_usage(),
 		)
 	);
@@ -1320,6 +1537,17 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	$pkg      = uw_muse_normalize_pkg( $state['pkg'] ?? array() );
 	$opts     = uw_muse_default_opts( $state );
 	$duration = (int) $row['duration'];
+
+	if ( isset( $body['opts'] ) && is_array( $body['opts'] ) && array_key_exists( 'privacy', $body['opts'] ) ) {
+		return new WP_Error(
+			'uw_muse_privacy',
+			'privacy belongs at the top level of the push body, not inside opts.',
+			array( 'status' => 400 )
+		);
+	}
+	if ( array_key_exists( 'privacy', $body ) && '' !== (string) $body['privacy'] ) {
+		$opts['privacy'] = (string) $body['privacy'];
+	}
 
 	if ( empty( $pkg['title'] ) && empty( $pkg['titles'] ) ) {
 		return new WP_Error( 'uw_muse_no_pkg', 'No generated package on this draft. Generate or PATCH pkg first.', array( 'status' => 400 ) );
@@ -1353,6 +1581,7 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 					'description' => mb_substr( (string) ( $plan['details']['description'] ?? '' ), 0, 400 ),
 				),
 				'schedule'    => $plan['schedule'],
+				'privacy'     => $plan['privacy'] ?? '',
 				'push_allowed'=> $can_push,
 				'note'        => $note,
 			)
@@ -1388,7 +1617,11 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	TW_Index::refresh_one( $video_id );
 	if ( ! empty( $result['wrote'] ) ) {
 		$sched = (array) ( $result['schedule'] ?? array() );
-		TW_Index::apply_visibility( $video_id, $sched['mode'] ?? 'keep', $sched['at'] ?? '' );
+		$mode  = $sched['mode'] ?? 'keep';
+		if ( 'keep' === $mode && ! empty( $plan['privacy'] ) ) {
+			$mode = $plan['privacy'];
+		}
+		TW_Index::apply_visibility( $video_id, $mode, $sched['at'] ?? '' );
 	}
 	TW_Index::set_tw_status( $video_id, 'pushed' );
 
@@ -1399,6 +1632,7 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 			'id'          => $video_id,
 			'youtube_url' => 'https://www.youtube.com/watch?v=' . $video_id,
 			'result'      => $result,
+			'quota'       => uw_muse_quota_snapshot( 50 ),
 			'history'     => TW_History::summary( $video_id ),
 		)
 	);
@@ -1845,7 +2079,7 @@ function uw_muse_settings_page() {
 			<div class="notice notice-warning"><p>Site Muse key (copy now, shown once): <code><?php echo esc_html( $once ); ?></code></p></div>
 		<?php endif; ?>
 		<p><strong>Per-user keys</strong> (Account → <a href="<?php echo esc_url( $account_url ); ?>">Keys &amp; voice</a>): that user’s videos only. No promotional posts/pages.</p>
-		<p><strong>This site key</strong>: draft posts/pages for marketing, plus the site/admin video index. Pair with Royal MCP (Bearer) for broader WP access. That is a separate key in Royal MCP settings.</p>
+		<p><strong>This site key</strong>: draft posts/pages for marketing only (not the video editor). Pair with Royal MCP (Bearer) for broader WP access. That is a separate key in Royal MCP settings.</p>
 		<p>Accounts with a Muse key: <strong><?php echo esc_html( (string) count( $with_keys ) ); ?></strong>
 			<?php if ( $with_keys ) : ?>
 				(<?php echo esc_html( implode( ', ', wp_list_pluck( $with_keys, 'user_login' ) ) ); ?>)
