@@ -326,17 +326,18 @@ class TW_Admin {
 		$this->back( 'settings', 'Thumbnail brief prompt reset to the default.' );
 	}
 
-	/** Checkboxes on Users → Profile / Edit for beta approval and AI thumbnail access. */
+	/** Checkboxes on Users → Profile / Edit for beta approval, Muse, and AI thumbnail access. */
 	public function user_thumb_ai_field( $user ) {
 		if ( ! current_user_can( self::CAP ) || ! ( $user instanceof WP_User ) ) {
 			return;
 		}
-		$is_admin = user_can( $user, 'manage_options' );
-		$can_app  = user_can( $user, 'use_uploadwriter' ) || $is_admin;
-		$granted  = tw_user_has_thumb_ai( $user->ID );
-		$sitewide = TW_Settings::thumb_ai_for_users();
-		$beta_on  = TW_Settings::beta_access();
-		$pending  = tw_user_is_beta_pending( $user->ID );
+		$is_admin     = user_can( $user, 'manage_options' );
+		$can_app      = user_can( $user, 'use_uploadwriter' ) || $is_admin;
+		$granted      = tw_user_has_thumb_ai( $user->ID );
+		$sitewide     = TW_Settings::thumb_ai_for_users();
+		$beta_on      = TW_Settings::beta_access();
+		$pending      = tw_user_is_beta_pending( $user->ID );
+		$muse_allowed = function_exists( 'uw_muse_user_allowed' ) && uw_muse_user_allowed( $user->ID );
 		?>
 		<h2>UploadWriter</h2>
 		<table class="form-table" role="presentation">
@@ -365,6 +366,22 @@ class TW_Admin {
 			</tr>
 			<?php endif; ?>
 			<tr>
+				<th><label for="tw_muse_allowed">Muse access</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins always have Muse access.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">This account cannot use UploadWriter yet. Give them the UploadWriter role first.</p>
+					<?php else : ?>
+						<label for="tw_muse_allowed">
+							<input type="checkbox" id="tw_muse_allowed" name="tw_muse_allowed" value="1" <?php checked( $muse_allowed ); ?>>
+							Allow this user to connect Muse
+						</label>
+						<p class="description">Off by default. When off, the Account Muse section stays hidden and any existing Muse key is refused. The stored key hash is kept so turning this back on restores the key.</p>
+					<?php endif; ?>
+				</td>
+			</tr>
+			<tr>
 				<th><label for="tw_thumb_ai">AI thumbnails</label></th>
 				<td>
 					<?php if ( $is_admin ) : ?>
@@ -390,7 +407,7 @@ class TW_Admin {
 		<?php
 	}
 
-	/** Save beta approval and the per-user AI thumbnail grant from the profile form. */
+	/** Save beta approval, Muse access, and the per-user AI thumbnail grant from the profile form. */
 	public function save_user_thumb_ai_field( $user_id ) {
 		if ( ! current_user_can( self::CAP ) ) {
 			return;
@@ -402,9 +419,16 @@ class TW_Admin {
 		if ( ! user_can( $user_id, 'use_uploadwriter' ) ) {
 			tw_user_set_thumb_ai( $user_id, false );
 			tw_user_set_beta_pending( $user_id, false );
+			if ( function_exists( 'uw_muse_set_user_allowed' ) ) {
+				uw_muse_set_user_allowed( $user_id, false );
+			}
 			return;
 		}
 		tw_user_set_thumb_ai( $user_id, ! empty( $_POST['tw_thumb_ai'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		if ( function_exists( 'uw_muse_set_user_allowed' ) ) {
+			uw_muse_set_user_allowed( $user_id, ! empty( $_POST['tw_muse_allowed'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+		}
 
 		$beta_on = TW_Settings::beta_access();
 		$pending = tw_user_is_beta_pending( $user_id );

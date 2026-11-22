@@ -23,6 +23,7 @@ const UW_MUSE_OPTION_HINT = 'uw_muse_key_hint';
 const UW_MUSE_USER_META   = 'tw_muse_key'; // legacy plain (migrated away)
 const UW_MUSE_USER_HASH   = 'tw_muse_key_hash';
 const UW_MUSE_USER_HINT   = 'tw_muse_key_hint';
+const UW_MUSE_USER_ALLOWED = 'tw_muse_allowed';
 const UW_MUSE_USER_PUSH   = 'tw_muse_allow_push';
 const UW_MUSE_USER_RESTORE = 'tw_muse_allow_restore';
 const UW_MUSE_USER_SYNC   = 'tw_muse_allow_sync';
@@ -53,6 +54,36 @@ function uw_muse_hint_from_key( $key ) {
 	$key = (string) $key;
 	$tail = strlen( $key ) >= 4 ? substr( $key, -4 ) : $key;
 	return 'uwm_…' . $tail;
+}
+
+/**
+ * Whether this account may use Muse (UI + per-user API keys).
+ * Site/admin Muse key (user_id 0) is not gated by this helper.
+ *
+ * @param int $user_id WordPress user id.
+ * @return bool
+ */
+function uw_muse_user_allowed( $user_id ) {
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) {
+		return false;
+	}
+	if ( user_can( $user_id, 'manage_options' ) ) {
+		return true;
+	}
+	return '1' === (string) get_user_meta( $user_id, UW_MUSE_USER_ALLOWED, true );
+}
+
+function uw_muse_set_user_allowed( $user_id, $allowed ) {
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) {
+		return;
+	}
+	if ( $allowed ) {
+		update_user_meta( $user_id, UW_MUSE_USER_ALLOWED, '1' );
+	} else {
+		delete_user_meta( $user_id, UW_MUSE_USER_ALLOWED );
+	}
 }
 
 function uw_muse_user_has_key( $user_id ) {
@@ -101,6 +132,7 @@ function uw_muse_purge_user( $user_id ) {
 	delete_user_meta( $user_id, UW_MUSE_USER_META );
 	delete_user_meta( $user_id, UW_MUSE_USER_HASH );
 	delete_user_meta( $user_id, UW_MUSE_USER_HINT );
+	delete_user_meta( $user_id, UW_MUSE_USER_ALLOWED );
 	delete_user_meta( $user_id, UW_MUSE_USER_PUSH );
 	delete_user_meta( $user_id, UW_MUSE_USER_RESTORE );
 	delete_user_meta( $user_id, UW_MUSE_USER_SYNC );
@@ -429,6 +461,9 @@ function uw_muse_permission( WP_REST_Request $request ) {
 		return new WP_Error( 'uw_muse_unauthorized', 'Missing or invalid Muse key.', array( 'status' => 401 ) );
 	}
 	if ( $user_id > 0 ) {
+		if ( ! uw_muse_user_allowed( $user_id ) ) {
+			return new WP_Error( 'uw_muse_unauthorized', 'Missing or invalid Muse key.', array( 'status' => 401 ) );
+		}
 		if ( ! user_can( $user_id, 'use_uploadwriter' ) && ! user_can( $user_id, 'manage_options' ) ) {
 			return new WP_Error( 'uw_muse_unauthorized', 'Missing or invalid Muse key.', array( 'status' => 401 ) );
 		}
@@ -667,7 +702,36 @@ function uw_muse_rest_schema() {
 				'rate_per_minute'   => UW_MUSE_RATE_MAX,
 				'muse_youtube_cap'  => $cap,
 				'muse_youtube_used' => uw_muse_quota_used(),
+				'youtube_project_cap'  => 10000,
+				'youtube_project_used' => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
 				'media_max_bytes'   => 5 * MB_IN_BYTES,
+			),
+			'youtube_quota' => array(
+				'project_daily_cap' => 10000,
+				'project_used'      => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
+				'resets'            => 'midnight America/Los_Angeles',
+				'muse_cap'          => $cap,
+				'muse_used'         => uw_muse_quota_used(),
+				'costs_units'       => array(
+					'pull_captions'     => 250,
+					'push_or_restore'   => 50,
+					'thumbnail_upload'  => 50,
+					'quick_sync'        => 'about 8-20',
+					'full_sync_per_50'  => 2,
+					'videos_list_get'   => 1,
+					'playlists_list'    => '1 per 50',
+				),
+				'free'              => array(
+					'local_index_list_search_filters',
+					'schedule_calendar',
+					'get_saved_draft_and_transcript',
+					'patch_draft_fields',
+					'paste_transcript',
+					'ai_generate_revise_gemini_or_chatgpt',
+					'dry_run_push_or_restore',
+					'schema_status_settings_reads',
+				),
+				'confirm_before_spend' => 'Before any costs_units action, report estimated units and wait for explicit human OK unless they already asked for that exact spend.',
 			),
 			'permissions'       => array(
 				'push'    => uw_muse_can_push(),
@@ -679,7 +743,7 @@ function uw_muse_rest_schema() {
 			'endpoints'         => array(
 				'schema'          => array( 'GET', $base . '/muse/schema', 'any', '' ),
 				'status'          => array( 'GET', $base . '/muse/status', 'any', '' ),
-				'settings'        => array( 'GET|POST|PATCH', $base . '/muse/settings', 'any', '' ),
+				'settings'        => array( 'GET|POST|PATCH', $base . '/muse/settings', 'GET any; PATCH user', '' ),
 				'youtube_status'  => array( 'GET', $base . '/muse/youtube/status', 'any', '' ),
 				'videos'          => array( 'GET', $base . '/muse/videos', 'any', '' ),
 				'video'           => array( 'GET|POST|PATCH', $base . '/muse/videos/{id}', 'any', '' ),
@@ -715,10 +779,15 @@ function uw_muse_rest_schema() {
 			),
 			'notes'             => array(
 				'Always send ' . UW_MUSE_HEADER . ' and Content-Type: application/json.',
-				'User scope (Account → Keys & voice): that user’s videos only. No posts/pages.',
-				'Site scope (UploadWriter → Muse): promotional draft posts/pages, plus the site/admin video index.',
-				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only.',
-				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day).',
+				'User scope (Account → Keys & voice → Muse): that user’s identity, toggles, videos, and OAuth. No posts/pages/media.',
+				'Site scope (UploadWriter → Muse): promotional draft posts/pages/media, plus the site/admin video index. Not /tubewriter/account/.',
+				'If GET /muse/status shows user_id 0 and login site, Muse has the site key. Swap to a per-user key for front-end account work.',
+				'PATCH /muse/settings (identity) requires a user key. Site keys get 403 so they cannot write site options the front end ignores.',
+				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only. Sync/restore stay off for site keys.',
+				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day). Site key cap 0 means unlimited / not tracked.',
+				'YouTube project quota is 10,000 units/day (midnight Pacific). Pull captions = 250. Prefer pasted transcripts and local index reads. See youtube_quota on this schema.',
+				'Before any YouTube spend (captions, real push, restore, sync, thumbnail, live video fetch), check youtube_quota, tell the human the cost, and wait for OK unless they already asked for that spend.',
+				'Do not pull captions when transcript is already stored or captions_status is ok/none.',
 				'Royal MCP is separate (Authorization: Bearer).',
 				'POST /muse/pages and /muse/posts are site-key only, drafts only. Never publishes.',
 				'Push requires confirm_push:true. Use dry_run:true first.',
@@ -732,6 +801,7 @@ function uw_muse_rest_status() {
 	$counts  = class_exists( 'TW_Index' ) ? TW_Index::counts() : array();
 	$user_id = uw_muse_request_user_id();
 	$user    = ( $user_id && $user_id > 0 ) ? get_userdata( $user_id ) : null;
+	$is_user = ( $user_id && $user_id > 0 );
 	$tw      = array(
 		'started' => 0,
 		'draft'   => 0,
@@ -755,6 +825,11 @@ function uw_muse_rest_status() {
 	}
 
 	$channel = class_exists( 'TW_Store' ) ? TW_Store::get( 'channel', array() ) : array();
+	$cap     = uw_muse_daily_unit_cap();
+	$note    = $is_user
+		? 'User Muse key. Reads/writes this WordPress user’s front-end account (identity, toggles, videos, OAuth).'
+		: 'Site Muse key (UploadWriter → Muse). This is site/admin storage, not /tubewriter/account/. Empty identity and video counts here are expected. Create a per-user key under Account → Keys & voice → Muse and put that key in Muse for Greg’s front-end account.';
+
 	return rest_ensure_response(
 		array(
 			'app'               => defined( 'TW_BRAND' ) ? TW_BRAND : 'UploadWriter',
@@ -762,7 +837,9 @@ function uw_muse_rest_status() {
 			'account'           => array(
 				'user_id'  => (int) $user_id,
 				'login'    => $user ? $user->user_login : ( 0 === (int) $user_id ? 'site' : '' ),
-				'scope'    => ( $user_id && $user_id > 0 ) ? 'user' : 'site',
+				'scope'    => $is_user ? 'user' : 'site',
+				'storage'  => $is_user ? 'user_meta' : 'site_options',
+				'key_from' => $is_user ? 'Account → Keys & voice → Muse' : 'wp-admin → UploadWriter → Muse (site key)',
 			),
 			'gemini_configured' => class_exists( 'TW_Store' ) && TW_Store::has( 'gemini_key' ),
 			'openai_configured' => class_exists( 'TW_Store' ) && TW_Store::has( 'openai_key' ),
@@ -779,7 +856,16 @@ function uw_muse_rest_status() {
 			),
 			'muse_quota'        => array(
 				'used' => uw_muse_quota_used(),
-				'cap'  => uw_muse_daily_unit_cap(),
+				'cap'  => $cap,
+				'note' => $is_user
+					? 'Daily Muse YouTube API unit budget for this user key (default 1000).'
+					: 'Site keys have no Muse YouTube unit cap (cap 0 means unlimited / not tracked). Sync and restore stay off for site keys by design.',
+			),
+			'youtube_quota'     => array(
+				'project_used' => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
+				'project_cap'  => 10000,
+				'resets'       => 'midnight America/Los_Angeles',
+				'note'         => 'Shared Google Cloud project units. Caption pulls cost 250. Confirm with the human before any spend.',
 			),
 			'video_counts'      => array(
 				'indexed'   => (int) ( $counts['all'] ?? 0 ),
@@ -788,6 +874,7 @@ function uw_muse_rest_status() {
 				'scheduled' => (int) ( $counts['scheduled'] ?? 0 ),
 				'tw'        => $tw,
 			),
+			'note'              => $note,
 		)
 	);
 }
@@ -796,10 +883,21 @@ function uw_muse_rest_settings_get() {
 	if ( ! class_exists( 'TW_Settings' ) ) {
 		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
 	}
+	$is_user = ! uw_muse_is_site_scope();
+	$notes   = array(
+		'Prompt/voice text is not returned here. Identity fields drive generation.',
+		'No API keys, OAuth tokens, or Muse key in this response.',
+	);
+	if ( ! $is_user ) {
+		$notes[] = 'Site Muse key: identity here is site/admin options, not the front-end account at /tubewriter/account/. Empty fields usually mean no site identity was saved. Use a per-user Muse key for that account.';
+	} else {
+		$notes[] = 'User Muse key: identity is this account’s user meta (same fields as Account → Keys & voice).';
+	}
 	return rest_ensure_response(
 		array(
 			'identity'          => TW_Settings::identity(),
 			'identity_complete' => TW_Settings::identity_complete(),
+			'scope'             => $is_user ? 'user' : 'site',
 			'defaults'          => array(
 				'language' => TW_Settings::get( 'default_language' ),
 				'category' => TW_Settings::get( 'default_category' ),
@@ -811,10 +909,7 @@ function uw_muse_rest_settings_get() {
 				'hashtags_max'    => TW_Validator::HASH_MAX,
 				'description_max' => TW_Validator::DESC_MAX,
 			),
-			'notes'             => array(
-				'Prompt/voice text is not returned here. Identity fields drive generation.',
-				'No API keys, OAuth tokens, or Muse key in this response.',
-			),
+			'notes'             => $notes,
 		)
 	);
 }
@@ -822,6 +917,13 @@ function uw_muse_rest_settings_get() {
 function uw_muse_rest_settings_patch( WP_REST_Request $request ) {
 	if ( ! class_exists( 'TW_Settings' ) ) {
 		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	if ( uw_muse_is_site_scope() ) {
+		return new WP_Error(
+			'uw_muse_user_only',
+			'Identity PATCH needs a per-user Muse key (Account → Keys & voice → Muse). The site key would write site options that the front-end account ignores.',
+			array( 'status' => 403 )
+		);
 	}
 	$body    = $request->get_json_params();
 	$body    = is_array( $body ) ? $body : array();
@@ -841,6 +943,7 @@ function uw_muse_rest_settings_patch( WP_REST_Request $request ) {
 		array(
 			'changed'  => $changed,
 			'identity' => TW_Settings::identity(),
+			'scope'    => 'user',
 		)
 	);
 }
@@ -848,6 +951,7 @@ function uw_muse_rest_settings_patch( WP_REST_Request $request ) {
 function uw_muse_rest_youtube_status() {
 	$channel = class_exists( 'TW_Store' ) ? TW_Store::get( 'channel', array() ) : array();
 	$channel = is_array( $channel ) ? $channel : array();
+	$cap     = uw_muse_daily_unit_cap();
 	return rest_ensure_response(
 		array(
 			'connected'     => class_exists( 'TW_OAuth' ) && TW_OAuth::is_connected(),
@@ -857,6 +961,21 @@ function uw_muse_rest_youtube_status() {
 			'channel'       => array(
 				'id'    => (string) ( $channel['id'] ?? '' ),
 				'title' => (string) ( $channel['title'] ?? '' ),
+			),
+			'quota'         => array(
+				'project_used' => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
+				'project_cap'  => 10000,
+				'muse_used'    => uw_muse_quota_used(),
+				'muse_cap'     => $cap,
+				'resets'       => 'midnight America/Los_Angeles',
+				'expensive'    => array(
+					'pull_captions' => 250,
+					'push_restore'  => 50,
+					'thumb_upload'  => 50,
+					'quick_sync'    => 'about 8-20',
+				),
+				'free'         => array( 'local_index', 'saved_draft', 'paste_transcript', 'ai_generate', 'dry_run' ),
+				'note'         => 'Confirm with the human before any expensive action. Prefer paste over caption pulls.',
 			),
 		)
 	);
@@ -1698,7 +1817,7 @@ function uw_muse_settings_page() {
 	$routes = array(
 		array( 'GET', '/muse/schema', 'any', '' ),
 		array( 'GET', '/muse/status', 'any', '' ),
-		array( 'GET|POST|PATCH', '/muse/settings', 'any', '' ),
+		array( 'GET|POST|PATCH', '/muse/settings', 'GET any; PATCH user', '' ),
 		array( 'GET', '/muse/youtube/status', 'any', '' ),
 		array( 'GET', '/muse/videos', 'any', '' ),
 		array( 'GET|POST|PATCH', '/muse/videos/{id}', 'any', '' ),

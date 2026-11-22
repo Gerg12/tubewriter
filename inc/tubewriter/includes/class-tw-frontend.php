@@ -463,31 +463,47 @@ class TW_Frontend {
 				</form>
 
 				<?php
-				$uid       = get_current_user_id();
-				$has_muse  = function_exists( 'uw_muse_user_has_key' ) && uw_muse_user_has_key( $uid );
-				$muse_once = get_transient( 'uw_muse_key_once_' . $uid );
-				if ( $muse_once ) {
-					delete_transient( 'uw_muse_key_once_' . $uid );
-				}
-				$muse_hint = ( $has_muse && function_exists( 'uw_muse_user_hint' ) ) ? uw_muse_user_hint( $uid ) : '';
-				$muse_push = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_PUSH' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_PUSH );
-				$muse_rest = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_RESTORE' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_RESTORE );
-				$muse_sync = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_SYNC' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_SYNC );
-				$muse_log  = array();
-				if ( function_exists( 'uw_muse_recent_actions' ) ) {
-					TW_Context::set_user( $uid );
-					$muse_log = uw_muse_recent_actions( 10 );
-				}
-				?>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form">
+				$uid           = get_current_user_id();
+				$muse_allowed  = function_exists( 'uw_muse_user_allowed' ) && uw_muse_user_allowed( $uid );
+				if ( $muse_allowed ) :
+					$has_muse  = function_exists( 'uw_muse_user_has_key' ) && uw_muse_user_has_key( $uid );
+					$muse_once = get_transient( 'uw_muse_key_once_' . $uid );
+					if ( $muse_once ) {
+						delete_transient( 'uw_muse_key_once_' . $uid );
+					}
+					$muse_hint = ( $has_muse && function_exists( 'uw_muse_user_hint' ) ) ? uw_muse_user_hint( $uid ) : '';
+					$muse_push = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_PUSH' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_PUSH );
+					$muse_rest = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_RESTORE' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_RESTORE );
+					$muse_sync = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_SYNC' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_SYNC );
+					$muse_log  = array();
+					if ( function_exists( 'uw_muse_recent_actions' ) ) {
+						TW_Context::set_user( $uid );
+						$muse_log = uw_muse_recent_actions( 10 );
+					}
+					?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form tw-muse">
 					<?php wp_nonce_field( 'tw_front_muse_key' ); ?>
 					<input type="hidden" name="action" value="tw_front_muse_key">
-					<h2>Muse</h2>
-					<p class="tw-muted">Muse is your own AI assistant. Anything it can do here, it does with your videos and your AI keys. Rotate or clear the key any time.</p>
-					<p class="tw-muted">Your Muse key only reaches <strong>this account’s videos</strong>. It cannot create site posts or pages. Muse never signs in to Google or YouTube in a browser.</p>
+					<div class="tw-muse-head">
+						<div class="tw-muse-head-copy">
+							<h2>Muse</h2>
+							<p class="tw-muted">Your AI assistant for this account. Generate a key here, then paste it into Muse.</p>
+						</div>
+						<?php if ( $has_muse ) : ?>
+							<span class="tw-chip tw-chip--ok">Key saved</span>
+						<?php else : ?>
+							<span class="tw-chip tw-chip--idle">Not set</span>
+						<?php endif; ?>
+					</div>
+					<ul class="tw-muse-notes">
+						<li>Use header <code>x-uw-muse-key</code> as <code>custom.uploadwriter</code>.</li>
+						<li>This key only reaches <strong>this account’s</strong> identity, toggles, videos, and YouTube connection.</li>
+						<li>Do not use the site key from wp-admin → UploadWriter → Muse.</li>
+						<li>Endpoint: <code>/wp-json/uw/v1/muse/…</code></li>
+					</ul>
 					<?php if ( $muse_once ) : ?>
 						<div class="tw-muse-reveal" id="tw-muse-key-once">
-							<p class="tw-muse-reveal-title">New Muse key — copy it now</p>
+							<p class="tw-muse-reveal-title">New Muse key. Copy it now</p>
 							<p class="tw-muted">This is the only time the full key is shown. After you leave or refresh, only a short hint remains.</p>
 							<div class="tw-muse-reveal-row">
 								<input type="text" class="tw-muse-key-once" id="tw-muse-key-value" readonly value="<?php echo esc_attr( $muse_once ); ?>" autocomplete="off" spellcheck="false">
@@ -495,48 +511,52 @@ class TW_Frontend {
 							</div>
 							<p class="tw-muted">Length: <?php echo esc_html( (string) strlen( $muse_once ) ); ?> characters (generated keys are 52; minimum accepted is 32).</p>
 						</div>
+					<?php elseif ( $has_muse && $muse_hint ) : ?>
+						<p class="tw-muse-hint"><code><?php echo esc_html( $muse_hint ); ?></code> <span class="tw-muted">Hint only. Full key is not stored.</span></p>
 					<?php endif; ?>
-					<p>
-						Status:
-						<?php if ( $has_muse ) : ?>
-							<span class="tw-chip tw-chip--ok">Saved</span>
-							<?php if ( $muse_hint ) : ?>
-								<span class="tw-muted"><code><?php echo esc_html( $muse_hint ); ?></code> <span class="tw-muted">(hint only — full key is not stored)</span></span>
-							<?php endif; ?>
-						<?php else : ?>
-							<span class="tw-muted">Not set</span>
-						<?php endif; ?>
-					</p>
-					<p class="tw-muted">Send as <code>x-uw-muse-key</code> to <code>/wp-json/uw/v1/muse/…</code></p>
-					<fieldset class="tw-muse-toggles">
-						<legend class="tw-muted">Permissions (all off by default)</legend>
-						<label><input type="checkbox" name="tw_muse_allow_push" value="1" <?php checked( $muse_push ); ?>> Let Muse push changes to YouTube</label>
-						<label><input type="checkbox" name="tw_muse_allow_restore" value="1" <?php checked( $muse_rest ); ?>> Let Muse restore older versions</label>
-						<label><input type="checkbox" name="tw_muse_allow_sync" value="1" <?php checked( $muse_sync ); ?>> Let Muse pull captions and sync</label>
-					</fieldset>
+					<div class="tw-muse-perms">
+						<div class="tw-muse-perms-head">
+							<span class="tw-muse-perms-title">Permissions</span>
+							<span class="tw-muted">All off by default</span>
+						</div>
+						<label class="tw-muse-check">
+							<input type="checkbox" name="tw_muse_allow_push" value="1" <?php checked( $muse_push ); ?>>
+							<span>Let Muse push changes to YouTube</span>
+						</label>
+						<label class="tw-muse-check">
+							<input type="checkbox" name="tw_muse_allow_restore" value="1" <?php checked( $muse_rest ); ?>>
+							<span>Let Muse restore older versions</span>
+						</label>
+						<label class="tw-muse-check">
+							<input type="checkbox" name="tw_muse_allow_sync" value="1" <?php checked( $muse_sync ); ?>>
+							<span>Let Muse pull captions and sync</span>
+						</label>
+					</div>
 					<div class="tw-cta-row">
-						<button type="submit" class="tw-btn tw-btn--primary" name="tw_muse_save_perms" value="1">Save Muse permissions</button>
-						<button type="submit" class="tw-btn" name="tw_muse_regen" value="1"><?php echo $has_muse ? 'Rotate Muse key' : 'Generate Muse key'; ?></button>
+						<button type="submit" class="tw-btn tw-btn--primary" name="tw_muse_save_perms" value="1">Save permissions</button>
+						<button type="submit" class="tw-btn" name="tw_muse_regen" value="1"><?php echo $has_muse ? 'Rotate key' : 'Generate key'; ?></button>
 						<?php if ( $has_muse ) : ?>
 							<button type="submit" class="tw-btn tw-btn--danger" name="tw_muse_clear" value="1" onclick="return confirm('Clear this account’s Muse key?');">Clear</button>
 						<?php endif; ?>
 					</div>
 					<?php if ( $muse_log ) : ?>
-						<h3 class="tw-h3">Recent Muse actions</h3>
-						<ul class="tw-muse-log">
-							<?php foreach ( $muse_log as $row ) : ?>
-								<li>
-									<span class="tw-muted"><?php echo esc_html( wp_date( 'M j g:ia', (int) ( $row['time'] ?? 0 ) ) ); ?></span>
-									<code><?php echo esc_html( (string) ( $row['action'] ?? '' ) ); ?></code>
-									<?php if ( ! empty( $row['video'] ) ) : ?>
-										<span class="tw-muted"><?php echo esc_html( (string) $row['video'] ); ?></span>
-									<?php endif; ?>
-									via Muse
-								</li>
-							<?php endforeach; ?>
-						</ul>
+						<div class="tw-muse-log-wrap">
+							<h3 class="tw-muse-log-title">Recent Muse actions</h3>
+							<ul class="tw-muse-log">
+								<?php foreach ( $muse_log as $row ) : ?>
+									<li>
+										<span class="tw-muted"><?php echo esc_html( wp_date( 'M j g:ia', (int) ( $row['time'] ?? 0 ) ) ); ?></span>
+										<code><?php echo esc_html( (string) ( $row['action'] ?? '' ) ); ?></code>
+										<?php if ( ! empty( $row['video'] ) ) : ?>
+											<span class="tw-muted"><?php echo esc_html( (string) $row['video'] ); ?></span>
+										<?php endif; ?>
+									</li>
+								<?php endforeach; ?>
+							</ul>
+						</div>
 					<?php endif; ?>
 				</form>
+				<?php endif; ?>
 
 				<div class="tw-card-ui">
 					<h2>YouTube</h2>
@@ -1138,8 +1158,14 @@ class TW_Frontend {
 		$user_id = get_current_user_id();
 		TW_Context::set_user( $user_id );
 
+		if ( ! function_exists( 'uw_muse_user_allowed' ) || ! uw_muse_user_allowed( $user_id ) ) {
+			$this->flash( 'Something went wrong. Please try again.', 'error' );
+			wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+			exit;
+		}
+
 		if ( ! function_exists( 'uw_muse_set_user_key' ) ) {
-			$this->flash( 'Muse connector is not available.', 'error' );
+			$this->flash( 'Something went wrong. Please try again.', 'error' );
 			wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
 			exit;
 		}
@@ -1163,7 +1189,7 @@ class TW_Frontend {
 			$new = function_exists( 'uw_muse_new_key' ) ? uw_muse_new_key() : wp_generate_password( 48, false, false );
 			uw_muse_set_user_key( $user_id, $new );
 			set_transient( 'uw_muse_key_once_' . $user_id, $new, 120 );
-			$this->flash( 'Muse key ready below — copy it now. It is only shown once.', 'success' );
+			$this->flash( 'Muse key ready below. Copy it now. It is only shown once.', 'success' );
 			$redirect_hash = '#tw-muse-key-once';
 		} else {
 			$this->flash( 'Muse permissions saved.', 'success' );
