@@ -63,7 +63,7 @@ class TW_YouTube {
 			return $data;
 		}
 		if ( empty( $data['items'][0] ) ) {
-			return new WP_Error( 'tw_yt', 'Video not found on your channel.' );
+			return new WP_Error( 'tw_not_found', 'Video not found on your channel.' );
 		}
 		return $data['items'][0];
 	}

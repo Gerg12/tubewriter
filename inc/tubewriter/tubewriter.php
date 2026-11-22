@@ -85,7 +85,34 @@ function tw_ensure_caps() {
 
 /** True when the current user may use the front UploadWriter app. */
 function tw_user_can_app() {
-	return current_user_can( 'use_uploadwriter' ) || current_user_can( 'manage_options' );
+	if ( ! current_user_can( 'use_uploadwriter' ) && ! current_user_can( 'manage_options' ) ) {
+		return false;
+	}
+	if ( current_user_can( 'manage_options' ) ) {
+		return true;
+	}
+	if ( TW_Settings::beta_access() && tw_user_is_beta_pending( get_current_user_id() ) ) {
+		return false;
+	}
+	return true;
+}
+
+/** True when a user is waiting for beta approval (only set on new signups while beta mode is on). */
+function tw_user_is_beta_pending( $user_id ) {
+	return '1' === (string) get_user_meta( (int) $user_id, 'tw_beta_pending', true );
+}
+
+/** Mark a user as waiting for beta approval. */
+function tw_user_set_beta_pending( $user_id, $pending ) {
+	$user_id = (int) $user_id;
+	if ( ! $user_id ) {
+		return;
+	}
+	if ( $pending ) {
+		update_user_meta( $user_id, 'tw_beta_pending', '1' );
+	} else {
+		delete_user_meta( $user_id, 'tw_beta_pending' );
+	}
 }
 
 /**

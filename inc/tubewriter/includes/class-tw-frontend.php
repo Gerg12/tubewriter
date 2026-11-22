@@ -241,13 +241,18 @@ class TW_Frontend {
 	}
 
 	private function view_register() {
+		$beta = TW_Settings::beta_access();
 		?>
 		<main id="primary" tabindex="-1" class="tw-shell tw-shell--auth">
 			<section class="tw-auth-card tw-auth-center">
 				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
 				<span class="tw-brand-mark" aria-hidden="true"></span>
 				<h1>Create account</h1>
-				<p class="tw-lead">Connect AI and YouTube, draft metadata, and publish only after review. Your keys stay encrypted on this site.</p>
+				<?php if ( $beta ) : ?>
+					<p class="tw-lead">UploadWriter is in private beta. Request access and we will email you when your account is approved.</p>
+				<?php else : ?>
+					<p class="tw-lead">Connect AI and YouTube, draft metadata, and publish only after review. Your keys stay encrypted on this site.</p>
+				<?php endif; ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-form--auth">
 					<?php wp_nonce_field( 'tw_front_register' ); ?>
 					<input type="hidden" name="action" value="tw_front_register">
@@ -262,7 +267,7 @@ class TW_Frontend {
 						Company
 						<input type="text" name="tw_company" value="" tabindex="-1" autocomplete="off">
 					</label>
-					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill">Create account</button>
+					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill"><?php echo $beta ? 'Request access' : 'Create account'; ?></button>
 				</form>
 				<p class="tw-fine">Already have an account? <a href="<?php echo esc_url( self::url( 'login' ) ); ?>">Log in</a></p>
 			</section>
@@ -481,14 +486,22 @@ class TW_Frontend {
 					<p class="tw-muted">Muse is your own AI assistant. Anything it can do here, it does with your videos and your AI keys. Rotate or clear the key any time.</p>
 					<p class="tw-muted">Your Muse key only reaches <strong>this account’s videos</strong>. It cannot create site posts or pages. Muse never signs in to Google or YouTube in a browser.</p>
 					<?php if ( $muse_once ) : ?>
-						<p class="tw-ok-line">New Muse key (copy now, shown once): <code class="tw-muse-key-once"><?php echo esc_html( $muse_once ); ?></code></p>
+						<div class="tw-muse-reveal" id="tw-muse-key-once">
+							<p class="tw-muse-reveal-title">New Muse key — copy it now</p>
+							<p class="tw-muted">This is the only time the full key is shown. After you leave or refresh, only a short hint remains.</p>
+							<div class="tw-muse-reveal-row">
+								<input type="text" class="tw-muse-key-once" id="tw-muse-key-value" readonly value="<?php echo esc_attr( $muse_once ); ?>" autocomplete="off" spellcheck="false">
+								<button type="button" class="tw-btn tw-btn--primary" data-tw-copy-muse-key data-copy-target="tw-muse-key-value">Copy</button>
+							</div>
+							<p class="tw-muted">Length: <?php echo esc_html( (string) strlen( $muse_once ) ); ?> characters (generated keys are 52; minimum accepted is 32).</p>
+						</div>
 					<?php endif; ?>
 					<p>
 						Status:
 						<?php if ( $has_muse ) : ?>
 							<span class="tw-chip tw-chip--ok">Saved</span>
 							<?php if ( $muse_hint ) : ?>
-								<span class="tw-muted"><code><?php echo esc_html( $muse_hint ); ?></code></span>
+								<span class="tw-muted"><code><?php echo esc_html( $muse_hint ); ?></code> <span class="tw-muted">(hint only — full key is not stored)</span></span>
 							<?php endif; ?>
 						<?php else : ?>
 							<span class="tw-muted">Not set</span>
@@ -996,6 +1009,12 @@ class TW_Frontend {
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}
+		if ( TW_Settings::beta_access() && ! user_can( $user, 'manage_options' ) && tw_user_is_beta_pending( $user->ID ) ) {
+			wp_logout();
+			$this->flash( 'Your account is waiting for beta approval. We will email you when it is ready.', 'error' );
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
 		$this->auth_clear( 'login', $login );
 		wp_safe_redirect( self::url( 'account' ) );
 		exit;
@@ -1044,11 +1063,39 @@ class TW_Frontend {
 		$this->auth_clear( 'register', $login . '|' . $email );
 		$user = new WP_User( $user_id );
 		$user->set_role( 'tubewriter' );
+
+		if ( TW_Settings::beta_access() ) {
+			tw_user_set_beta_pending( $user_id, true );
+			$this->notify_beta_signup( $user_id, $login, $email );
+			$this->flash( 'Thanks. Your request is in. We will email you when your beta access is approved.', 'success' );
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+
 		wp_set_current_user( $user_id );
 		wp_set_auth_cookie( $user_id, true, is_ssl() );
 		$this->flash( 'Welcome. Add your AI key and connect YouTube to get started.', 'success' );
 		wp_safe_redirect( self::url( 'account' ) );
 		exit;
+	}
+
+	/**
+	 * Email hello@uploadwriter.com when someone requests beta access.
+	 *
+	 * @param int    $user_id
+	 * @param string $login
+	 * @param string $email
+	 */
+	private function notify_beta_signup( $user_id, $login, $email ) {
+		$edit_url = admin_url( 'user-edit.php?user_id=' . (int) $user_id );
+		$subject  = sprintf( '[UploadWriter] Beta request: %s', $login );
+		$body     = "Someone requested UploadWriter beta access.\n\n"
+			. 'Username: ' . $login . "\n"
+			. 'Email: ' . $email . "\n"
+			. 'User ID: ' . (int) $user_id . "\n\n"
+			. "Approve them here:\n" . $edit_url . "\n"
+			. "(UploadWriter → Beta access checkbox on their profile)\n";
+		wp_mail( 'hello@uploadwriter.com', $subject, $body );
 	}
 
 	public function handle_logout() {
@@ -1108,6 +1155,7 @@ class TW_Frontend {
 			);
 		}
 
+		$redirect_hash = '#tw-keys';
 		if ( ! empty( $_POST['tw_muse_clear'] ) ) {
 			uw_muse_set_user_key( $user_id, '' );
 			$this->flash( 'Muse key cleared for this account.', 'success' );
@@ -1115,12 +1163,13 @@ class TW_Frontend {
 			$new = function_exists( 'uw_muse_new_key' ) ? uw_muse_new_key() : wp_generate_password( 48, false, false );
 			uw_muse_set_user_key( $user_id, $new );
 			set_transient( 'uw_muse_key_once_' . $user_id, $new, 120 );
-			$this->flash( 'Muse key ready. Copy it now; it is only shown once.', 'success' );
+			$this->flash( 'Muse key ready below — copy it now. It is only shown once.', 'success' );
+			$redirect_hash = '#tw-muse-key-once';
 		} else {
 			$this->flash( 'Muse permissions saved.', 'success' );
 		}
 
-		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+		wp_safe_redirect( self::url( 'account' ) . $redirect_hash );
 		exit;
 	}
 

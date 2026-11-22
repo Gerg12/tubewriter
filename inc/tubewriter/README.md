@@ -50,7 +50,7 @@ Free tier note: Google may use free-tier prompts and responses to improve its pr
 Your video list is stored on your WordPress site, so searching and filtering never touch your YouTube quota.
 
 - First time: click **Full sync**. It reads 50 videos per call (2 units per 50, so 1,000 videos is about 40 units) and shows progress. If it stops, everything synced so far is kept.
-- After uploading new videos: **Quick sync** grabs the newest 100 for about 4 units.
+- After uploading new videos: **Quick sync** grabs the newest 100 for about 4 units, and drops drafts/private rows that were deleted on YouTube.
 - Tabs filter by visibility: All, Public, Unlisted, Private, Scheduled, Draft.
 - The filter bar has Title contains, visibility, a views range, TubeWriter status (not started, draft ready, published) and rows per page.
 - Studio drafts: YouTube's API has no Draft status, so TubeWriter treats private (unscheduled) videos as drafts. Use **Compare drafts** to move already-indexed private uploads into Draft and add only the ones still missing. It does not re-sync the whole channel.

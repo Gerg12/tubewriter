@@ -24,6 +24,7 @@ class TW_Settings {
 		'thumb_prompt',
 		'thumb_render_prompt',
 		'thumb_ai_for_users',
+		'beta_access',
 		'default_time',
 		'default_language',
 		'default_category',
@@ -45,6 +46,7 @@ class TW_Settings {
 		'default_category'     => '20',
 		'openai_image_quality' => 'high',
 		'thumb_ai_for_users'   => '',
+		'beta_access'          => '',
 	);
 
 	/** Example values shown in onboarding (Gregatron). Not auto-saved for new users. */
@@ -642,6 +644,9 @@ class TW_Settings {
 		// Site-only gate: off by default so AI thumbnails stay admin-only until ready.
 		self::set( 'thumb_ai_for_users', empty( $post['tw_thumb_ai_for_users'] ) ? '' : '1' );
 
+		// Site-only gate: new signups wait for approval and notify hello@uploadwriter.com.
+		self::set( 'beta_access', empty( $post['tw_beta_access'] ) ? '' : '1' );
+
 		$time = sanitize_text_field( wp_unslash( $post['tw_default_time'] ?? '' ) );
 		self::set( 'default_time', preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : self::DEFAULTS['default_time'] );
 		$lang = sanitize_text_field( wp_unslash( $post['tw_default_language'] ?? '' ) );
@@ -668,5 +673,10 @@ class TW_Settings {
 	/** True when non-admin UploadWriter users may use AI thumbnail brief/create. */
 	public static function thumb_ai_for_users() {
 		return '1' === (string) self::get( 'thumb_ai_for_users' );
+	}
+
+	/** True when new signups need approval before using the app. */
+	public static function beta_access() {
+		return '1' === (string) self::get( 'beta_access' );
 	}
 }

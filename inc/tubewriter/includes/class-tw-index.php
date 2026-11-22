@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * Sync cost: 2 API units per 50 videos (playlistItems.list + videos.list).
  * - Quick sync: newest 100 uploads (about 4 units), then a short excluded-video check.
+ *   Also re-fetches indexed private/draft rows and drops ones YouTube no longer returns
+ *   (deleted in Studio). It never deletes anything on YouTube.
  * - Full sync: every upload, run in batches from the browser, removes local rows
  *   for videos that no longer exist on YouTube. It never deletes anything on YouTube.
  * - Scheduled videos and Studio drafts are often not in the uploads playlist. When
@@ -45,10 +47,42 @@ class TW_Index {
 		$ids     = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . $table . ' WHERE user_id = %d', $user_id ) ); // phpcs:ignore
 		$wpdb->delete( $table, array( 'user_id' => $user_id ), array( '%d' ) );
 		foreach ( (array) $ids as $id ) {
-			$paths = self::local_thumb_paths( $id );
-			if ( $paths && file_exists( $paths['file'] ) ) {
-				wp_delete_file( $paths['file'] );
-			}
+			self::delete_local_thumb( $id );
+		}
+	}
+
+	/**
+	 * Remove one video from the local index (and its cached list thumb).
+	 * Does not touch YouTube or TubeWriter draft state.
+	 *
+	 * @param string $video_id
+	 * @return bool True when a row was deleted.
+	 */
+	public static function delete_local( $video_id ) {
+		global $wpdb;
+		$video_id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		if ( ! $video_id ) {
+			return false;
+		}
+		$deleted = (bool) $wpdb->delete(
+			self::table(),
+			array(
+				'user_id' => self::uid(),
+				'id'      => $video_id,
+			),
+			array( '%d', '%s' )
+		);
+		if ( $deleted ) {
+			self::delete_local_thumb( $video_id );
+		}
+		return $deleted;
+	}
+
+	/** Delete the cached list thumb file for one video id, if present. */
+	private static function delete_local_thumb( $video_id ) {
+		$paths = self::local_thumb_paths( $video_id );
+		if ( $paths && file_exists( $paths['file'] ) ) {
+			wp_delete_file( $paths['file'] );
 		}
 	}
 
@@ -162,6 +196,11 @@ class TW_Index {
 		$video = TW_YouTube::get_video( $video_id );
 		if ( ! is_wp_error( $video ) ) {
 			self::upsert( $video, '', array( 'force_thumb' => (bool) $force_thumb ) );
+			return;
+		}
+		// videos.list returns empty for deleted uploads. Drop the stale local row.
+		if ( 'tw_not_found' === $video->get_error_code() ) {
+			self::delete_local( $video_id );
 		}
 	}
 
@@ -352,6 +391,7 @@ class TW_Index {
 		$done      = ( 'quick' === $mode ) || ! $token;
 		$scheduled = 0;
 		$drafts    = 0;
+		$removed   = 0;
 		$note      = '';
 		if ( $done ) {
 			// Same run id, and before the local delete, or a full sync would drop them.
@@ -369,6 +409,7 @@ class TW_Index {
 			if ( $refreshed['scheduled'] > $scheduled ) {
 				$scheduled = $refreshed['scheduled'];
 			}
+			$removed = (int) ( $refreshed['removed'] ?? 0 );
 			if ( $found['error'] ) {
 				$note = 'Draft/scheduled search failed: ' . $found['error'];
 			} elseif ( 'full' === $mode && ! $found['complete'] ) {
@@ -404,6 +445,7 @@ class TW_Index {
 			'total'           => $total,
 			'scheduled'       => $scheduled,
 			'drafts'          => $drafts,
+			'removed'         => $removed,
 			'scheduled_note'  => $note,
 			'scheduled_count' => self::count_scheduled(),
 			'draft_count'     => self::count_drafts(),
@@ -509,23 +551,43 @@ class TW_Index {
 		return (bool) $found;
 	}
 
-	/** Re-fetch publishAt for indexed private and draft videos. */
+	/**
+	 * Re-fetch publishAt for indexed private and draft videos.
+	 * videos.list omits deleted uploads, so drop those stale local rows.
+	 */
 	private static function refresh_private_schedules( $run ) {
 		global $wpdb;
 		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM " . self::table() . " WHERE user_id = %d AND privacy IN ('private','draft')", self::uid() ) ); // phpcs:ignore
-		$err = '';
+		$err     = '';
+		$removed = 0;
 		if ( $ids ) {
 			$videos = TW_YouTube::videos_by_ids( $ids );
 			if ( is_wp_error( $videos ) ) {
 				$err = $videos->get_error_message();
 			} else {
+				$seen = array();
 				foreach ( $videos as $video ) {
+					$id = (string) ( $video['id'] ?? '' );
+					if ( '' === $id ) {
+						continue;
+					}
+					$seen[ $id ] = true;
 					self::upsert( $video, $run );
+				}
+				foreach ( $ids as $id ) {
+					$id = (string) $id;
+					if ( isset( $seen[ $id ] ) ) {
+						continue;
+					}
+					if ( self::delete_local( $id ) ) {
+						$removed++;
+					}
 				}
 			}
 		}
 		return array(
 			'scheduled' => self::count_scheduled(),
+			'removed'   => $removed,
 			'error'     => $err,
 		);
 	}

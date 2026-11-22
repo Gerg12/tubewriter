@@ -148,6 +148,16 @@ class TW_Admin {
 							</td>
 						</tr>
 						<tr>
+							<th>Beta access</th>
+							<td>
+								<label for="tw_beta_access">
+									<input type="checkbox" id="tw_beta_access" name="tw_beta_access" value="1" <?php checked( TW_Settings::beta_access() ); ?>>
+									Require approval before new signups can use UploadWriter
+								</label>
+								<p class="description">When on, new accounts are created but stay locked until you approve them under Users → Edit. Each signup also emails <code>hello@uploadwriter.com</code>. Existing accounts keep working. Site admins are never blocked.</p>
+							</td>
+						</tr>
+						<tr>
 							<th>AI thumbnail access</th>
 							<td>
 								<label for="tw_thumb_ai_for_users">
@@ -316,7 +326,7 @@ class TW_Admin {
 		$this->back( 'settings', 'Thumbnail brief prompt reset to the default.' );
 	}
 
-	/** Checkbox on Users → Profile / Edit for per-account AI thumbnail access. */
+	/** Checkboxes on Users → Profile / Edit for beta approval and AI thumbnail access. */
 	public function user_thumb_ai_field( $user ) {
 		if ( ! current_user_can( self::CAP ) || ! ( $user instanceof WP_User ) ) {
 			return;
@@ -325,9 +335,35 @@ class TW_Admin {
 		$can_app  = user_can( $user, 'use_uploadwriter' ) || $is_admin;
 		$granted  = tw_user_has_thumb_ai( $user->ID );
 		$sitewide = TW_Settings::thumb_ai_for_users();
+		$beta_on  = TW_Settings::beta_access();
+		$pending  = tw_user_is_beta_pending( $user->ID );
 		?>
 		<h2>UploadWriter</h2>
 		<table class="form-table" role="presentation">
+			<?php if ( $beta_on || $pending ) : ?>
+			<tr>
+				<th><label for="tw_beta_approved">Beta access</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins always have access.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">This account cannot use UploadWriter yet. Give them the UploadWriter role first.</p>
+					<?php else : ?>
+						<label for="tw_beta_approved">
+							<input type="checkbox" id="tw_beta_approved" name="tw_beta_approved" value="1" <?php checked( ! $pending ); ?>>
+							Allow this user to use UploadWriter
+						</label>
+						<?php if ( $pending ) : ?>
+							<p class="description">Waiting for approval. Uncheck later to revoke access again while beta mode is on.</p>
+						<?php elseif ( $beta_on ) : ?>
+							<p class="description">Approved. Uncheck to lock them out again while beta mode is on.</p>
+						<?php else : ?>
+							<p class="description">Beta mode is off site-wide, but this account still has a pending flag. Check this box to clear it.</p>
+						<?php endif; ?>
+					<?php endif; ?>
+				</td>
+			</tr>
+			<?php endif; ?>
 			<tr>
 				<th><label for="tw_thumb_ai">AI thumbnails</label></th>
 				<td>
@@ -354,7 +390,7 @@ class TW_Admin {
 		<?php
 	}
 
-	/** Save the per-user AI thumbnail grant from the profile form. */
+	/** Save beta approval and the per-user AI thumbnail grant from the profile form. */
 	public function save_user_thumb_ai_field( $user_id ) {
 		if ( ! current_user_can( self::CAP ) ) {
 			return;
@@ -365,9 +401,18 @@ class TW_Admin {
 		}
 		if ( ! user_can( $user_id, 'use_uploadwriter' ) ) {
 			tw_user_set_thumb_ai( $user_id, false );
+			tw_user_set_beta_pending( $user_id, false );
 			return;
 		}
 		tw_user_set_thumb_ai( $user_id, ! empty( $_POST['tw_thumb_ai'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+
+		$beta_on = TW_Settings::beta_access();
+		$pending = tw_user_is_beta_pending( $user_id );
+		if ( $beta_on || $pending ) {
+			// Checked = approved (not pending). Unchecked = pending / revoked.
+			$approved = ! empty( $_POST['tw_beta_approved'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			tw_user_set_beta_pending( $user_id, ! $approved );
+		}
 	}
 
 	public function reset_thumb_render_prompt() {
@@ -470,7 +515,12 @@ class TW_Admin {
 
 		$video = TW_YouTube::get_video( $video_id );
 		if ( is_wp_error( $video ) ) {
-			echo '<div class="notice notice-error"><p>' . esc_html( $video->get_error_message() ) . '</p></div>';
+			$msg = $video->get_error_message();
+			if ( 'tw_not_found' === $video->get_error_code() && TW_Index::exists( $video_id ) ) {
+				TW_Index::delete_local( $video_id );
+				$msg .= ' Removed it from your local video list.';
+			}
+			echo '<div class="notice notice-error"><p>' . esc_html( $msg ) . '</p></div>';
 			if ( in_array( $video->get_error_code(), array( 'tw_expired', 'tw_not_connected' ), true ) ) {
 				echo '<div class="tw-card">';
 				if ( TW_Context::is_user() ) {
@@ -551,7 +601,7 @@ class TW_Admin {
 				</div>
 			</div>
 
-			<ol class="tw-stepper" id="tw-stepper">
+			<ol class="tw-stepper" id="tw-stepper" aria-label="Steps">
 				<li><button type="button" data-go="1">1. Source</button></li>
 				<li><button type="button" data-go="2">2. Details</button></li>
 				<li><button type="button" data-go="3">3. Thumbnail</button></li>
@@ -728,7 +778,7 @@ class TW_Admin {
 							'Click <strong>Write thumbnail description</strong>. Uses the Gemini or ChatGPT model selected next to Generate, with title, description, transcript/timestamps, and your pasted shots.',
 							'Edit the brief if you want, then click <strong>Create thumbnail</strong>. ChatGPT selected → OpenAI image model. Gemini selected → Gemini image model. Safe margins stay ~150px in from every edge.',
 							'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below.',
-							'Generated cards stay in <strong>Your generated library</strong> so you can reuse them. Free accounts keep a few videos worth; admins are unlimited. Oldest drop off when you go over.',
+							'Generated cards are saved to the <strong>Media Library</strong>. Reuse them with <strong>Choose finished thumbnail</strong>. Free accounts keep a few videos worth; admins are unlimited. Oldest drop off when you go over.',
 							'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Skip this step anytime with Next.',
 						)
 						: array(
@@ -759,17 +809,10 @@ class TW_Admin {
 					<div id="tw-thumb-ref-list" class="tw-thumb-shots"></div>
 				</div>
 
-				<div id="tw-thumb-library" class="tw-thumb-library">
-					<p class="tw-thumb-zone-title">Your generated library</p>
-					<p class="description">AI thumbnails you paid to create stay here so you can reuse them. <span id="tw-thumb-library-usage" class="tw-thumb-library-usage"></span></p>
-					<div id="tw-thumb-library-list" class="tw-thumb-shots"></div>
-				</div>
-
 				<div id="tw-thumb-lightbox" class="tw-thumb-lightbox" hidden>
 					<div class="tw-thumb-lightbox-card" role="dialog" aria-modal="true" aria-label="Saved thumbnail">
 						<img id="tw-thumb-lightbox-img" alt="">
 						<p class="tw-inline">
-							<button type="button" class="button button-primary" id="tw-thumb-lightbox-use" hidden>Use as finished</button>
 							<button type="button" class="button button-primary" id="tw-thumb-lightbox-copy">Copy image</button>
 							<a class="button" id="tw-thumb-lightbox-edit" href="#" target="_blank" rel="noopener">Open in Media Library</a>
 							<button type="button" class="button" id="tw-thumb-lightbox-delete">Delete</button>
@@ -845,7 +888,7 @@ class TW_Admin {
 
 				<div class="tw-thumb-block tw-thumb-build">
 					<p class="tw-thumb-zone-title"><?php echo esc_html( $can_thumbs ? '2. Finished thumbnail' : 'Finished thumbnail' ); ?></p>
-					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one from Your generated library / Media Library. Generated cards are saved as Media Library images so they show up when you choose one.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
+					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one with Choose finished thumbnail. That opens the Media Library — previously generated thumbnails live there.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
 					<p class="tw-actions-left tw-inline">
 						<?php if ( $can_thumbs ) : ?>
 						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
@@ -865,7 +908,7 @@ class TW_Admin {
 							<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
 							<button type="button" class="button" id="tw-thumb-remove">Remove thumbnail</button>
 						</p>
-						<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated cards are kept in your thumbnail library above (free accounts keep a few videos worth; admins are unlimited).</p>
+						<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated cards stay in the Media Library — open Choose finished thumbnail to reuse one (free accounts keep a few videos worth; admins are unlimited).</p>
 					</div>
 				</div>
 			</section>
@@ -1007,15 +1050,26 @@ class TW_Admin {
 			</section>
 
 			<div class="tw-footer">
-				<button type="button" class="button" id="tw-back">&larr; Back</button>
-				<span class="tw-footer-mid">
-					<button type="button" class="button" id="tw-save">Save draft</button>
-					<span id="tw-saved" class="description"></span>
-				</span>
-				<span class="tw-footer-action" id="tw-publish-footer-wrap" hidden>
-					<button type="button" class="button button-primary" id="tw-publish-footer">Publish changes</button>
-				</span>
-				<button type="button" class="button button-primary" id="tw-next">Next &rarr;</button>
+				<ol class="tw-stepper tw-stepper--footer" id="tw-stepper-footer" aria-label="Steps">
+					<li><button type="button" data-go="1">1. Source</button></li>
+					<li><button type="button" data-go="2">2. Details</button></li>
+					<li><button type="button" data-go="3">3. Thumbnail</button></li>
+					<li><button type="button" data-go="4">4. Playlist</button></li>
+					<li><button type="button" data-go="5">5. Go live</button></li>
+					<li><button type="button" data-go="6">6. Review</button></li>
+					<li><button type="button" data-go="7">7. Publish</button></li>
+				</ol>
+				<div class="tw-footer-bar">
+					<button type="button" class="button" id="tw-back">&larr; Back</button>
+					<span class="tw-footer-mid">
+						<button type="button" class="button" id="tw-save">Save draft</button>
+						<span id="tw-saved" class="description"></span>
+					</span>
+					<span class="tw-footer-action" id="tw-publish-footer-wrap" hidden>
+						<button type="button" class="button button-primary" id="tw-publish-footer">Publish changes</button>
+					</span>
+					<button type="button" class="button button-primary" id="tw-next">Next &rarr;</button>
+				</div>
 			</div>
 		</div>
 		</div>

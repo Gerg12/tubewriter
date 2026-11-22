@@ -754,6 +754,40 @@ body.tw-app .tw-badge-error { background: var(--tw-danger-soft); color: #8a2424;
 	font-weight: 600;
 }
 
+.tw-muse-reveal {
+	margin: 12px 0 16px;
+	padding: 14px 16px;
+	border: 1px solid rgba(15, 122, 108, 0.35);
+	border-radius: var(--tw-radius-md);
+	background: rgba(15, 122, 108, 0.08);
+}
+
+.tw-muse-reveal-title {
+	margin: 0 0 6px;
+	color: #0f7a6c;
+	font-weight: 700;
+}
+
+.tw-muse-reveal-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: stretch;
+	margin: 10px 0 8px;
+}
+
+.tw-muse-key-once {
+	flex: 1 1 16rem;
+	min-width: 0;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.9rem;
+	padding: 10px 12px;
+	border: 1px solid var(--tw-line);
+	border-radius: var(--tw-radius-md);
+	background: #fff;
+	color: var(--tw-ink);
+}
+
 .tw-ok-check {
 	width: 18px;
 	height: 18px;
@@ -1751,8 +1785,14 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	border-radius: 10px;
 }
 
-.tw-editor-shell .tw-thumb-library-usage {
-	color: var(--tw-ink, #1d2327);
+.tw-editor-shell .tw-thumb-picker-note,
+.media-modal .tw-thumb-picker-note {
+	margin: 8px 0 0;
+	font-size: 13px;
+	font-weight: 400;
+	line-height: 1.4;
+	color: var(--tw-muted, #50575e);
+	max-width: 42em;
 }
 
 .tw-editor-shell .tw-thumb-shot.is-drop-target img {
@@ -1773,9 +1813,9 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	bottom: 12px;
 	z-index: 10;
 	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: 12px;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 10px;
 	background: rgba(255, 255, 255, 0.82);
 	border: 1px solid var(--tw-glass-edge);
 	border-radius: 14px;
@@ -1784,6 +1824,23 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	box-shadow: var(--tw-shadow);
 	backdrop-filter: blur(16px);
 	-webkit-backdrop-filter: blur(16px);
+}
+
+.tw-editor-shell .tw-footer-bar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+}
+
+.tw-editor-shell .tw-stepper--footer {
+	gap: 8px;
+	margin: 0;
+	padding: 0 0 2px;
+	overflow-x: auto;
+	flex-wrap: nowrap;
+	-webkit-overflow-scrolling: touch;
 }
 
 .tw-editor-shell .tw-msg {
@@ -2571,8 +2628,11 @@ a.tw-page:focus-visible {
 	}
 
 	.tw-editor-shell .tw-footer {
-		flex-wrap: wrap;
 		bottom: 8px;
+	}
+
+	.tw-editor-shell .tw-footer-bar {
+		flex-wrap: wrap;
 	}
 
 	.tw-editor-shell .tw-cal-day {

@@ -1200,6 +1200,13 @@ body.tw-app.tw-app--schedule .tw-shell {
   box-shadow:none
 }
 
+.tw-app .tw-editor-shell .tw-stepper--footer {
+  background:transparent;
+  border:0;
+  border-radius:0;
+  padding:0
+}
+
 .tw-app .tw-editor-shell .tw-stepper button.is-active {
   background:#fbe9e2;
   color:#b93d29;
@@ -2211,6 +2218,7 @@ body.tw-app .tw-tabs { overflow: visible; }
   body.tw-app .uw-stat { flex-direction: row; align-items: center; padding: 18px 20px; }
   body.tw-app .tw-grid-2 { grid-template-columns: minmax(0,1fr); }
   body.tw-app .tw-stepper { flex-wrap: wrap; }
+  body.tw-app .tw-stepper--footer { flex-wrap: nowrap; }
   body.tw-app .tw-cal-grid { min-width: 0; }
   body.tw-app .tw-cal-day { min-width: 0; min-height: 52px; overflow-wrap: anywhere; }
 }

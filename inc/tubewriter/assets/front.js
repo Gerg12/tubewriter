@@ -58,12 +58,65 @@
 		function openSetupIfNeeded() {
 			if (location.hash === '#tw-keys') {
 				openKeysPanel('tw-keys');
+			} else if (location.hash === '#tw-muse-key-once') {
+				openKeysPanel('tw-muse-key-once');
 			} else if (location.hash === '#tw-voice') {
 				openKeysPanel('tw-voice');
 			}
 		}
 		openSetupIfNeeded();
 		window.addEventListener('hashchange', openSetupIfNeeded);
+
+		var museReveal = document.getElementById('tw-muse-key-once');
+		var museKeyInput = document.getElementById('tw-muse-key-value');
+		if (museReveal && museKeyInput) {
+			openKeysPanel('tw-muse-key-once');
+			setTimeout(function () {
+				museKeyInput.focus();
+				museKeyInput.select();
+			}, 350);
+		}
+
+		document.querySelectorAll('[data-tw-copy-muse-key]').forEach(function (btn) {
+			btn.addEventListener('click', function () {
+				var targetId = btn.getAttribute('data-copy-target');
+				var input = targetId ? document.getElementById(targetId) : null;
+				if (!input || !input.value) {
+					return;
+				}
+				var done = function () {
+					var prev = btn.textContent;
+					btn.textContent = 'Copied';
+					setTimeout(function () {
+						btn.textContent = prev;
+					}, 1800);
+					if (window.TWToast) {
+						toast('Muse key copied', 'success');
+					}
+				};
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					navigator.clipboard.writeText(input.value).then(done).catch(function () {
+						input.focus();
+						input.select();
+						try {
+							document.execCommand('copy');
+							done();
+						} catch (err) {
+							toast('Select the key and copy manually', 'error');
+						}
+					});
+				} else {
+					input.focus();
+					input.select();
+					try {
+						document.execCommand('copy');
+						done();
+					} catch (err) {
+						toast('Select the key and copy manually', 'error');
+					}
+				}
+			});
+		});
 
 		// Keys nav: open the accordion (or leave for account#tw-keys if on the editor).
 		document.querySelectorAll('[data-tw-open-keys]').forEach(function (link) {

@@ -201,6 +201,9 @@ window.TWAjax = window.TWAjax || {
 					parts.push(d.scheduled + ' scheduled via search');
 				}
 				var tail = parts.length ? ' ' + parts.join(', ') + ' in the index.' : '';
+				if (d.removed) {
+					tail += ' Removed ' + d.removed + ' deleted from YouTube.';
+				}
 				if (d.scheduled_note) {
 					tail += ' ' + d.scheduled_note;
 				}
@@ -253,8 +256,6 @@ window.TWAjax = window.TWAjax || {
 		published: false,    // true after a successful step-7 publish this session
 		shots: [],           // up to 2 pasted screenshots {mime, data, url}
 		refs: [],            // pasted thumbs saved in the Media Library
-		library: [],         // AI-generated thumbs kept for reuse
-		libraryUsage: (TW.thumbLibrary || null),
 		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } },
 		undoPkg: null        // draft from before the last Generate, for Undo
 	};
@@ -332,7 +333,7 @@ window.TWAjax = window.TWAjax || {
 		if (el.next) {
 			el.next.classList.remove('tw-next-pulse');
 		}
-		document.querySelectorAll('#tw-stepper button.is-hint').forEach(function (b) {
+		document.querySelectorAll('.tw-stepper button.is-hint').forEach(function (b) {
 			b.classList.remove('is-hint');
 		});
 	}
@@ -357,7 +358,7 @@ window.TWAjax = window.TWAjax || {
 			el.next.classList.add('tw-next-pulse');
 		}
 		if (stepNum) {
-			document.querySelectorAll('#tw-stepper button').forEach(function (b) {
+			document.querySelectorAll('.tw-stepper button').forEach(function (b) {
 				if (parseInt(b.getAttribute('data-go'), 10) === stepNum) {
 					b.classList.add('is-hint');
 				}
@@ -640,7 +641,7 @@ window.TWAjax = window.TWAjax || {
 	function updateNav() {
 		var onSource = S.step <= 2;
 		var donePublish = S.step === 7 && S.published && !!boot.backUrl;
-		document.querySelectorAll('#tw-stepper button').forEach(function (b) {
+		document.querySelectorAll('.tw-stepper button').forEach(function (b) {
 			var n = parseInt(b.getAttribute('data-go'), 10);
 			b.classList.toggle('is-current', n === S.step && !S.published);
 			b.classList.toggle('is-done', S.published || (n < S.step && !(onSource && n <= 2)));
@@ -725,7 +726,7 @@ window.TWAjax = window.TWAjax || {
 		}
 	}
 
-	document.querySelectorAll('#tw-stepper button').forEach(function (b) {
+	document.querySelectorAll('.tw-stepper button').forEach(function (b) {
 		b.addEventListener('click', function () { go(parseInt(b.getAttribute('data-go'), 10)); });
 	});
 	el.back.addEventListener('click', function () { go(S.step - 1); });
@@ -1738,117 +1739,47 @@ window.TWAjax = window.TWAjax || {
 		});
 	}
 
-	function updateLibraryUsage(usage) {
-		if (usage) {
-			S.libraryUsage = usage;
-			if (typeof TW !== 'undefined') {
-				TW.thumbLibrary = usage;
+	var libraryBackfilled = false;
+
+	/** Import older loose generated files into the Media Library once per session. */
+	function ensureLibraryBackfill() {
+		if (libraryBackfilled) {
+			return Promise.resolve(null);
+		}
+		return call('thumb_library').then(function (d) {
+			libraryBackfilled = true;
+			if (d && d.usage && typeof TW !== 'undefined') {
+				TW.thumbLibrary = d.usage;
 			}
-		}
-		var node = $('tw-thumb-library-usage');
-		if (!node) {
-			return;
-		}
-		var u = S.libraryUsage || {};
-		if (Number(u.unlimited)) {
-			node.textContent = 'Admins: unlimited storage.';
-			return;
-		}
-		var used = typeof u.used === 'number' ? u.used : 0;
-		var limit = typeof u.limit === 'number' ? u.limit : 12;
-		node.textContent = used + ' / ' + limit + ' saved. Oldest drop off when you go over.';
-	}
-
-	function applyLibraryPayload(d) {
-		if (!d) {
-			return;
-		}
-		S.library = d.items || [];
-		updateLibraryUsage(d.usage || null);
-		renderLibrary();
-	}
-
-	function renderLibrary() {
-		var list = $('tw-thumb-library-list');
-		if (!list) {
-			return;
-		}
-		updateLibraryUsage(S.libraryUsage);
-		list.innerHTML = '';
-		if (!S.library.length) {
-			var empty = document.createElement('p');
-			empty.className = 'description';
-			empty.textContent = 'No generated thumbnails yet. Create one and it stays here for later.';
-			list.appendChild(empty);
-			return;
-		}
-		S.library.forEach(function (item) {
-			var card = document.createElement('div');
-			card.className = 'tw-thumb-ref tw-thumb-lib-item';
-			var img = document.createElement('img');
-			img.src = item.thumb || item.url;
-			img.alt = item.title || 'Generated thumbnail';
-			img.addEventListener('click', function () { openRef(item, 'library'); });
-			var row = document.createElement('p');
-			row.className = 'tw-inline';
-			var use = document.createElement('button');
-			use.type = 'button';
-			use.className = 'button button-primary';
-			use.textContent = 'Use';
-			use.addEventListener('click', function () { useLibraryThumb(item); });
-			var look = document.createElement('button');
-			look.type = 'button';
-			look.className = 'button';
-			look.textContent = 'Look';
-			look.addEventListener('click', function () { openRef(item, 'library'); });
-			var del = document.createElement('button');
-			del.type = 'button';
-			del.className = 'button';
-			del.textContent = 'Delete';
-			del.addEventListener('click', function () { deleteLibraryThumb(item); });
-			row.appendChild(use);
-			row.appendChild(look);
-			row.appendChild(del);
-			card.appendChild(img);
-			card.appendChild(row);
-			list.appendChild(card);
-		});
-	}
-
-	function useLibraryThumb(item) {
-		if (!item || !item.id) {
-			return;
-		}
-		say('Setting thumbnail…', 'info');
-		call('thumb_set', { attachment_id: item.id }).then(function (d) {
-			spent.thumbGenerate = true;
-			saved.thumb_generated = 1;
-			saved.thumb_uploaded = 0;
-			showThumbResult(d.url || item.url);
-			closeRef();
-			say('Thumbnail set from your library. Upload to YouTube when you like it.', 'success');
-		}).catch(function (err) {
-			say(err.message, 'error');
-		});
-	}
-
-	function deleteLibraryThumb(item) {
-		if (!item || !item.id) {
-			return;
-		}
-		if (!window.confirm('Delete this generated thumbnail from your library?\n\nThis frees a slot. YouTube is not changed.')) {
-			return;
-		}
-		call('thumb_library_delete', { id: String(item.id) }).then(function (d) {
-			applyLibraryPayload(d);
-			var box = $('tw-thumb-lightbox');
-			if (box && !box.hidden && String(box.dataset.id) === String(item.id)) {
-				closeRef();
+			if (d && d.imported > 0) {
+				say('Brought ' + d.imported + ' earlier generated thumbnail' + (d.imported === 1 ? '' : 's') + ' into the Media Library.', 'success');
 			}
-			say('Deleted from your library.', 'success');
-		}).catch(function (err) {
-			say(err.message, 'error');
+			return d;
+		}).catch(function () {
+			libraryBackfilled = true;
+			return null;
 		});
+	}
+
+	function injectThumbPickerNote(frame) {
+		try {
+			var root = frame && frame.$el ? frame.$el : null;
+			if (!root || !root.length) {
+				return;
+			}
+			if (root.find('.tw-thumb-picker-note').length) {
+				return;
+			}
+			var note = document.createElement('p');
+			note.className = 'tw-thumb-picker-note description';
+			note.textContent = 'This is where your previously generated thumbnails live. Search is prefilled for UploadWriter generations — clear it to browse the rest of the Media Library.';
+			var host = root.find('.media-frame-title').first();
+			if (host.length) {
+				host.append(note);
+			} else {
+				root.find('.media-frame-content').first().prepend(note);
+			}
+		} catch (e) {}
 	}
 
 	var refReturnFocus = null;
@@ -1859,7 +1790,6 @@ window.TWAjax = window.TWAjax || {
 		var box = $('tw-thumb-lightbox');
 		var img = $('tw-thumb-lightbox-img');
 		var edit = $('tw-thumb-lightbox-edit');
-		var useBtn = $('tw-thumb-lightbox-use');
 		if (!box || !img) {
 			return;
 		}
@@ -1868,9 +1798,6 @@ window.TWAjax = window.TWAjax || {
 		img.alt = item.title || 'Saved thumbnail';
 		if (edit) {
 			edit.href = item.edit || item.url;
-		}
-		if (useBtn) {
-			useBtn.hidden = kind !== 'library';
 		}
         if (box.hidden) {
             refReturnFocus = document.activeElement;
@@ -1933,9 +1860,8 @@ window.TWAjax = window.TWAjax || {
 		}
 		var id = parseInt(box.dataset.id, 10);
 		var kind = box.dataset.kind || 'ref';
-		var pool = kind === 'library' ? S.library : S.refs;
 		var found = null;
-		(pool || []).forEach(function (ref) {
+		(S.refs || []).forEach(function (ref) {
 			if (ref.id === id) {
 				found = ref;
 			}
@@ -2222,17 +2148,6 @@ window.TWAjax = window.TWAjax || {
 			renderRefs();
 		});
 	}
-	if ($('tw-thumb-library-list')) {
-		updateLibraryUsage(S.libraryUsage);
-		call('thumb_library').then(function (d) {
-			applyLibraryPayload(d);
-			if (d && d.imported > 0) {
-				say('Brought ' + d.imported + ' earlier generated thumbnail' + (d.imported === 1 ? '' : 's') + ' into the Media Library.', 'success');
-			}
-		}).catch(function () {
-			renderLibrary();
-		});
-	}
 	if ($('tw-thumb-lightbox')) {
 		$('tw-thumb-lightbox').addEventListener('click', function (e) {
 			if (e.target === $('tw-thumb-lightbox')) {
@@ -2242,14 +2157,6 @@ window.TWAjax = window.TWAjax || {
 	}
 	if ($('tw-thumb-lightbox-close')) {
 		$('tw-thumb-lightbox-close').addEventListener('click', closeRef);
-	}
-	if ($('tw-thumb-lightbox-use')) {
-		$('tw-thumb-lightbox-use').addEventListener('click', function () {
-			var hit = lightboxItem();
-			if (hit && hit.kind === 'library') {
-				useLibraryThumb(hit.item);
-			}
-		});
 	}
 	if ($('tw-thumb-lightbox-copy')) {
 		$('tw-thumb-lightbox-copy').addEventListener('click', function () {
@@ -2262,12 +2169,7 @@ window.TWAjax = window.TWAjax || {
 	if ($('tw-thumb-lightbox-delete')) {
 		$('tw-thumb-lightbox-delete').addEventListener('click', function () {
 			var hit = lightboxItem();
-			if (!hit) {
-				return;
-			}
-			if (hit.kind === 'library') {
-				deleteLibraryThumb(hit.item);
-			} else {
+			if (hit) {
 				deleteRef(hit.item);
 			}
 		});
@@ -2363,14 +2265,21 @@ window.TWAjax = window.TWAjax || {
 			library: { type: 'image' },
 			multiple: false
 		});
-		frame.on('ready', function () {
-			// Prefer UploadWriter generations (title starts with that). Clear search to see everything.
+		function preferGeneratedLibrary() {
 			try {
 				var lib = frame.state().get('library');
 				if (lib && lib.props) {
+					// Prefer UploadWriter generations (title starts with that). Clear search to see everything.
 					lib.props.set({ search: 'UploadWriter thumbnail' });
 				}
 			} catch (e) {}
+		}
+		frame.on('ready', function () {
+			preferGeneratedLibrary();
+			injectThumbPickerNote(frame);
+		});
+		frame.on('open', function () {
+			injectThumbPickerNote(frame);
 		});
 		frame.on('select', function () {
 			var att = frame.state().get('selection').first().toJSON();
@@ -2395,6 +2304,10 @@ window.TWAjax = window.TWAjax || {
 			}).catch(function (err) {
 				say(err.message, 'error');
 			});
+		});
+		ensureLibraryBackfill().then(function () {
+			// Refresh after any late imports so new attachments appear in the open picker.
+			preferGeneratedLibrary();
 		});
 		frame.open();
 	}
@@ -2493,12 +2406,11 @@ window.TWAjax = window.TWAjax || {
 				saved.thumb_generated = 1;
 				saved.thumb_uploaded = 0;
 				showThumbResult(d.url);
-				if (d.library) {
-					applyLibraryPayload(d.library);
-				} else {
-					call('thumb_library').then(applyLibraryPayload).catch(function () {});
+				libraryBackfilled = true;
+				if (d.library && d.library.usage && typeof TW !== 'undefined') {
+					TW.thumbLibrary = d.library.usage;
 				}
-				say('Thumbnail ready and saved to your library. Upload to YouTube when you like it, or download a copy.', 'success');
+				say('Thumbnail ready and saved to the Media Library. Upload to YouTube when you like it, or pick an earlier one with Choose finished thumbnail.', 'success');
 			});
 		});
 	}
