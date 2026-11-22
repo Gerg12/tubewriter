@@ -14,13 +14,16 @@ class TW_Admin {
 
 		add_action( 'admin_post_tw_save_settings', array( $this, 'save_settings' ) );
 		add_action( 'admin_post_tw_connect', array( $this, 'connect' ) );
-		add_action( 'admin_post_tw_complete', array( $this, 'complete' ) );
 		add_action( 'admin_post_tw_disconnect', array( $this, 'disconnect' ) );
 		add_action( 'admin_post_tw_reset_prompt', array( $this, 'reset_prompt' ) );
 		add_action( 'admin_post_tw_reset_thumb_prompt', array( $this, 'reset_thumb_prompt' ) );
 		add_action( 'admin_post_tw_reset_thumb_render_prompt', array( $this, 'reset_thumb_render_prompt' ) );
+		add_action( 'show_user_profile', array( $this, 'user_thumb_ai_field' ) );
+		add_action( 'edit_user_profile', array( $this, 'user_thumb_ai_field' ) );
+		add_action( 'personal_options_update', array( $this, 'save_user_thumb_ai_field' ) );
+		add_action( 'edit_user_profile_update', array( $this, 'save_user_thumb_ai_field' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_library', 'thumb_library_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -51,8 +54,11 @@ class TW_Admin {
 				'nonce'              => wp_create_nonce( 'tw_ajax' ),
 				'imageProvider'      => TW_Settings::get( 'image_provider' ),
 				'imageProviderLabel' => TW_Settings::image_provider_label(),
+				'hasOpenAI'          => TW_Settings::get( 'openai_key' ) ? 1 : 0,
 				'canThumbnails'      => tw_user_can_thumbnails() ? 1 : 0,
+				'thumbLibrary'       => TW_Thumb_Library::usage(),
 				'settingsUrl'        => admin_url( 'admin.php?page=tubewriter-settings' ),
+				'showQuota'          => 1,
 			)
 		);
 	}
@@ -77,21 +83,20 @@ class TW_Admin {
 				<?php if ( $connected ) : ?>
 					<p class="tw-ok">Connected<?php echo $channel ? ' to <strong>' . esc_html( $channel['title'] ) . '</strong>' : ''; ?>.</p>
 					<?php if ( TW_OAuth::needs_reconnect() ) : ?>
-						<div class="notice notice-error inline"><p>YouTube needs you to sign in again. Use the steps below.</p></div>
+						<div class="notice notice-error inline"><p>Please reconnect YouTube. UploadWriter switched Google OAuth clients and needs your approval again.</p></div>
 					<?php endif; ?>
-					<details class="tw-reconnect" <?php echo TW_OAuth::needs_reconnect() ? 'open' : ''; ?>>
-						<summary>Sign in again</summary>
-						<p>Use this when Google asks you to approve UploadWriter again, or when a video says the YouTube connection expired.</p>
-						<?php $this->reconnect_steps( 'Sign in again' ); ?>
-					</details>
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<?php $this->reconnect_steps( TW_OAuth::needs_reconnect() ? 'Reconnect YouTube' : 'Sign in again' ); ?>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin-top:12px;">
 						<?php wp_nonce_field( 'tw_disconnect' ); ?>
 						<input type="hidden" name="action" value="tw_disconnect">
 						<button class="button">Disconnect</button>
 					</form>
 				<?php elseif ( ! $configured ) : ?>
-					<p>Save your Google Client ID and Client Secret below first.</p>
+					<p>Add <code>UPLOADWRITER_GOOGLE_CLIENT_ID</code> and <code>UPLOADWRITER_GOOGLE_CLIENT_SECRET</code> to <code>wp-config.php</code>, or save them below first.</p>
 				<?php else : ?>
+					<?php if ( TW_OAuth::needs_reconnect() ) : ?>
+						<div class="notice notice-error inline"><p>Please reconnect YouTube. Your previous connection is no longer valid.</p></div>
+					<?php endif; ?>
 					<?php $this->reconnect_steps( 'Connect YouTube' ); ?>
 				<?php endif; ?>
 			</div>
@@ -102,16 +107,20 @@ class TW_Admin {
 
 				<div class="tw-card">
 					<h2>2. Credentials</h2>
-					<p class="description">From your own Google Cloud project (OAuth client type <strong>Desktop app</strong> for this admin paste flow) and Google AI Studio. See README.md in the plugin folder for the 15 minute setup.</p>
-					<p class="description">Front-end accounts at <code><?php echo esc_html( home_url( '/tubewriter/' ) ); ?></code> use the same Client ID and Secret. On local/staging they use the same paste-the-URL loopback. On a live https site they redirect to <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code>, so add that URI on a Web client when you go live.</p>
+					<p class="description">Use a Google Cloud <strong>Web application</strong> OAuth client. Authorized redirect URI must be exactly <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code> (trailing slash). Prefer defining credentials in <code>wp-config.php</code> (see constants below) instead of storing them in the database.</p>
+					<?php if ( TW_Settings::google_credentials_from_config() ) : ?>
+						<div class="notice notice-success inline"><p>Google Client ID and Secret are loaded from <code>wp-config.php</code> constants. The fields below are ignored while those constants are set.</p></div>
+					<?php endif; ?>
 					<table class="form-table">
 						<tr>
 							<th><label for="tw_client_id">Google Client ID</label></th>
-							<td><input type="text" id="tw_client_id" name="tw_client_id" class="large-text code" value="<?php echo esc_attr( TW_Settings::get( 'client_id' ) ); ?>"></td>
+							<td>
+								<input type="text" id="tw_client_id" name="tw_client_id" class="large-text code" value="<?php echo esc_attr( TW_Settings::google_credentials_from_config() ? '' : TW_Store::get( 'client_id', '' ) ); ?>" <?php disabled( TW_Settings::google_credentials_from_config() ); ?> placeholder="<?php echo TW_Settings::google_credentials_from_config() ? 'Set via UPLOADWRITER_GOOGLE_CLIENT_ID' : ''; ?>">
+							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_client_secret">Google Client Secret</label></th>
-							<td><input type="password" id="tw_client_secret" name="tw_client_secret" class="regular-text code" autocomplete="off" placeholder="<?php echo TW_Settings::get( 'client_secret' ) ? 'Saved. Leave blank to keep it.' : ''; ?>"></td>
+							<td><input type="password" id="tw_client_secret" name="tw_client_secret" class="regular-text code" autocomplete="off" <?php disabled( TW_Settings::google_credentials_from_config() ); ?> placeholder="<?php echo TW_Settings::google_credentials_from_config() ? 'Set via UPLOADWRITER_GOOGLE_CLIENT_SECRET' : ( TW_Settings::get( 'client_secret' ) ? 'Saved. Leave blank to keep it.' : '' ); ?>"></td>
 						</tr>
 						<tr>
 							<th><label for="tw_gemini_key">Gemini API key</label></th>
@@ -121,7 +130,7 @@ class TW_Admin {
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
 								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. Alternate: <code>gemini-flash-latest</code>. Lite models are not recommended. If this model is busy or does not answer, UploadWriter retries, then tries <code>gemini-3.8-flash</code>, then <code>gemini-flash-latest</code>. Used for metadata and thumbnail briefs when Gemini is selected next to Generate.</p>
+								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>. If this model is busy, UploadWriter retries, tries <code>gemini-3.5-flash-lite</code>, then finishes with ChatGPT when an OpenAI key is saved. Used for metadata and thumbnail briefs when Gemini is selected next to Generate.</p>
 							</td>
 						</tr>
 						<tr>
@@ -143,9 +152,9 @@ class TW_Admin {
 							<td>
 								<label for="tw_thumb_ai_for_users">
 									<input type="checkbox" id="tw_thumb_ai_for_users" name="tw_thumb_ai_for_users" value="1" <?php checked( TW_Settings::thumb_ai_for_users() ); ?>>
-									Let UploadWriter users (not just admins) use Write thumbnail description and Create thumbnail
+									Let all UploadWriter users use Write thumbnail description and Create thumbnail
 								</label>
-								<p class="description">Off by default while the feature is being tuned. Site admins always see it. Other accounts only see pick/upload until you turn this on.</p>
+								<p class="description">Off by default while the feature is being tuned. Site admins always see it. To allow only some people, leave this unchecked and enable <strong>AI thumbnails</strong> on each user under Users → Edit.</p>
 							</td>
 						</tr>
 						<tr>
@@ -307,6 +316,60 @@ class TW_Admin {
 		$this->back( 'settings', 'Thumbnail brief prompt reset to the default.' );
 	}
 
+	/** Checkbox on Users → Profile / Edit for per-account AI thumbnail access. */
+	public function user_thumb_ai_field( $user ) {
+		if ( ! current_user_can( self::CAP ) || ! ( $user instanceof WP_User ) ) {
+			return;
+		}
+		$is_admin = user_can( $user, 'manage_options' );
+		$can_app  = user_can( $user, 'use_uploadwriter' ) || $is_admin;
+		$granted  = tw_user_has_thumb_ai( $user->ID );
+		$sitewide = TW_Settings::thumb_ai_for_users();
+		?>
+		<h2>UploadWriter</h2>
+		<table class="form-table" role="presentation">
+			<tr>
+				<th><label for="tw_thumb_ai">AI thumbnails</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins always have Write thumbnail description and Create thumbnail.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">This account cannot use UploadWriter yet. Give them the UploadWriter role (or the <code>use_uploadwriter</code> capability) first.</p>
+					<?php elseif ( $sitewide ) : ?>
+						<p class="description">Already allowed by the site-wide setting in UploadWriter → Settings. Uncheck that setting if you only want selected users.</p>
+						<label for="tw_thumb_ai">
+							<input type="checkbox" id="tw_thumb_ai" name="tw_thumb_ai" value="1" <?php checked( $granted ); ?>>
+							Also keep a personal grant (still works if the site-wide switch is turned off later)
+						</label>
+					<?php else : ?>
+						<label for="tw_thumb_ai">
+							<input type="checkbox" id="tw_thumb_ai" name="tw_thumb_ai" value="1" <?php checked( $granted ); ?>>
+							Allow this user to use Write thumbnail description and Create thumbnail
+						</label>
+						<p class="description">Leave the site-wide switch off in UploadWriter → Settings and enable people here one at a time.</p>
+					<?php endif; ?>
+				</td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/** Save the per-user AI thumbnail grant from the profile form. */
+	public function save_user_thumb_ai_field( $user_id ) {
+		if ( ! current_user_can( self::CAP ) ) {
+			return;
+		}
+		$user_id = (int) $user_id;
+		if ( ! $user_id || user_can( $user_id, 'manage_options' ) ) {
+			return;
+		}
+		if ( ! user_can( $user_id, 'use_uploadwriter' ) ) {
+			tw_user_set_thumb_ai( $user_id, false );
+			return;
+		}
+		tw_user_set_thumb_ai( $user_id, ! empty( $_POST['tw_thumb_ai'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+	}
+
 	public function reset_thumb_render_prompt() {
 		$this->guard( 'tw_reset_thumb_render_prompt' );
 		TW_Settings::set( 'thumb_render_prompt', TW_Settings::default_thumb_render_prompt() );
@@ -315,22 +378,9 @@ class TW_Admin {
 
 	public function connect() {
 		$this->guard( 'tw_connect', 'GET' );
+		TW_Context::clear();
 		wp_redirect( TW_OAuth::auth_url() ); // phpcs:ignore WordPress.Security.SafeRedirect
 		exit;
-	}
-
-	public function complete() {
-		$this->guard( 'tw_complete' );
-		$result = TW_OAuth::complete( wp_unslash( $_POST['tw_pasted'] ?? '' ) ); // phpcs:ignore
-		if ( is_wp_error( $result ) ) {
-			$this->back( 'settings', $result->get_error_message(), 'error' );
-		}
-		delete_option( 'tw_channel' );
-		$channel = TW_YouTube::channel();
-		if ( is_wp_error( $channel ) ) {
-			$this->back( 'settings', 'Connected, but: ' . $channel->get_error_message(), 'warning' );
-		}
-		$this->back( 'settings', 'Connected to ' . $channel['title'] . '.' );
 	}
 
 	public function disconnect() {
@@ -354,7 +404,7 @@ class TW_Admin {
 		echo '<div class="wrap tw-wrap"><h1 class="wp-heading-inline">UploadWriter</h1>';
 		$this->notice();
 		if ( TW_OAuth::needs_reconnect() ) {
-			echo '<div class="notice notice-error"><p>YouTube needs you to sign in again. Open <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a> and use <strong>Sign in again</strong>.</p></div>';
+			echo '<div class="notice notice-error"><p>Please reconnect YouTube. Open <a href="' . esc_url( admin_url( 'admin.php?page=tubewriter-settings' ) ) . '">Settings</a> and connect again.</p></div>';
 		}
 
 		if ( ! TW_Settings::is_configured() || ! TW_OAuth::is_connected() ) {
@@ -493,7 +543,9 @@ class TW_Admin {
 						<span id="tw-head-duration"><?php echo $secs ? esc_html( TW_Transcript::fmt( $secs ) ) : ''; ?></span>
 						&middot; <a href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
 						&middot; <button type="button" class="button-link" id="tw-refresh" title="About 1 API unit">Refresh from YouTube</button>
-						&middot; <span class="tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
+						<?php if ( current_user_can( self::CAP ) ) : ?>
+							&middot; <span class="tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
+						<?php endif; ?>
 					</p>
 					<p class="tw-safe">Nothing on YouTube changes until step 7, where you confirm twice. A backup is saved before every change, and UploadWriter never deletes anything. Thumbnails stay on your computer until you upload them in Studio.</p>
 				</div>
@@ -570,8 +622,8 @@ class TW_Admin {
 					<button type="button" class="button button-primary button-hero" id="tw-generate">Generate with AI</button>
 					<label for="tw-text-provider" class="tw-provider-label">with</label>
 					<select id="tw-text-provider" aria-label="AI model">
-						<option value="gemini">Gemini (<?php echo esc_html( TW_Settings::get( 'model' ) ); ?>)</option>
 						<option value="openai">ChatGPT (<?php echo esc_html( TW_Settings::get( 'openai_model' ) ); ?>)</option>
+						<option value="gemini">Gemini (<?php echo esc_html( TW_Settings::get( 'model' ) ); ?>)</option>
 					</select>
 					<button type="button" class="button button-hero" id="tw-manual">Fill in by hand</button>
 				</p>
@@ -582,7 +634,7 @@ class TW_Admin {
 						<button type="button" class="button" id="tw-replace-cancel">Keep what's there</button>
 					</span>
 				</p>
-				<p class="description">This picker also writes the thumbnail brief in step 3. YouTube sign-in is separate. If Gemini is busy, UploadWriter retries, then tries gemini-3.8-flash and gemini-flash-latest. Or pick ChatGPT. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
+				<p class="description">This picker also writes the thumbnail brief in step 3. YouTube sign-in is separate. Prefer ChatGPT while Gemini is overloaded. If you leave Gemini selected and it is busy, UploadWriter still finishes with ChatGPT when an OpenAI key is saved. A video with no transcript can still generate from the starting title, description, and timestamp notes.</p>
 			</section>
 
 			<!-- STEP 2 (same page as the source, so the draft can be compared with what it came from) -->
@@ -606,21 +658,21 @@ class TW_Admin {
 					)
 				);
 				?>
-				<div class="tw-row">
-					<label>Title</label>
-					<p class="tw-count" data-for="tw-title" data-max="100"></p>
-				</div>
-				<p class="description">The published title. The starting title above was only an idea for the AI.</p>
+				<p class="description">The published title (100 characters max, separate from the description). The starting title above was only an idea for the AI.</p>
 				<div id="tw-titles" class="tw-titles"></div>
-				<input type="text" id="tw-title" class="large-text">
+				<div class="tw-row">
+					<label for="tw-title">Title</label>
+					<p class="tw-count" id="tw-title-count"></p>
+				</div>
+				<input type="text" id="tw-title" class="large-text" maxlength="100" aria-describedby="tw-title-count">
 
 				<div class="tw-row">
 					<label for="tw-body">Description</label>
 					<p class="tw-count" id="tw-desc-count"></p>
 				</div>
-				<p class="description">The published description. This is where the finished write-up goes, not the starting description above.</p>
+				<p class="description">The published description (5,000 characters for body + chapters + hashtags). Not the starting description above.</p>
 				<textarea id="tw-body" rows="18" class="large-text"></textarea>
-				<p class="description">YouTube allows 5,000 characters for the full description, including the chapter breakdown and hashtags. The first ~100 characters show in search, so lead with the game and what happens.</p>
+				<p class="description">The first ~100 characters of the description show in search, so lead with the game and what happens.</p>
 
 				<label for="tw-chapters-heading">Chapters heading</label>
 				<input type="text" id="tw-chapters-heading" class="large-text">
@@ -672,10 +724,11 @@ class TW_Admin {
 						: 'Optional. Choose a finished thumbnail from the Media Library, or upload one to YouTube when ready. AI thumbnail brief and create are hidden until a site admin turns them on in UploadWriter → Settings.',
 					$can_thumbs
 						? array(
-							'Paste inspiration screenshots: <strong>Ctrl+V</strong> or Add image into the paste box (not only Saved references). First image is the background photo. Second is the picture-in-picture photo. Max two.',
+							'Paste inspiration screenshots: <strong>Ctrl+V</strong> or Add image into the paste box (not only Saved references). First image is the background photo. Second is the picture-in-picture photo. Drag shots to swap roles. Max two.',
 							'Click <strong>Write thumbnail description</strong>. Uses the Gemini or ChatGPT model selected next to Generate, with title, description, transcript/timestamps, and your pasted shots.',
 							'Edit the brief if you want, then click <strong>Create thumbnail</strong>. ChatGPT selected → OpenAI image model. Gemini selected → Gemini image model. Safe margins stay ~150px in from every edge.',
 							'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below.',
+							'Generated cards stay in <strong>Your generated library</strong> so you can reuse them. Free accounts keep a few videos worth; admins are unlimited. Oldest drop off when you go over.',
 							'Click <strong>Upload to YouTube</strong> and confirm to put it on the video. Skip this step anytime with Next.',
 						)
 						: array(
@@ -691,7 +744,7 @@ class TW_Admin {
 				<?php if ( $can_thumbs ) : ?>
 				<div id="tw-thumb-zone" class="tw-thumb-zone" tabindex="0" role="button" aria-label="Paste screenshot area">
 					<p class="tw-thumb-zone-title">Paste inspiration screenshots here</p>
-					<p class="description">Press Ctrl+V while this box is focused, or click Add image. First image = background photo. Second = picture-in-picture photo. Max two. These must appear here (not only under Saved references) to be sent to the model. Skip only if you want a text-only concept.</p>
+					<p class="description">Press Ctrl+V while this box is focused, or click Add image. First image = background photo. Second = picture-in-picture photo. Drag either shot onto the other to swap roles. Max two. These must appear here (not only under Saved references) to be sent to the model. Skip only if you want a text-only concept.</p>
 					<div id="tw-thumb-shots" class="tw-thumb-shots"></div>
 					<div class="tw-inline">
 						<button type="button" class="button" id="tw-thumb-add">Add image</button>
@@ -706,10 +759,17 @@ class TW_Admin {
 					<div id="tw-thumb-ref-list" class="tw-thumb-shots"></div>
 				</div>
 
+				<div id="tw-thumb-library" class="tw-thumb-library">
+					<p class="tw-thumb-zone-title">Your generated library</p>
+					<p class="description">AI thumbnails you paid to create stay here so you can reuse them. <span id="tw-thumb-library-usage" class="tw-thumb-library-usage"></span></p>
+					<div id="tw-thumb-library-list" class="tw-thumb-shots"></div>
+				</div>
+
 				<div id="tw-thumb-lightbox" class="tw-thumb-lightbox" hidden>
 					<div class="tw-thumb-lightbox-card" role="dialog" aria-modal="true" aria-label="Saved thumbnail">
 						<img id="tw-thumb-lightbox-img" alt="">
 						<p class="tw-inline">
+							<button type="button" class="button button-primary" id="tw-thumb-lightbox-use" hidden>Use as finished</button>
 							<button type="button" class="button button-primary" id="tw-thumb-lightbox-copy">Copy image</button>
 							<a class="button" id="tw-thumb-lightbox-edit" href="#" target="_blank" rel="noopener">Open in Media Library</a>
 							<button type="button" class="button" id="tw-thumb-lightbox-delete">Delete</button>
@@ -785,7 +845,7 @@ class TW_Admin {
 
 				<div class="tw-thumb-block tw-thumb-build">
 					<p class="tw-thumb-zone-title"><?php echo esc_html( $can_thumbs ? '2. Finished thumbnail' : 'Finished thumbnail' ); ?></p>
-					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one you already made. This is separate from the corner logos.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
+					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one from Your generated library / Media Library. Generated cards are saved as Media Library images so they show up when you choose one.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
 					<p class="tw-actions-left tw-inline">
 						<?php if ( $can_thumbs ) : ?>
 						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
@@ -805,7 +865,7 @@ class TW_Admin {
 							<a class="button" href="<?php echo esc_url( $studio ); ?>" target="_blank" rel="noopener">Open in Studio</a>
 							<button type="button" class="button" id="tw-thumb-remove">Remove thumbnail</button>
 						</p>
-						<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated files sit in <code>uploads/tubewriter/generated</code> and unused ones are removed after 7 days.</p>
+						<p class="description">Upload to YouTube costs about 50 API units and needs a verified channel for custom thumbnails. Download or Open in Studio if you will upload it yourself instead. Generated cards are kept in your thumbnail library above (free accounts keep a few videos worth; admins are unlimited).</p>
 					</div>
 				</div>
 			</section>
@@ -864,8 +924,8 @@ class TW_Admin {
 						<p id="tw-sched-current" class="tw-current-line"></p>
 						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is not private, so visibility can't be changed here. You can still update the title, description and other details.</p></div>
 						<div id="tw-sched-controls">
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="now"> Publish now</label><br><span class="description">Goes public when you confirm in step 7.</span></p>
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> Schedule it</label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="now"> <span class="tw-choice-copy">Publish now<span class="description">Goes public when you confirm in step 7.</span></span></label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> <span class="tw-choice-copy">Schedule it</span></label></p>
 							<div class="tw-sub" id="tw-sched-set" hidden>
 								<div class="tw-inline">
 									<label for="tw-sched-date">Date</label> <input type="date" id="tw-sched-date">
@@ -873,7 +933,7 @@ class TW_Admin {
 									<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
 								</div>
 							</div>
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> Leave as is</label><br><span class="description">Stays private (or keeps the current schedule). Only the details change.</span></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> <span class="tw-choice-copy">Leave as is<span class="description">Stays private (or keeps the current schedule). Only the details change.</span></span></label></p>
 						</div>
 					</div>
 					<div class="tw-cal uw-calendar tw-editor-calendar">
@@ -951,6 +1011,9 @@ class TW_Admin {
 				<span class="tw-footer-mid">
 					<button type="button" class="button" id="tw-save">Save draft</button>
 					<span id="tw-saved" class="description"></span>
+				</span>
+				<span class="tw-footer-action" id="tw-publish-footer-wrap" hidden>
+					<button type="button" class="button button-primary" id="tw-publish-footer">Publish changes</button>
 				</span>
 				<button type="button" class="button button-primary" id="tw-next">Next &rarr;</button>
 			</div>
@@ -1427,6 +1490,25 @@ class TW_Admin {
 		wp_send_json_success( array( 'id' => $id ) );
 	}
 
+	/** List the current user's AI-generated thumbnail library + usage. */
+	public function ajax_thumb_library() {
+		$this->ajax_guard();
+		wp_send_json_success( TW_Thumb_Library::list_for_user() );
+	}
+
+	/** Delete one item from the generated thumbnail library. */
+	public function ajax_thumb_library_delete() {
+		$this->ajax_guard();
+		$id  = absint( $this->post( 'id' ) );
+		$uid = get_current_user_id();
+		$out = TW_Thumb_Library::delete_owned( $id, $uid );
+		if ( is_wp_error( $out ) ) {
+			$status = (int) ( $out->get_error_data()['status'] ?? 400 );
+			wp_send_json_error( $out->get_error_message(), $status ? $status : 400 );
+		}
+		wp_send_json_success( TW_Thumb_Library::list_for_user( $uid ) );
+	}
+
 	/**
 	 * @param int $id Attachment id.
 	 * @return array{id: int, url: string, thumb: string, edit: string, title: string}
@@ -1497,26 +1579,29 @@ class TW_Admin {
 			wp_send_json_error( $image->get_error_message() );
 		}
 
-		$key       = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $input['video'] );
-		$prev      = TW_Store::get( $key, array() );
-		$prev_file = is_array( $prev ) ? (string) ( $prev['thumb_file'] ?? '' ) : '';
-
 		$saved = $this->store_thumbnail( $input['video'], $image['data'], $image['mime'] );
 		if ( is_wp_error( $saved ) ) {
 			wp_send_json_error( $saved->get_error_message() );
 		}
 
-		if ( $prev_file && $prev_file !== $saved['file'] ) {
-			self::delete_generated_thumb_file( $prev_file );
+		$registered = TW_Thumb_Library::register_generated(
+			$saved['file'],
+			$saved['url'],
+			$input['video'],
+			$image['mime']
+		);
+		if ( is_wp_error( $registered ) ) {
+			self::delete_generated_thumb_file( $saved['file'] );
+			wp_send_json_error( $registered->get_error_message() );
 		}
 
 		$this->save_state(
 			$input['video'],
 			array(
 				'thumb_description'   => $description,
-				'thumb_url'           => $saved['url'],
-				'thumb_file'          => $saved['file'],
-				'thumb_attachment_id' => 0,
+				'thumb_url'           => $registered['url'],
+				'thumb_file'          => $registered['file'],
+				'thumb_attachment_id' => (int) $registered['id'],
 				'thumb_generated'     => 1,
 				'thumb_uploaded'      => 0,
 				'thumb_yt_url'        => '',
@@ -1524,11 +1609,13 @@ class TW_Admin {
 		);
 
 		$payload = array(
-			'url'             => $saved['url'],
+			'url'             => $registered['url'],
+			'id'              => (int) $registered['id'],
 			'mime'            => $image['mime'],
 			'description'     => $description,
 			'thumb_generated' => 1,
 			'quota'           => TW_YouTube::quota_used(),
+			'library'         => TW_Thumb_Library::list_for_user(),
 		);
 		$usage = TW_AI::last_usage();
 		if ( $usage ) {
@@ -1667,9 +1754,12 @@ class TW_Admin {
 		$key       = 'state_' . preg_replace( '/[^A-Za-z0-9_-]/', '', $video_id );
 		$prev      = TW_Store::get( $key, array() );
 		$prev_file = is_array( $prev ) ? (string) ( $prev['thumb_file'] ?? '' ) : '';
-		if ( $prev_file && wp_normalize_path( $prev_file ) !== $file ) {
+		// Keep prior AI generations in the library; only prune loose orphan files.
+		if ( $prev_file && wp_normalize_path( $prev_file ) !== $file && ! TW_Thumb_Library::file_is_library( $prev_file ) ) {
 			self::delete_generated_thumb_file( $prev_file );
 		}
+
+		$from_library = ( 'generated' === (string) get_post_meta( $att_id, TW_Thumb_Library::META, true ) );
 
 		$this->save_state(
 			$video_id,
@@ -1677,7 +1767,7 @@ class TW_Admin {
 				'thumb_url'           => $url,
 				'thumb_file'          => $file,
 				'thumb_attachment_id' => $att_id,
-				'thumb_generated'     => 0,
+				'thumb_generated'     => $from_library ? 1 : 0,
 				'thumb_uploaded'      => 0,
 				'thumb_yt_url'        => '',
 			)
@@ -1879,7 +1969,13 @@ class TW_Admin {
 				'pushed'     => time(),
 			)
 		);
+		// videos.list can lag videos.update for privacyStatus (same as thumbs).
+		// Refresh metadata, then seed visibility from what we just wrote.
 		TW_Index::refresh_one( $input['video'] );
+		if ( ! empty( $result['wrote'] ) ) {
+			$sched = (array) ( $result['schedule'] ?? array() );
+			TW_Index::apply_visibility( $input['video'], $sched['mode'] ?? 'keep', $sched['at'] ?? '' );
+		}
 		TW_Index::set_tw_status( $input['video'], 'pushed' );
 		$result['history'] = TW_History::summary( $input['video'] );
 		wp_send_json_success( $result );
@@ -1905,6 +2001,10 @@ class TW_Admin {
 		}
 		TW_Rate_Limit::hit( 'restore', $video, $rl_opts );
 		TW_Index::refresh_one( $video );
+		if ( ! empty( $result['wrote'] ) ) {
+			$sched = (array) ( $result['schedule'] ?? array() );
+			TW_Index::apply_visibility( $video, $sched['mode'] ?? 'keep', $sched['at'] ?? '' );
+		}
 		$result['history'] = TW_History::summary( $video );
 		wp_send_json_success( $result );
 	}
@@ -2300,9 +2400,10 @@ class TW_Admin {
 			return;
 		}
 
-		$keep   = self::referenced_thumb_files();
-		$cutoff = time() - ( 7 * DAY_IN_SECONDS );
-		$files  = glob( $dir . '/tw-thumb-*.*' );
+		$keep    = self::referenced_thumb_files();
+		$library = TW_Thumb_Library::library_files();
+		$cutoff  = time() - ( 7 * DAY_IN_SECONDS );
+		$files   = glob( $dir . '/tw-thumb-*.*' );
 		if ( ! is_array( $files ) ) {
 			return;
 		}
@@ -2312,7 +2413,7 @@ class TW_Admin {
 				continue;
 			}
 			$norm = wp_normalize_path( $file );
-			if ( isset( $keep[ $norm ] ) ) {
+			if ( isset( $keep[ $norm ] ) || isset( $library[ $norm ] ) ) {
 				continue;
 			}
 			$mtime = @filemtime( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2364,27 +2465,15 @@ class TW_Admin {
 		}
 	}
 
-	/** Google sign-in steps. The paste box is how a Desktop OAuth client finishes. */
+	/** Google Web OAuth connect control (same-window redirect to /tubewriter/oauth/). */
 	private function reconnect_steps( $button_label ) {
 		?>
-		<ol class="tw-steps">
-			<li>
-				<a class="button button-primary" target="_blank" rel="noopener" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
-				opens Google in a new tab. Pick the account that owns the channel and allow access.
-				If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to UploadWriter (unsafe)</strong>.
-				<p class="description">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
-			</li>
-			<li>Google then opens a <strong>This site can't be reached</strong> page at 127.0.0.1. That is expected. Copy the entire address from the address bar.</li>
-			<li>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline-form">
-					<?php wp_nonce_field( 'tw_complete' ); ?>
-					<input type="hidden" name="action" value="tw_complete">
-					<input type="text" name="tw_pasted" class="large-text code" placeholder="http://127.0.0.1:8765/?state=...&amp;code=..." required>
-					<button class="button button-primary">Finish connecting</button>
-				</form>
-			</li>
-		</ol>
-		<p class="description">This signs UploadWriter into YouTube. It does not fix a busy Gemini or ChatGPT model. A Google Cloud project left in <strong>Testing</strong> makes you do this about every 7 days. To stop that, open Google Auth Platform, go to Audience, and click <strong>Publish app</strong>.</p>
+		<p>
+			<a class="button button-primary" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_connect' ), 'tw_connect' ) ); ?>"><?php echo esc_html( $button_label ); ?></a>
+		</p>
+		<p class="description">You will approve access on Google, then return to <code><?php echo esc_html( home_url( '/tubewriter/oauth/' ) ); ?></code>. If Google says the app is not verified, click <strong>Advanced</strong>, then <strong>Go to UploadWriter (unsafe)</strong>.</p>
+		<p class="description">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
+		<p class="description">A Google Cloud project left in <strong>Testing</strong> expires refresh tokens about every 7 days. Publish the app under Google Auth Platform → Audience to stop that.</p>
 		<?php
 	}
 

@@ -2456,20 +2456,23 @@ body.tw-app--schedule .tw-cal-dow-short { display: none; }
 body.tw-app .tw-editor-shell .tw-sched-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 24px; }
 body.tw-app .tw-editor-shell .tw-sched-side { width: 100%; padding: 20px; background: var(--uw-workspace-surface); border-color: var(--tw-line); box-shadow: none; }
 body.tw-app #tw-sched-controls { display: flex; flex-wrap: wrap; gap: 14px; }
-body.tw-app #tw-sched-controls > p { flex: 1 1 240px; margin: 0; padding: 16px; border: 1px solid var(--tw-line); border-radius: 8px; background: var(--uw-workspace-subtle); }
+body.tw-app #tw-sched-controls > p { flex: 1 1 240px; margin: 0; padding: 0; border: 1px solid var(--tw-line); border-radius: 8px; background: var(--uw-workspace-subtle); }
 body.tw-app #tw-sched-controls > p:has(input:checked) { background: var(--uw-primary-soft); border-color: var(--uw-primary); }
-body.tw-app #tw-sched-controls > p > br { display: none; }
-body.tw-app #tw-sched-controls .tw-radio { display: flex; gap: 10px; align-items: center; margin: 0 0 6px; font-size: 1rem; font-weight: 700; color: var(--tw-ink); }
-body.tw-app #tw-sched-controls .description { display: block; color: var(--tw-muted); font-size: 1rem; line-height: 1.6; }
-body.tw-app #tw-sched-controls input[type=radio] { accent-color: var(--uw-primary); flex-shrink: 0; }
+body.tw-app #tw-sched-controls .tw-radio { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 16px; width: 100%; height: 100%; box-sizing: border-box; cursor: pointer; font-size: 1rem; font-weight: 700; color: var(--tw-ink); }
+body.tw-app #tw-sched-controls .tw-choice-copy { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+body.tw-app #tw-sched-controls .description { display: block; color: var(--tw-muted); font-size: 1rem; font-weight: 400; line-height: 1.6; }
+body.tw-app #tw-sched-controls input[type=radio] { accent-color: var(--uw-primary); flex-shrink: 0; margin-top: 3px; }
 body.tw-app #tw-sched-set { order: 4; flex-basis: 100%; margin: 0; padding: 16px; background: var(--uw-workspace-bar); border: 1px solid var(--tw-line); border-radius: 8px; }
 body.tw-app #tw-sched-set .tw-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 body.tw-app .tw-editor-shell #tw-sched-current { background: var(--uw-workspace-bar); color: var(--uw-workspace-heading); border-color: var(--tw-line); }
 body.tw-app .tw-editor-shell .uw-calendar { width: 100%; min-width: 0; padding: 18px; background: var(--uw-workspace-surface); border-color: var(--tw-line); box-shadow: var(--uw-workspace-shadow); overflow: visible; }
 body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-prev,#tw-cal-next) { color: var(--uw-workspace-surface); background: var(--uw-workspace-control); border: 1px solid var(--uw-workspace-control-line); box-shadow: none; min-width: 48px; min-height: 48px; border-radius: 6px; }
 body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-prev,#tw-cal-next):hover { background: var(--uw-workspace-control-hover); }
-body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-next-open,#tw-cal-refresh) { color: var(--uw-workspace-heading); background: var(--uw-workspace-surface); border: 1px solid var(--uw-workspace-surface); padding: 10px 16px; border-radius: 6px; font-size: 1rem; min-height: 48px; text-decoration: none; }
-body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-next-open,#tw-cal-refresh):hover { background: var(--uw-workspace-hover); }
+body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-next-open,#tw-cal-refresh) { padding: 10px 16px; border-radius: 6px; font-size: 1rem; font-weight: 650; min-height: 48px; text-decoration: none; }
+body.tw-app .uw-calendar .tw-cal-head #tw-cal-next-open { color: var(--uw-workspace-surface); background: var(--uw-primary); border: 1px solid var(--uw-primary); }
+body.tw-app .uw-calendar .tw-cal-head #tw-cal-next-open:hover { background: var(--uw-primary-deep); border-color: var(--uw-primary-deep); }
+body.tw-app .uw-calendar .tw-cal-head #tw-cal-refresh { color: var(--uw-workspace-heading); background: var(--uw-workspace-surface); border: 1px solid var(--uw-workspace-surface); }
+body.tw-app .uw-calendar .tw-cal-head #tw-cal-refresh:hover { background: var(--uw-workspace-hover); }
 body.tw-app .tw-editor-calendar-hint { color: var(--tw-muted); font-size: 1rem; line-height: 1.6; margin: 0 0 16px; }
 body.tw-app .tw-calendar-scroll { max-width: 100%; overflow-x: auto; padding: 4px; }
 body.tw-app .tw-editor-calendar .tw-cal-grid { min-width: 1050px; }

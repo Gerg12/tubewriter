@@ -118,6 +118,7 @@ class TW_Settings {
 	);
 
 	const CRON_CLEANUP_THUMBS = 'tw_cleanup_generated_thumbs';
+	const CRON_CLEANUP_YT     = 'tw_cleanup_disconnected_youtube';
 
 	public static function activate() {
 		if ( false === get_option( 'tw_prompt', false ) ) {
@@ -145,6 +146,7 @@ class TW_Settings {
 			add_option( 'tw_image_provider', TW_DEFAULT_IMAGE_PROVIDER, '', false );
 		}
 		self::schedule_thumb_cleanup();
+		self::schedule_youtube_cache_cleanup();
 	}
 
 	/** Schedule daily orphan generated-thumbnail cleanup. */
@@ -154,12 +156,21 @@ class TW_Settings {
 		}
 	}
 
+	/** Schedule daily purge of YouTube API cache for long-disconnected accounts. */
+	public static function schedule_youtube_cache_cleanup() {
+		if ( ! wp_next_scheduled( self::CRON_CLEANUP_YT ) ) {
+			wp_schedule_event( time() + HOUR_IN_SECONDS, 'daily', self::CRON_CLEANUP_YT );
+		}
+	}
+
 	/** Clear scheduled cleanup on deactivate. */
 	public static function deactivate() {
-		$ts = wp_next_scheduled( self::CRON_CLEANUP_THUMBS );
-		while ( $ts ) {
-			wp_unschedule_event( $ts, self::CRON_CLEANUP_THUMBS );
-			$ts = wp_next_scheduled( self::CRON_CLEANUP_THUMBS );
+		foreach ( array( self::CRON_CLEANUP_THUMBS, self::CRON_CLEANUP_YT ) as $hook ) {
+			$ts = wp_next_scheduled( $hook );
+			while ( $ts ) {
+				wp_unschedule_event( $ts, $hook );
+				$ts = wp_next_scheduled( $hook );
+			}
 		}
 	}
 
@@ -183,23 +194,34 @@ class TW_Settings {
 	}
 
 	/**
-	 * Move sites still on chronically overloaded lite text models onto gemini-3.8-flash.
-	 * Runs once per flag. Leaves non-lite custom models alone.
+	 * Keep the Gemini text model on a quieter ID. 3.8-flash and *-latest have been
+	 * returning industry-wide 503 spikes; 3.6-flash is the current default.
+	 * Runs once per flag.
 	 */
 	public static function maybe_upgrade_gemini_model() {
-		if ( get_option( 'tw_gemini_model_v3', false ) ) {
+		if ( get_option( 'tw_gemini_model_v4', false ) ) {
 			return;
 		}
 		$current = strtolower( trim( (string) get_option( 'tw_model', '' ) ) );
-		$lite    = (
+		$move    = (
 			'' === $current
 			|| false !== strpos( $current, 'lite' )
-			|| in_array( $current, array( 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite' ), true )
+			|| in_array(
+				$current,
+				array(
+					'gemini-3.8-flash',
+					'gemini-flash-latest',
+					'gemini-3.5-flash-lite',
+					'gemini-flash-lite-latest',
+					'gemini-2.5-flash-lite',
+				),
+				true
+			)
 		);
-		if ( $lite ) {
+		if ( $move ) {
 			update_option( 'tw_model', TW_DEFAULT_MODEL, false );
 		}
-		update_option( 'tw_gemini_model_v3', 1, false );
+		update_option( 'tw_gemini_model_v4', 1, false );
 	}
 
 	/**
@@ -233,6 +255,14 @@ class TW_Settings {
 			|| (
 				false !== strpos( $brief, 'Exact 16:9. Image 1 full-bleed to the rim when attached.' )
 				&& false === strpos( $brief, 'SAFE ZONE' )
+			)
+			|| (
+				false !== strpos( $brief, 'Target: a polished ChatGPT-style gameplay card' )
+				&& false === strpos( $brief, 'enhanced gameplay screenshot card' )
+			)
+			|| (
+				false !== strpos( $brief, 'SAFE ZONE: headline, logos, and any inset stay at least 150px' )
+				&& false === strpos( $brief, 'Preserve every character in Image 1' )
 			)
 		) ) {
 			update_option( 'tw_thumb_prompt', self::default_thumb_prompt(), false );
@@ -278,6 +308,14 @@ class TW_Settings {
 			|| (
 				false !== strpos( $render, 'You are the thumbnail art director' )
 				&& false === strpos( $render, 'SAFE ZONE' )
+			)
+			|| (
+				false !== strpos( $render, 'LAYERS (this is the whole job)' )
+				&& false === strpos( $render, 'CHARACTERS FROM THE SCREENSHOT' )
+			)
+			|| (
+				false !== strpos( $render, 'PRIMARY RULE' )
+				&& false === strpos( $render, 'Photoshop' )
 			)
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
@@ -472,7 +510,41 @@ class TW_Settings {
 		return $value;
 	}
 
+	/**
+	 * Google OAuth Web client ID. Prefer wp-config constant; fall back to Settings.
+	 * Define UPLOADWRITER_GOOGLE_CLIENT_ID in wp-config.php (do not commit the value).
+	 */
+	public static function google_client_id() {
+		if ( defined( 'UPLOADWRITER_GOOGLE_CLIENT_ID' ) && is_string( UPLOADWRITER_GOOGLE_CLIENT_ID ) && '' !== UPLOADWRITER_GOOGLE_CLIENT_ID ) {
+			return UPLOADWRITER_GOOGLE_CLIENT_ID;
+		}
+		return (string) TW_Store::get( 'client_id', '' );
+	}
+
+	/**
+	 * Google OAuth Web client secret. Prefer wp-config constant; fall back to Settings.
+	 * Define UPLOADWRITER_GOOGLE_CLIENT_SECRET in wp-config.php (do not commit the value).
+	 */
+	public static function google_client_secret() {
+		if ( defined( 'UPLOADWRITER_GOOGLE_CLIENT_SECRET' ) && is_string( UPLOADWRITER_GOOGLE_CLIENT_SECRET ) && '' !== UPLOADWRITER_GOOGLE_CLIENT_SECRET ) {
+			return UPLOADWRITER_GOOGLE_CLIENT_SECRET;
+		}
+		return (string) TW_Store::get( 'client_secret', '' );
+	}
+
+	/** True when client ID/secret come from wp-config constants. */
+	public static function google_credentials_from_config() {
+		return ( defined( 'UPLOADWRITER_GOOGLE_CLIENT_ID' ) && is_string( UPLOADWRITER_GOOGLE_CLIENT_ID ) && '' !== UPLOADWRITER_GOOGLE_CLIENT_ID )
+			&& ( defined( 'UPLOADWRITER_GOOGLE_CLIENT_SECRET' ) && is_string( UPLOADWRITER_GOOGLE_CLIENT_SECRET ) && '' !== UPLOADWRITER_GOOGLE_CLIENT_SECRET );
+	}
+
 	public static function get( $key ) {
+		if ( 'client_id' === $key ) {
+			return self::google_client_id();
+		}
+		if ( 'client_secret' === $key ) {
+			return self::google_client_secret();
+		}
 		$value = TW_Store::get( $key, '' );
 		if ( 'model' === $key && '' === $value ) {
 			return TW_DEFAULT_MODEL;
@@ -531,12 +603,15 @@ class TW_Settings {
 	}
 
 	public static function save_from_post( array $post ) {
-		self::set( 'client_id', sanitize_text_field( wp_unslash( $post['tw_client_id'] ?? '' ) ) );
+		// When credentials live in wp-config, ignore posted Client ID / Secret.
+		if ( ! self::google_credentials_from_config() ) {
+			self::set( 'client_id', sanitize_text_field( wp_unslash( $post['tw_client_id'] ?? '' ) ) );
 
-		// Keep stored secrets when the field is submitted blank (we never echo them back into the form).
-		$secret = sanitize_text_field( wp_unslash( $post['tw_client_secret'] ?? '' ) );
-		if ( '' !== $secret ) {
-			self::set( 'client_secret', $secret );
+			// Keep stored secrets when the field is submitted blank (we never echo them back into the form).
+			$secret = sanitize_text_field( wp_unslash( $post['tw_client_secret'] ?? '' ) );
+			if ( '' !== $secret ) {
+				self::set( 'client_secret', $secret );
+			}
 		}
 		$gemini = sanitize_text_field( wp_unslash( $post['tw_gemini_key'] ?? '' ) );
 		if ( '' !== $gemini ) {

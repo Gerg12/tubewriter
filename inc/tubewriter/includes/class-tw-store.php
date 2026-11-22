@@ -4,9 +4,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Options vs per-user meta. Secrets are encrypted when stored for a user.
+ * Options vs per-user meta. Secrets and OAuth tokens are encrypted at rest.
  * Google OAuth client_id / client_secret always stay site-level so one Cloud
- * project can serve every account on the front end.
+ * project can serve every account on the front end (or come from wp-config).
  */
 class TW_Store {
 
@@ -23,7 +23,16 @@ class TW_Store {
 		$key = (string) $key;
 		if ( in_array( $key, self::SITE_ONLY, true ) || ! TW_Context::is_user() ) {
 			$value = get_option( 'tw_' . $key, $default );
-			return ( false === $value || null === $value ) ? $default : $value;
+			if ( false === $value || null === $value ) {
+				return $default;
+			}
+			if ( 'tokens' === $key || in_array( $key, self::SECRETS, true ) ) {
+				$value = TW_Crypto::decrypt( $value );
+				if ( ( 'tokens' === $key && ! is_array( $value ) ) || ( 'tokens' !== $key && '' === $value ) ) {
+					return $default;
+				}
+			}
+			return $value;
 		}
 
 		$value = get_user_meta( TW_Context::user_id(), 'tw_' . $key, true );
@@ -42,15 +51,17 @@ class TW_Store {
 	 */
 	public static function set( $key, $value ) {
 		$key = (string) $key;
+		$store = $value;
+		if ( 'tokens' === $key || in_array( $key, self::SECRETS, true ) ) {
+			$store = TW_Crypto::encrypt( $value );
+		}
+
 		if ( in_array( $key, self::SITE_ONLY, true ) || ! TW_Context::is_user() ) {
-			update_option( 'tw_' . $key, $value, false );
+			update_option( 'tw_' . $key, $store, false );
 			return;
 		}
 
-		if ( 'tokens' === $key || in_array( $key, self::SECRETS, true ) ) {
-			$value = TW_Crypto::encrypt( $value );
-		}
-		update_user_meta( TW_Context::user_id(), 'tw_' . $key, $value );
+		update_user_meta( TW_Context::user_id(), 'tw_' . $key, $store );
 	}
 
 	/**

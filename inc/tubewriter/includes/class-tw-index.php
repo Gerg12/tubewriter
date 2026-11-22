@@ -32,6 +32,26 @@ class TW_Index {
 		return TW_Context::user_id();
 	}
 
+	/**
+	 * Delete all indexed videos (and local thumb files) for one account.
+	 * Used after YouTube disconnect / scheduled privacy cleanup.
+	 *
+	 * @param int $user_id 0 = site admin index.
+	 */
+	public static function purge_user( $user_id = 0 ) {
+		global $wpdb;
+		$user_id = max( 0, (int) $user_id );
+		$table   = self::table();
+		$ids     = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . $table . ' WHERE user_id = %d', $user_id ) ); // phpcs:ignore
+		$wpdb->delete( $table, array( 'user_id' => $user_id ), array( '%d' ) );
+		foreach ( (array) $ids as $id ) {
+			$paths = self::local_thumb_paths( $id );
+			if ( $paths && file_exists( $paths['file'] ) ) {
+				wp_delete_file( $paths['file'] );
+			}
+		}
+	}
+
 	public static function maybe_install() {
 		if ( get_option( 'tw_db_version' ) === self::DB_VERSION ) {
 			return;
@@ -143,6 +163,40 @@ class TW_Index {
 		if ( ! is_wp_error( $video ) ) {
 			self::upsert( $video, '', array( 'force_thumb' => (bool) $force_thumb ) );
 		}
+	}
+
+	/**
+	 * Seed visibility after videos.update. videos.list can lag (same pattern as
+	 * thumbnails) and would otherwise keep privacy=draft for a just-public video
+	 * until the next Quick sync.
+	 *
+	 * @param string $video_id
+	 * @param string $mode       now|set|clear|keep
+	 * @param string $publish_at RFC3339 UTC when mode is set.
+	 */
+	public static function apply_visibility( $video_id, $mode, $publish_at = '' ) {
+		global $wpdb;
+		$video_id = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video_id );
+		$mode     = (string) $mode;
+		if ( ! $video_id || 'keep' === $mode || '' === $mode ) {
+			return;
+		}
+
+		$row = array( 'synced_at' => time() );
+		if ( 'now' === $mode ) {
+			$row['privacy']    = 'public';
+			$row['publish_at'] = null;
+		} elseif ( 'set' === $mode ) {
+			$row['privacy']    = 'private';
+			$row['publish_at'] = $publish_at ? gmdate( 'Y-m-d H:i:s', strtotime( $publish_at ) ) : null;
+		} elseif ( 'clear' === $mode ) {
+			$row['privacy']    = 'draft';
+			$row['publish_at'] = null;
+		} else {
+			return;
+		}
+
+		$wpdb->update( self::table(), $row, array( 'user_id' => self::uid(), 'id' => $video_id ) );
 	}
 
 	/**

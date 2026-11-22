@@ -1555,6 +1555,11 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	line-height: 1.5;
 }
 
+.tw-editor-shell #tw-replace-warn {
+	scroll-margin-top: 88px;
+	scroll-margin-bottom: 96px;
+}
+
 .tw-editor-shell .tw-draft-note-actions {
 	gap: 10px;
 }
@@ -1576,6 +1581,15 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 .tw-editor-shell label.tw-radio {
 	font-weight: 400;
 	font-size: 1rem;
+}
+
+.tw-editor-shell .tw-titles label.tw-title-over {
+	color: var(--tw-danger);
+}
+
+.tw-editor-shell .tw-bad {
+	border-color: var(--tw-danger) !important;
+	box-shadow: 0 0 0 1px var(--tw-danger);
 }
 
 .tw-editor-shell input[type="text"],
@@ -1644,11 +1658,23 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	transition: transform var(--tw-fast), box-shadow var(--tw-fast), background var(--tw-fast), border-color var(--tw-fast);
 }
 
+/* Anchors and real buttons both need full chrome — WP .wp-core-ui rules do not load here. */
 .tw-editor-shell .button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 0 14px;
+	border: 1px solid var(--tw-line-strong);
 	background: var(--tw-panel-strong);
-	border-color: var(--tw-line-strong);
 	color: var(--tw-ink);
 	box-shadow: var(--tw-shadow-sm);
+	line-height: 1.3;
+	white-space: nowrap;
+	text-decoration: none;
+	cursor: pointer;
+	box-sizing: border-box;
+	flex: 0 0 auto;
 }
 
 .tw-editor-shell .button:hover,
@@ -1691,11 +1717,15 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 }
 
 .tw-editor-shell .button-link {
+	display: inline;
+	padding: 0;
 	box-shadow: none;
 	background: transparent;
 	border: 0;
 	color: var(--tw-accent);
 	min-height: 0;
+	white-space: normal;
+	flex: none;
 }
 
 .tw-editor-shell .tw-thumb-zone {
@@ -1719,6 +1749,15 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 .tw-editor-shell .tw-thumb-ref img,
 .tw-editor-shell .tw-thumb-result img {
 	border-radius: 10px;
+}
+
+.tw-editor-shell .tw-thumb-library-usage {
+	color: var(--tw-ink, #1d2327);
+}
+
+.tw-editor-shell .tw-thumb-shot.is-drop-target img {
+	border-color: var(--tw-accent);
+	box-shadow: 0 0 0 2px rgba(15, 122, 108, 0.35);
 }
 
 .tw-editor-shell .tw-tweak {
@@ -1914,25 +1953,44 @@ body.tw-app .tw-sync--indeterminate .tw-sync-progress-bar {
 	font-weight: 600;
 }
 
-.tw-editor-shell .tw-sched-side > p {
+.tw-editor-shell #tw-sched-controls > p {
 	margin: 0 0 10px;
 }
 
-.tw-editor-shell .tw-sched-side > p:has(.tw-radio) {
+.tw-editor-shell #tw-sched-controls > p:has(.tw-radio) {
 	border: 1px solid var(--tw-line);
 	border-radius: 12px;
-	padding: 10px 12px;
+	padding: 0;
 	background: #fff;
 }
 
-.tw-editor-shell .tw-sched-side > p:has(input:checked) {
+.tw-editor-shell #tw-sched-controls > p:has(input:checked) {
 	border-color: rgba(15, 122, 108, 0.45);
 	background: #eefaf6;
 }
 
-.tw-editor-shell .tw-sched-side > p:has(.tw-radio) .description {
+.tw-editor-shell #tw-sched-controls .tw-radio {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	margin: 0;
+	padding: 10px 12px;
+	width: 100%;
+	box-sizing: border-box;
+	cursor: pointer;
+}
+
+.tw-editor-shell #tw-sched-controls .tw-choice-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+	flex: 1;
+}
+
+.tw-editor-shell #tw-sched-controls .description {
 	display: block;
-	margin: 6px 0 0;
+	margin: 0;
 	font-weight: 400;
 	line-height: 1.35;
 }

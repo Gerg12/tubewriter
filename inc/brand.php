@@ -78,16 +78,16 @@ add_action( 'do_faviconico', function () {
 
 function uw_share_metadata() {
     $app = (bool) get_query_var( 'tw_app' );
-    $title = 'UploadWriter — YouTube Creative Workspace';
-    $description = 'Draft sharper YouTube titles, descriptions, chapters, and thumbnails in one workspace. Review before you publish. Your channel. Your keys. Your final say.';
+    $title = 'UploadWriter — AI drafts and a clearer calendar';
+    $description = 'Use your own AI to draft titles, descriptions, and chapters, then plan uploads on one calendar. Review everything before you publish.';
     $url = home_url( '/' );
     if ( ! $app && ! is_front_page() && is_singular() && is_post_publicly_viewable( get_queried_object_id() ) ) {
         $title = get_the_title( get_queried_object_id() ) . ' — UploadWriter.com';
         $url = get_permalink( get_queried_object_id() );
         if ( is_page( 'pricing' ) || is_page_template( 'page-pricing.php' ) ) {
-            $description = 'Explore planned UploadWriter plans for drafting titles, descriptions, chapters, and thumbnails. Compare tools and keep the final say on every upload.';
+            $description = 'Explore planned UploadWriter plans for AI drafting, calendars, and publishing tools. Compare options and keep the final say on every upload.';
         } elseif ( is_page( 'how-it-works' ) ) {
-            $description = 'Create an account, connect YouTube, draft metadata with AI, and publish only after you review. See how UploadWriter fits your upload workflow.';
+            $description = 'Create an account, connect your channel, draft with AI, and plan uploads on one calendar. Publish only after you review.';
         } elseif ( has_excerpt( get_queried_object_id() ) ) {
             $description = wp_trim_words( wp_strip_all_tags( get_the_excerpt( get_queried_object_id() ) ), 35, '…' );
         }
@@ -108,7 +108,7 @@ add_action( 'wp_head', function () {
         'og:type' => 'website', 'og:site_name' => 'UploadWriter.com', 'og:locale' => str_replace( '-', '_', get_bloginfo( 'language' ) ),
         'og:title' => $meta['title'], 'og:description' => $meta['description'], 'og:url' => $meta['url'],
         'og:image' => $image, 'og:image:type' => 'image/png', 'og:image:width' => '1200', 'og:image:height' => '630',
-        'og:image:alt' => 'UploadWriter.com — Great videos. Better words. Your YouTube creative workspace.',
+        'og:image:alt' => 'UploadWriter.com — AI drafts, clearer calendars, and review before you publish.',
     );
     foreach ( $tags as $property => $value ) {
         echo '<meta property="' . esc_attr( $property ) . '" content="' . esc_attr( $value ) . '">' . "\n";
@@ -118,13 +118,21 @@ add_action( 'wp_head', function () {
     }
 }, 6 );
 
+function uw_home_seo_title() {
+    return 'UploadWriter — AI drafts and a clearer calendar';
+}
+
+function uw_home_seo_description() {
+    return 'Use your own AI to draft titles, descriptions, and chapters, then plan uploads on one calendar. Review everything before you publish.';
+}
+
 // Homepage Yoast title/description (posts front page uses these templates).
 add_filter( 'option_wpseo_titles', function ( $opts ) {
     if ( ! is_array( $opts ) ) {
         return $opts;
     }
-    $opts['title-home-wpseo'] = 'UploadWriter — YouTube Creative Workspace';
-    $opts['metadesc-home-wpseo'] = 'Draft sharper YouTube titles, descriptions, chapters, and thumbnails in one workspace. Review before you publish.';
+    $opts['title-home-wpseo'] = uw_home_seo_title();
+    $opts['metadesc-home-wpseo'] = uw_home_seo_description();
     $opts['company_name'] = 'UploadWriter';
     $opts['org-legal-name'] = 'Gregory S Johnson LLC';
     $opts['org-email'] = 'hello@uploadwriter.com';
@@ -137,10 +145,39 @@ add_filter( 'option_wpseo_titles', function ( $opts ) {
     if ( empty( $opts['open_graph_frontpage_image'] ) ) {
         $opts['open_graph_frontpage_image'] = $social;
     }
-    $opts['open_graph_frontpage_title'] = 'UploadWriter — YouTube Creative Workspace';
-    $opts['open_graph_frontpage_desc'] = 'Draft sharper YouTube titles, descriptions, chapters, and thumbnails in one workspace. Review before you publish.';
+    $opts['open_graph_frontpage_title'] = uw_home_seo_title();
+    $opts['open_graph_frontpage_desc'] = uw_home_seo_description();
     return $opts;
 } );
+
+// Static front page stores its own Yoast post meta; override that on the homepage.
+add_filter( 'wpseo_title', function ( $title ) {
+    if ( is_front_page() && ! get_query_var( 'tw_app' ) ) {
+        return uw_home_seo_title();
+    }
+    return $title;
+}, 20 );
+
+add_filter( 'wpseo_metadesc', function ( $desc ) {
+    if ( is_front_page() && ! get_query_var( 'tw_app' ) ) {
+        return uw_home_seo_description();
+    }
+    return $desc;
+}, 20 );
+
+add_filter( 'wpseo_opengraph_title', function ( $title ) {
+    if ( is_front_page() && ! get_query_var( 'tw_app' ) ) {
+        return uw_home_seo_title();
+    }
+    return $title;
+}, 20 );
+
+add_filter( 'wpseo_opengraph_desc', function ( $desc ) {
+    if ( is_front_page() && ! get_query_var( 'tw_app' ) ) {
+        return uw_home_seo_description();
+    }
+    return $desc;
+}, 20 );
 
 add_filter( 'option_wpseo_social', function ( $opts ) {
     if ( ! is_array( $opts ) ) {
@@ -154,10 +191,10 @@ add_filter( 'option_wpseo_social', function ( $opts ) {
         $opts['og_frontpage_image'] = $social;
     }
     if ( empty( $opts['og_frontpage_title'] ) ) {
-        $opts['og_frontpage_title'] = 'UploadWriter — YouTube Creative Workspace';
+        $opts['og_frontpage_title'] = uw_home_seo_title();
     }
     if ( empty( $opts['og_frontpage_desc'] ) ) {
-        $opts['og_frontpage_desc'] = 'Draft sharper YouTube titles, descriptions, chapters, and thumbnails in one workspace. Review before you publish.';
+        $opts['og_frontpage_desc'] = uw_home_seo_description();
     }
     return $opts;
 } );

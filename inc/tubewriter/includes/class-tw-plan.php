@@ -234,6 +234,7 @@ class TW_Plan {
 
 		$results = array();
 		$ok      = true;
+		$wrote   = false;
 
 		// 2. Video details and schedule.
 		$write = TW_YouTube::write_video( $video, $plan['details'], $plan['schedule']['mode'], $plan['schedule']['at'] );
@@ -241,6 +242,7 @@ class TW_Plan {
 			$results[] = array( 'ok' => false, 'text' => 'Video details NOT updated: ' . $write->get_error_message() );
 			$ok        = false;
 		} else {
+			$wrote     = true;
 			$results[] = array( 'ok' => true, 'text' => 'Title, description, tags, category and language updated' );
 			if ( 'now' === $plan['schedule']['mode'] ) {
 				$results[] = array( 'ok' => true, 'text' => 'Made public on YouTube' );
@@ -278,10 +280,12 @@ class TW_Plan {
 		TW_History::finish( $video_id, $backup, $results, $ok ? 'done' : 'partial' );
 
 		return array(
-			'ok'      => $ok,
-			'results' => $results,
-			'backup'  => $backup,
-			'message' => $ok ? 'Published. A backup of the old details was saved first.' : 'Some steps failed. See below. A backup of the old details was saved first.',
+			'ok'       => $ok,
+			'wrote'    => $wrote,
+			'schedule' => $plan['schedule'],
+			'results'  => $results,
+			'backup'   => $backup,
+			'message'  => $ok ? 'Published. A backup of the old details was saved first.' : 'Some steps failed. See below. A backup of the old details was saved first.',
 		);
 	}
 
@@ -346,7 +350,8 @@ class TW_Plan {
 
 		$write   = TW_YouTube::write_video( $video, $details, $schedule, $at );
 		$results = array();
-		if ( is_wp_error( $write ) ) {
+		$wrote   = ! is_wp_error( $write );
+		if ( ! $wrote ) {
 			$results[] = array( 'ok' => false, 'text' => 'Restore failed: ' . $write->get_error_message() );
 		} else {
 			$results[] = array( 'ok' => true, 'text' => 'Restored the version from ' . wp_date( 'M j g:ia', $entry['time'] ) );
@@ -355,8 +360,17 @@ class TW_Plan {
 			$results[] = array( 'ok' => true, 'text' => $n );
 		}
 		$results[] = array( 'ok' => true, 'text' => 'Playlists were not touched. Remove the video from a playlist in Studio if needed.' );
-		TW_History::finish( $video_id, $backup, $results, is_wp_error( $write ) ? 'failed' : 'done' );
+		TW_History::finish( $video_id, $backup, $results, $wrote ? 'done' : 'failed' );
 
-		return array( 'ok' => ! is_wp_error( $write ), 'results' => $results, 'backup' => $backup );
+		return array(
+			'ok'       => $wrote,
+			'wrote'    => $wrote,
+			'schedule' => array(
+				'mode' => $schedule,
+				'at'   => $at,
+			),
+			'results'  => $results,
+			'backup'   => $backup,
+		);
 	}
 }

@@ -21,7 +21,7 @@ window.TWAjax = window.TWAjax || {
 			}
 			window.TWToast(bits.join('. ') + '.', 'info');
 		}
-		if (typeof data.quota === 'number') {
+		if (typeof data.quota === 'number' && TW && Number(TW.showQuota)) {
 			var nodes = document.querySelectorAll('.tw-quota');
 			nodes.forEach(function (n) {
 				n.textContent = 'YouTube API today: about ' + data.quota.toLocaleString() + ' / 10,000 units';
@@ -180,10 +180,12 @@ window.TWAjax = window.TWAjax || {
 					return;
 				}
 				if (d.done) {
-					status.textContent = 'Finishing: checking for drafts and scheduled uploads not in the uploads playlist… API today: about ' + d.quota + ' units.';
+					status.textContent = 'Finishing: checking for drafts and scheduled uploads not in the uploads playlist…'
+						+ (TW && Number(TW.showQuota) && typeof d.quota === 'number' ? ' API today: about ' + d.quota + ' units.' : '');
 					setProgress(channelTotal, channelTotal);
 				} else {
-					status.textContent = 'Syncing… ' + done + (channelTotal ? ' of about ' + channelTotal : '') + ' videos so far. API today: about ' + d.quota + ' units.';
+					status.textContent = 'Syncing… ' + done + (channelTotal ? ' of about ' + channelTotal : '') + ' videos so far.'
+						+ (TW && Number(TW.showQuota) && typeof d.quota === 'number' ? ' API today: about ' + d.quota + ' units.' : '');
 					setProgress(done, channelTotal);
 				}
 				if (!d.done) {
@@ -251,6 +253,8 @@ window.TWAjax = window.TWAjax || {
 		published: false,    // true after a successful step-7 publish this session
 		shots: [],           // up to 2 pasted screenshots {mime, data, url}
 		refs: [],            // pasted thumbs saved in the Media Library
+		library: [],         // AI-generated thumbs kept for reuse
+		libraryUsage: (TW.thumbLibrary || null),
 		logos: { game: { id: 0, url: '', pos: 'upper-right' }, channel: { id: 0, url: '', pos: 'lower-left' } },
 		undoPkg: null        // draft from before the last Generate, for Undo
 	};
@@ -264,7 +268,7 @@ window.TWAjax = window.TWAjax || {
 		tags: $('tw-tags'), hashtags: $('tw-hashtags'),
 		tagCount: $('tw-tag-count'), hashtagCount: $('tw-hashtag-count'),
 		category: $('tw-category'), language: $('tw-language'),
-		preview: $('tw-preview'), descCount: $('tw-desc-count'),
+		preview: $('tw-preview'), titleCount: $('tw-title-count'), descCount: $('tw-desc-count'),
 		searchPreview: $('tw-search-preview'), tweak: $('tw-tweak'),
 		thumbZone: $('tw-thumb-zone'), thumbShots: $('tw-thumb-shots'),
 		thumbDesc: $('tw-thumb-desc'), thumbResult: $('tw-thumb-result'),
@@ -274,7 +278,9 @@ window.TWAjax = window.TWAjax || {
 		plDesc: $('tw-pl-desc'), plPrivacy: $('tw-pl-privacy'),
 		schedDate: $('tw-sched-date'), schedTime: $('tw-sched-time'),
 		review: $('tw-review'), actions: $('tw-actions'), ack: $('tw-ack'),
-		publish: $('tw-publish'), results: $('tw-results'), history: $('tw-history-list'),
+		publish: $('tw-publish'), publishFooter: $('tw-publish-footer'),
+		publishFooterWrap: $('tw-publish-footer-wrap'),
+		results: $('tw-results'), history: $('tw-history-list'),
 		back: $('tw-back'), next: $('tw-next'), savedAt: $('tw-saved')
 	};
 
@@ -341,7 +347,7 @@ window.TWAjax = window.TWAjax || {
 		tip.className = 'tw-action-tip tw-action-tip--' + (kind || 'info');
 		tip.setAttribute('role', 'status');
 		tip.textContent = text;
-		var host = anchor.closest('.tw-actions-left, .tw-actions, .tw-footer-mid, .tw-inline, .tw-pull-wrap, p') || anchor.parentNode;
+		var host = anchor.closest('.tw-actions-left, .tw-actions, .tw-footer-mid, .tw-footer-action, .tw-inline, .tw-pull-wrap, p') || anchor.parentNode;
 		host.insertAdjacentElement('afterend', tip);
 		return tip;
 	}
@@ -445,7 +451,11 @@ window.TWAjax = window.TWAjax || {
 
 	function fillDetails(pkg) {
 		S.titles = pkg.titles || [];
-		el.title.value = pkg.title || '';
+		var chosen = pkg.title || '';
+		if (titleLen(chosen) > 100) {
+			chosen = Array.from(chosen).slice(0, 100).join('');
+		}
+		el.title.value = chosen;
 		el.body.value = pkg.body || '';
 		el.heading.value = pkg.chapters_heading || '';
 		el.chapters.value = Array.isArray(pkg.chapters)
@@ -481,16 +491,34 @@ window.TWAjax = window.TWAjax || {
 		toggleSchedule();
 	}
 
+	/** Keep POSTs under nginx body limits (thumb calls also carry base64 shots). */
+	function clipField(s, max) {
+		s = String(s || '');
+		if (s.length <= max) {
+			return s;
+		}
+		return s.slice(0, max) + '\n\n[truncated for request size]';
+	}
+
 	function call(action, extra) {
 		var data = new FormData();
+		var transcript = el.transcript.value;
+		var seedDesc = el.seedDesc.value;
+		var notes = el.notes.value;
+		// Thumbnail AJAX often ships screenshots; a full caption track alone can exceed nginx.
+		if (String(action).indexOf('thumb_') === 0) {
+			transcript = clipField(transcript, 32000);
+			seedDesc = clipField(seedDesc, 8000);
+			notes = clipField(notes, 4000);
+		}
 		data.append('action', 'tw_' + action);
 		data.append('nonce', TW.nonce);
 		data.append('video', boot.videoId);
 		data.append('duration', boot.duration || 0);
 		data.append('current_title', el.seedTitle.value);
-		data.append('current_description', el.seedDesc.value);
-		data.append('transcript', el.transcript.value);
-		data.append('notes', el.notes.value);
+		data.append('current_description', seedDesc);
+		data.append('transcript', transcript);
+		data.append('notes', notes);
 		Object.keys(extra || {}).forEach(function (k) { data.append(k, extra[k]); });
 		TWAjax.stamp(data);
 
@@ -500,6 +528,9 @@ window.TWAjax = window.TWAjax || {
 					try {
 						return JSON.parse(txt);
 					} catch (e) {
+						if (r.status === 413) {
+							throw new Error('Request too large for the server (HTTP 413). The transcript or screenshots blew past the nginx upload limit. Try again after this update, or raise client_max_body_size.');
+						}
 						throw new Error('Server error (HTTP ' + r.status + '). Check debug.log. ' + txt.slice(0, 200));
 					}
 				});
@@ -627,6 +658,7 @@ window.TWAjax = window.TWAjax || {
 			el.next.textContent = 'Next →';
 			el.next.disabled = S.step === 1 ? false : !canGo(S.step + 1);
 		}
+		syncPublishButtons();
 	}
 
 	function goBackToVideos() {
@@ -714,7 +746,7 @@ window.TWAjax = window.TWAjax || {
 			el.review.innerHTML = '';
 		}
 		el.ack.checked = false;
-		el.publish.disabled = true;
+		syncPublishButtons();
 		updateNav();
 	}
 	function ignoresStale(target) {
@@ -876,11 +908,15 @@ window.TWAjax = window.TWAjax || {
 			note.hidden = !on;
 			if (on) {
 				clearTip();
-				softReveal(note);
 				var go = $('tw-replace-go');
 				if (go) {
-					go.focus();
+					go.focus({ preventScroll: true });
 				}
+				/* Always bring the warning into view — softReveal can skip when
+				   it peeks under the sticky footer, so users miss why Generate stopped. */
+				requestAnimationFrame(function () {
+					note.scrollIntoView({ block: 'center', behavior: 'smooth' });
+				});
 			} else {
 				clearTip();
 			}
@@ -1055,20 +1091,29 @@ window.TWAjax = window.TWAjax || {
 
 	/* ================================================================ step 2 */
 
+	function titleLen(str) {
+		/* Match PHP mb_strlen / YouTube's 100-character title limit. */
+		return Array.from(String(str || '')).length;
+	}
+
 	function renderTitles() {
 		el.titles.innerHTML = '';
 		S.titles.forEach(function (t) {
 			var label = document.createElement('label');
+			var over = titleLen(t) > 100;
+			if (over) {
+				label.className = 'tw-title-over';
+			}
 			var r = document.createElement('input');
 			r.type = 'radio';
 			r.name = 'tw-title-pick';
 			r.checked = t === el.title.value;
 			r.addEventListener('change', function () {
-				el.title.value = t;
+				el.title.value = titleLen(t) > 100 ? Array.from(t).slice(0, 100).join('') : t;
 				refreshCounts();
 			});
 			label.appendChild(r);
-			label.appendChild(document.createTextNode(' ' + t));
+			label.appendChild(document.createTextNode(' ' + t + (over ? ' (' + titleLen(t) + '/100)' : '')));
 			el.titles.appendChild(label);
 		});
 	}
@@ -1110,6 +1155,18 @@ window.TWAjax = window.TWAjax || {
 	}
 
 	function refreshCounts() {
+		/* Title: 100 characters. Independent of the description byte budget. */
+		var t = titleLen(el.title.value);
+		if (el.titleCount) {
+			el.titleCount.textContent = t + ' / 100';
+			el.titleCount.classList.toggle('tw-warn', t > 90 && t <= 100);
+			el.titleCount.classList.toggle('tw-over', t > 100);
+		}
+		if (el.title) {
+			el.title.classList.toggle('tw-bad', t > 100);
+		}
+
+		/* Description: assembled body + chapters + hashtags, YouTube's 5000-byte cap. */
 		var desc = assemble();
 		if (el.preview) {
 			el.preview.textContent = desc;
@@ -1119,6 +1176,9 @@ window.TWAjax = window.TWAjax || {
 			el.descCount.textContent = b + ' / 5000';
 			el.descCount.classList.toggle('tw-warn', b > 4500 && b <= 5000);
 			el.descCount.classList.toggle('tw-over', b > 5000);
+		}
+		if (el.body) {
+			el.body.classList.toggle('tw-bad', b > 5000);
 		}
 
 		if (el.searchPreview) {
@@ -1145,13 +1205,6 @@ window.TWAjax = window.TWAjax || {
 			el.hashtagCount.classList.toggle('tw-over', false);
 		}
 
-		document.querySelectorAll('.tw-count[data-for]').forEach(function (p) {
-			var field = $(p.getAttribute('data-for'));
-			var max = parseInt(p.getAttribute('data-max'), 10);
-			var n = field.value.length;
-			p.textContent = n + ' / ' + max;
-			p.classList.toggle('tw-over', n > max);
-		});
 		var first = el.chapters.value.trim().split('\n')[0] || '';
 		el.chapters.classList.toggle('tw-bad', !!el.chapters.value.trim() && !/^0?0:00(\s|$)/.test(first));
 	}
@@ -1185,6 +1238,18 @@ window.TWAjax = window.TWAjax || {
 		});
 	}
 
+	function reorderShots(from, to) {
+		from = parseInt(from, 10);
+		to = parseInt(to, 10);
+		if (!S.shots.length || from === to || from < 0 || to < 0 || from >= S.shots.length || to >= S.shots.length) {
+			return;
+		}
+		var moved = S.shots.splice(from, 1)[0];
+		S.shots.splice(to, 0, moved);
+		renderShots();
+		say('Swapped. First image is background, second is picture-in-picture.', 'success');
+	}
+
 	function renderShots() {
 		if (!el.thumbShots) {
 			return;
@@ -1192,10 +1257,12 @@ window.TWAjax = window.TWAjax || {
 		el.thumbShots.innerHTML = '';
 		S.shots.forEach(function (shot, i) {
 			var card = document.createElement('div');
-			card.className = 'tw-thumb-shot';
+			card.className = 'tw-thumb-shot' + (S.shots.length > 1 ? ' is-draggable' : '');
+			card.dataset.index = String(i);
 			var img = document.createElement('img');
 			img.src = shot.url;
 			img.alt = i === 0 ? 'Screenshot 1, main background' : 'Screenshot 2, picture-in-picture';
+			img.draggable = false;
 			var role = document.createElement('p');
 			role.className = 'description tw-thumb-shot-role';
 			role.textContent = i === 0 ? '1. Main background' : '2. Picture-in-picture';
@@ -1208,6 +1275,53 @@ window.TWAjax = window.TWAjax || {
 				S.shots.splice(i, 1);
 				renderShots();
 			});
+			if (S.shots.length > 1) {
+				card.draggable = true;
+				card.setAttribute('title', 'Drag to swap background and picture-in-picture');
+				card.addEventListener('dragstart', function (e) {
+					e.stopPropagation();
+					e.dataTransfer.effectAllowed = 'move';
+					e.dataTransfer.setData('application/x-tw-shot-index', String(i));
+					e.dataTransfer.setData('text/plain', 'tw-shot:' + i);
+					card.classList.add('is-dragging');
+					if (el.thumbZone) {
+						el.thumbZone.classList.add('is-reordering');
+					}
+				});
+				card.addEventListener('dragend', function () {
+					card.classList.remove('is-dragging');
+					if (el.thumbZone) {
+						el.thumbZone.classList.remove('is-reordering', 'is-drag');
+					}
+					Array.prototype.forEach.call(el.thumbShots.querySelectorAll('.tw-thumb-shot'), function (node) {
+						node.classList.remove('is-drop-target');
+					});
+				});
+				card.addEventListener('dragover', function (e) {
+					if (!el.thumbZone || !el.thumbZone.classList.contains('is-reordering')) {
+						return;
+					}
+					e.preventDefault();
+					e.stopPropagation();
+					e.dataTransfer.dropEffect = 'move';
+					card.classList.add('is-drop-target');
+				});
+				card.addEventListener('dragleave', function () {
+					card.classList.remove('is-drop-target');
+				});
+				card.addEventListener('drop', function (e) {
+					if (!el.thumbZone || !el.thumbZone.classList.contains('is-reordering')) {
+						return;
+					}
+					e.preventDefault();
+					e.stopPropagation();
+					card.classList.remove('is-drop-target');
+					el.thumbZone.classList.remove('is-reordering', 'is-drag');
+					var raw = e.dataTransfer.getData('application/x-tw-shot-index') || e.dataTransfer.getData('text/plain');
+					var from = String(raw || '').replace(/^tw-shot:/, '');
+					reorderShots(from, i);
+				});
+			}
 			card.appendChild(img);
 			card.appendChild(role);
 			card.appendChild(rm);
@@ -1262,7 +1376,7 @@ window.TWAjax = window.TWAjax || {
 				var dataUrl = String(reader.result || '');
 				var img = new Image();
 				img.onload = function () {
-					var max = 1600;
+					var max = 1280;
 					var w = img.width;
 					var h = img.height;
 					if (w > max || h > max) {
@@ -1275,8 +1389,9 @@ window.TWAjax = window.TWAjax || {
 					canvas.height = h;
 					var ctx = canvas.getContext('2d');
 					ctx.drawImage(img, 0, 0, w, h);
-					var mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-					var out = canvas.toDataURL(mime, 0.88);
+					// Always JPEG — pasted PNGs stay huge even after resize and trip nginx 413.
+					var mime = 'image/jpeg';
+					var out = canvas.toDataURL(mime, 0.72);
 					var comma = out.indexOf(',');
 					resolve({
 						mime: mime,
@@ -1427,6 +1542,9 @@ window.TWAjax = window.TWAjax || {
 		});
 		el.thumbZone.addEventListener('dragover', function (e) {
 			e.preventDefault();
+			if (el.thumbZone.classList.contains('is-reordering')) {
+				return;
+			}
 			el.thumbZone.classList.add('is-drag');
 		});
 		el.thumbZone.addEventListener('dragleave', function () {
@@ -1435,6 +1553,11 @@ window.TWAjax = window.TWAjax || {
 		el.thumbZone.addEventListener('drop', function (e) {
 			e.preventDefault();
 			el.thumbZone.classList.remove('is-drag');
+			var types = e.dataTransfer && e.dataTransfer.types ? Array.prototype.slice.call(e.dataTransfer.types) : [];
+			if (types.indexOf('application/x-tw-shot-index') !== -1 || el.thumbZone.classList.contains('is-reordering')) {
+				el.thumbZone.classList.remove('is-reordering');
+				return;
+			}
 			var known = transferKnownRef(e.dataTransfer);
 			if (known) {
 				addShotFromAttachment({
@@ -1588,14 +1711,14 @@ window.TWAjax = window.TWAjax || {
 				e.dataTransfer.setData('text/uri-list', item.url || item.thumb || '');
 				e.dataTransfer.effectAllowed = 'copy';
 			});
-			img.addEventListener('click', function () { openRef(item); });
+			img.addEventListener('click', function () { openRef(item, 'ref'); });
 			var row = document.createElement('p');
 			row.className = 'tw-inline';
 			var look = document.createElement('button');
 			look.type = 'button';
 			look.className = 'button';
 			look.textContent = 'Look';
-			look.addEventListener('click', function () { openRef(item); });
+			look.addEventListener('click', function () { openRef(item, 'ref'); });
 			var copy = document.createElement('button');
 			copy.type = 'button';
 			copy.className = 'button';
@@ -1615,21 +1738,139 @@ window.TWAjax = window.TWAjax || {
 		});
 	}
 
+	function updateLibraryUsage(usage) {
+		if (usage) {
+			S.libraryUsage = usage;
+			if (typeof TW !== 'undefined') {
+				TW.thumbLibrary = usage;
+			}
+		}
+		var node = $('tw-thumb-library-usage');
+		if (!node) {
+			return;
+		}
+		var u = S.libraryUsage || {};
+		if (Number(u.unlimited)) {
+			node.textContent = 'Admins: unlimited storage.';
+			return;
+		}
+		var used = typeof u.used === 'number' ? u.used : 0;
+		var limit = typeof u.limit === 'number' ? u.limit : 12;
+		node.textContent = used + ' / ' + limit + ' saved. Oldest drop off when you go over.';
+	}
+
+	function applyLibraryPayload(d) {
+		if (!d) {
+			return;
+		}
+		S.library = d.items || [];
+		updateLibraryUsage(d.usage || null);
+		renderLibrary();
+	}
+
+	function renderLibrary() {
+		var list = $('tw-thumb-library-list');
+		if (!list) {
+			return;
+		}
+		updateLibraryUsage(S.libraryUsage);
+		list.innerHTML = '';
+		if (!S.library.length) {
+			var empty = document.createElement('p');
+			empty.className = 'description';
+			empty.textContent = 'No generated thumbnails yet. Create one and it stays here for later.';
+			list.appendChild(empty);
+			return;
+		}
+		S.library.forEach(function (item) {
+			var card = document.createElement('div');
+			card.className = 'tw-thumb-ref tw-thumb-lib-item';
+			var img = document.createElement('img');
+			img.src = item.thumb || item.url;
+			img.alt = item.title || 'Generated thumbnail';
+			img.addEventListener('click', function () { openRef(item, 'library'); });
+			var row = document.createElement('p');
+			row.className = 'tw-inline';
+			var use = document.createElement('button');
+			use.type = 'button';
+			use.className = 'button button-primary';
+			use.textContent = 'Use';
+			use.addEventListener('click', function () { useLibraryThumb(item); });
+			var look = document.createElement('button');
+			look.type = 'button';
+			look.className = 'button';
+			look.textContent = 'Look';
+			look.addEventListener('click', function () { openRef(item, 'library'); });
+			var del = document.createElement('button');
+			del.type = 'button';
+			del.className = 'button';
+			del.textContent = 'Delete';
+			del.addEventListener('click', function () { deleteLibraryThumb(item); });
+			row.appendChild(use);
+			row.appendChild(look);
+			row.appendChild(del);
+			card.appendChild(img);
+			card.appendChild(row);
+			list.appendChild(card);
+		});
+	}
+
+	function useLibraryThumb(item) {
+		if (!item || !item.id) {
+			return;
+		}
+		say('Setting thumbnail…', 'info');
+		call('thumb_set', { attachment_id: item.id }).then(function (d) {
+			spent.thumbGenerate = true;
+			saved.thumb_generated = 1;
+			saved.thumb_uploaded = 0;
+			showThumbResult(d.url || item.url);
+			closeRef();
+			say('Thumbnail set from your library. Upload to YouTube when you like it.', 'success');
+		}).catch(function (err) {
+			say(err.message, 'error');
+		});
+	}
+
+	function deleteLibraryThumb(item) {
+		if (!item || !item.id) {
+			return;
+		}
+		if (!window.confirm('Delete this generated thumbnail from your library?\n\nThis frees a slot. YouTube is not changed.')) {
+			return;
+		}
+		call('thumb_library_delete', { id: String(item.id) }).then(function (d) {
+			applyLibraryPayload(d);
+			var box = $('tw-thumb-lightbox');
+			if (box && !box.hidden && String(box.dataset.id) === String(item.id)) {
+				closeRef();
+			}
+			say('Deleted from your library.', 'success');
+		}).catch(function (err) {
+			say(err.message, 'error');
+		});
+	}
+
 	var refReturnFocus = null;
 	var refInertSiblings = [];
 	var refBodyOverflow = '';
 
-	function openRef(item) {
+	function openRef(item, kind) {
 		var box = $('tw-thumb-lightbox');
 		var img = $('tw-thumb-lightbox-img');
 		var edit = $('tw-thumb-lightbox-edit');
+		var useBtn = $('tw-thumb-lightbox-use');
 		if (!box || !img) {
 			return;
 		}
+		kind = kind || 'ref';
 		img.src = item.url;
 		img.alt = item.title || 'Saved thumbnail';
 		if (edit) {
 			edit.href = item.edit || item.url;
+		}
+		if (useBtn) {
+			useBtn.hidden = kind !== 'library';
 		}
         if (box.hidden) {
             refReturnFocus = document.activeElement;
@@ -1647,6 +1888,7 @@ window.TWAjax = window.TWAjax || {
         }
         box.hidden = false;
         box.dataset.id = String(item.id);
+        box.dataset.kind = kind;
         document.body.style.overflow = 'hidden';
         var close = $('tw-thumb-lightbox-close');
         if (close) { close.focus(); }
@@ -1682,6 +1924,23 @@ window.TWAjax = window.TWAjax || {
 		}).catch(function (err) {
 			say(err.message, 'error');
 		});
+	}
+
+	function lightboxItem() {
+		var box = $('tw-thumb-lightbox');
+		if (!box) {
+			return null;
+		}
+		var id = parseInt(box.dataset.id, 10);
+		var kind = box.dataset.kind || 'ref';
+		var pool = kind === 'library' ? S.library : S.refs;
+		var found = null;
+		(pool || []).forEach(function (ref) {
+			if (ref.id === id) {
+				found = ref;
+			}
+		});
+		return found ? { item: found, kind: kind } : null;
 	}
 
 	function copyRef(item, button) {
@@ -1963,6 +2222,17 @@ window.TWAjax = window.TWAjax || {
 			renderRefs();
 		});
 	}
+	if ($('tw-thumb-library-list')) {
+		updateLibraryUsage(S.libraryUsage);
+		call('thumb_library').then(function (d) {
+			applyLibraryPayload(d);
+			if (d && d.imported > 0) {
+				say('Brought ' + d.imported + ' earlier generated thumbnail' + (d.imported === 1 ? '' : 's') + ' into the Media Library.', 'success');
+			}
+		}).catch(function () {
+			renderLibrary();
+		});
+	}
 	if ($('tw-thumb-lightbox')) {
 		$('tw-thumb-lightbox').addEventListener('click', function (e) {
 			if (e.target === $('tw-thumb-lightbox')) {
@@ -1973,31 +2243,32 @@ window.TWAjax = window.TWAjax || {
 	if ($('tw-thumb-lightbox-close')) {
 		$('tw-thumb-lightbox-close').addEventListener('click', closeRef);
 	}
+	if ($('tw-thumb-lightbox-use')) {
+		$('tw-thumb-lightbox-use').addEventListener('click', function () {
+			var hit = lightboxItem();
+			if (hit && hit.kind === 'library') {
+				useLibraryThumb(hit.item);
+			}
+		});
+	}
 	if ($('tw-thumb-lightbox-copy')) {
 		$('tw-thumb-lightbox-copy').addEventListener('click', function () {
-			var id = parseInt($('tw-thumb-lightbox').dataset.id, 10);
-			var item = null;
-			S.refs.forEach(function (ref) {
-				if (ref.id === id) {
-					item = ref;
-				}
-			});
-			if (item) {
-				copyRef(item, $('tw-thumb-lightbox-copy'));
+			var hit = lightboxItem();
+			if (hit) {
+				copyRef(hit.item, $('tw-thumb-lightbox-copy'));
 			}
 		});
 	}
 	if ($('tw-thumb-lightbox-delete')) {
 		$('tw-thumb-lightbox-delete').addEventListener('click', function () {
-			var id = parseInt($('tw-thumb-lightbox').dataset.id, 10);
-			var item = null;
-			S.refs.forEach(function (ref) {
-				if (ref.id === id) {
-					item = ref;
-				}
-			});
-			if (item) {
-				deleteRef(item);
+			var hit = lightboxItem();
+			if (!hit) {
+				return;
+			}
+			if (hit.kind === 'library') {
+				deleteLibraryThumb(hit.item);
+			} else {
+				deleteRef(hit.item);
 			}
 		});
 	}
@@ -2087,10 +2358,19 @@ window.TWAjax = window.TWAjax || {
 			return;
 		}
 		var frame = wp.media({
-			title: 'Choose thumbnail',
+			title: 'Choose finished thumbnail',
 			button: { text: 'Use this image' },
 			library: { type: 'image' },
 			multiple: false
+		});
+		frame.on('ready', function () {
+			// Prefer UploadWriter generations (title starts with that). Clear search to see everything.
+			try {
+				var lib = frame.state().get('library');
+				if (lib && lib.props) {
+					lib.props.set({ search: 'UploadWriter thumbnail' });
+				}
+			} catch (e) {}
 		});
 		frame.on('select', function () {
 			var att = frame.state().get('selection').first().toJSON();
@@ -2107,7 +2387,8 @@ window.TWAjax = window.TWAjax || {
 			say('Setting thumbnail…', 'info');
 			call('thumb_set', { attachment_id: att.id }).then(function (d) {
 				spent.thumbGenerate = true;
-				saved.thumb_generated = 0;
+				var title = (att.title || '').toLowerCase();
+				saved.thumb_generated = title.indexOf('uploadwriter thumbnail') === 0 ? 1 : 0;
 				saved.thumb_uploaded = 0;
 				showThumbResult(d.url || att.url);
 				say('Thumbnail set. Upload to YouTube when you like it, or download a copy.', 'success');
@@ -2212,7 +2493,12 @@ window.TWAjax = window.TWAjax || {
 				saved.thumb_generated = 1;
 				saved.thumb_uploaded = 0;
 				showThumbResult(d.url);
-				say('Thumbnail ready. Upload to YouTube when you like it, or download a copy.', 'success');
+				if (d.library) {
+					applyLibraryPayload(d.library);
+				} else {
+					call('thumb_library').then(applyLibraryPayload).catch(function () {});
+				}
+				say('Thumbnail ready and saved to your library. Upload to YouTube when you like it, or download a copy.', 'success');
 			});
 		});
 	}
@@ -2450,6 +2736,10 @@ window.TWAjax = window.TWAjax || {
 				return;
 			}
 			pickScheduleDate(next);
+			var cell = $('tw-cal-grid').querySelector('.tw-cal-day[data-date="' + next + '"]');
+			if (cell) {
+				cell.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+			}
 		}
 		if (!S.events) {
 			loadCalendar(false).then(jump);
@@ -2499,24 +2789,34 @@ window.TWAjax = window.TWAjax || {
 
 	/* ================================================================ step 7 */
 
+	function syncPublishButtons() {
+		var ready = S.step === 7 && !S.published && el.ack.checked && !!S.plan;
+		el.publish.disabled = !ready;
+		if (el.publishFooter) {
+			el.publishFooter.disabled = !ready;
+		}
+		if (el.publishFooterWrap) {
+			el.publishFooterWrap.hidden = !ready;
+		}
+	}
+
 	function renderConfirm() {
 		if (S.published) {
 			$('tw-confirm').hidden = true;
 			el.results.hidden = false;
+			syncPublishButtons();
 			return;
 		}
 		$('tw-confirm').hidden = false;
 		el.results.hidden = true;
 		el.ack.checked = false;
-		el.publish.disabled = true;
 		el.actions.innerHTML = (S.plan ? S.plan.actions : []).map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('');
+		syncPublishButtons();
 	}
 
-	el.ack.addEventListener('change', function () {
-		el.publish.disabled = !el.ack.checked || !S.plan;
-	});
+	el.ack.addEventListener('change', syncPublishButtons);
 
-	wire(el.publish, 'Publishing...', function () {
+	function runPublish() {
 		if (!S.plan || !el.ack.checked) {
 			throw new Error('Run the review and tick the box first.');
 		}
@@ -2551,7 +2851,33 @@ window.TWAjax = window.TWAjax || {
 				el.next.classList.add('tw-next-pulse');
 			}
 		});
-	});
+	}
+
+	function wirePublish(button) {
+		if (!button) {
+			return;
+		}
+		button.addEventListener('click', function () {
+			var buttons = [el.publish, el.publishFooter].filter(Boolean);
+			buttons.forEach(function (b) { busy(b, true, 'Publishing...'); });
+			tipNear(button, 'Publishing. Stay here.', 'working');
+			Promise.resolve().then(runPublish).then(function () {
+				var tip = document.getElementById('tw-action-tip');
+				if (tip && tip.classList.contains('tw-action-tip--working')) {
+					clearTip();
+				}
+			}).catch(function (e) {
+				tipNear(button, e.message, 'error');
+				say(e.message, 'error', null, true);
+			}).finally(function () {
+				buttons.forEach(function (b) { busy(b, false); });
+				syncPublishButtons();
+			});
+		});
+	}
+
+	wirePublish(el.publish);
+	wirePublish(el.publishFooter);
 
 	/* ================================================================ history and undo */
 
@@ -2642,8 +2968,14 @@ window.TWAjax = window.TWAjax || {
 			var savedProvider = localStorage.getItem('twTextProvider');
 			if (savedProvider === 'openai' || savedProvider === 'gemini') {
 				sel.value = savedProvider;
+			} else if (TW.hasOpenAI) {
+				sel.value = 'openai';
 			}
-		} catch (e) {}
+		} catch (e) {
+			if (TW.hasOpenAI) {
+				sel.value = 'openai';
+			}
+		}
 		sel.addEventListener('change', function () {
 			try {
 				localStorage.setItem('twTextProvider', sel.value);

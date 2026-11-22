@@ -26,7 +26,6 @@ class TW_Frontend {
 		add_action( 'admin_post_tw_front_reset_thumb_prompt', array( $this, 'handle_reset_thumb_prompt' ) );
 		add_action( 'admin_post_tw_front_reset_thumb_render_prompt', array( $this, 'handle_reset_thumb_render_prompt' ) );
 		add_action( 'admin_post_tw_front_connect', array( $this, 'handle_connect' ) );
-		add_action( 'admin_post_tw_front_complete', array( $this, 'handle_complete' ) );
 		add_action( 'admin_post_tw_front_disconnect', array( $this, 'handle_disconnect' ) );
 		add_filter( 'show_admin_bar', array( $this, 'maybe_hide_admin_bar' ) );
 	}
@@ -152,10 +151,13 @@ class TW_Frontend {
 				'front'              => 1,
 				'imageProvider'      => is_user_logged_in() ? TW_Settings::get( 'image_provider' ) : TW_DEFAULT_IMAGE_PROVIDER,
 				'imageProviderLabel' => is_user_logged_in() ? TW_Settings::image_provider_label() : '',
+				'hasOpenAI'          => ( is_user_logged_in() && TW_Settings::get( 'openai_key' ) ) ? 1 : 0,
 				'canThumbnails'      => ( is_user_logged_in() && tw_user_can_thumbnails() ) ? 1 : 0,
+				'thumbLibrary'       => ( is_user_logged_in() ) ? TW_Thumb_Library::usage() : array( 'used' => 0, 'limit' => TW_Thumb_Library::FREE_LIMIT, 'unlimited' => 0, 'remaining' => TW_Thumb_Library::FREE_LIMIT ),
 				'settingsUrl'        => self::url( 'account' ) . ( TW_Settings::identity_complete() ? '#tw-keys' : '#tw-voice' ),
 				'accountUrl'         => self::url( 'account' ),
 				'scheduleUrl'        => self::url( 'schedule' ),
+				'showQuota'          => current_user_can( 'manage_options' ) ? 1 : 0,
 			)
 		);
 		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, filemtime( TW_DIR . 'assets/admin.js' ), true );
@@ -342,7 +344,9 @@ class TW_Frontend {
 						<div class="tw-cal-grid" id="tw-sched-grid" role="group" aria-label="Publishing calendar">
 							<p class="tw-muted">Loading schedule…</p>
 						</div>
-						<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+						<?php if ( current_user_can( 'manage_options' ) ) : ?>
+							<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+						<?php endif; ?>
 					</div>
 				</section>
 			<?php endif; ?>
@@ -442,7 +446,7 @@ class TW_Frontend {
 							<option value="<?php echo esc_attr( $id_key ); ?>" <?php selected( TW_Settings::get( 'image_provider' ), $id_key ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 					</select>
-					<p class="tw-muted">AI thumbnail create is off for regular users until a site admin enables it in WordPress admin → UploadWriter → Settings. Admins always have it. The Gemini / ChatGPT picker next to Generate chooses the image family; this setting is the fallback.</p>
+					<p class="tw-muted">AI thumbnail create is off for regular users until a site admin enables it site-wide (UploadWriter → Settings) or on that user’s profile (Users → Edit → AI thumbnails). Admins always have it. The Gemini / ChatGPT picker next to Generate chooses the image family; this setting is the fallback.</p>
 					<button type="submit" class="tw-btn tw-btn--primary">Save keys</button>
 				</form>
 
@@ -453,10 +457,10 @@ class TW_Frontend {
 					<?php elseif ( $connected ) : ?>
 						<p class="tw-ok-line"><span class="tw-ok-check" aria-hidden="true"></span> Connected<?php echo $channel_label ? ': <strong>' . esc_html( $channel_label ) . '</strong>' : ''; ?></p>
 						<?php if ( TW_OAuth::needs_reconnect() ) : ?>
-							<p class="tw-warn">Please reconnect. Google needs you to approve <?php echo esc_html( TW_BRAND ); ?> again.</p>
+							<p class="tw-warn">Please reconnect YouTube. <?php echo esc_html( TW_BRAND ); ?> needs you to approve access again (one time after the Google OAuth client update).</p>
 						<?php endif; ?>
 						<div class="tw-cta-row">
-							<a class="tw-btn" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Reconnect</a>
+							<a class="tw-btn" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Reconnect</a>
 							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-inline" onsubmit="return confirm('Disconnect YouTube from this account?');">
 								<?php wp_nonce_field( 'tw_front_disconnect' ); ?>
 								<input type="hidden" name="action" value="tw_front_disconnect">
@@ -464,14 +468,18 @@ class TW_Frontend {
 							</form>
 						</div>
 						<p class="tw-connect-legal">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
-						<?php $this->render_connect_paste_form(); ?>
 					<?php else : ?>
-						<p class="tw-muted">Connect the Google account that owns your channel. <?php echo esc_html( TW_BRAND ); ?> only asks for YouTube manage access.</p>
-						<a class="tw-btn tw-btn--primary" <?php echo TW_OAuth::use_paste_flow() ? 'target="_blank" rel="noopener"' : ''; ?> href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Connect YouTube</a>
+						<?php if ( TW_OAuth::needs_reconnect() ) : ?>
+							<p class="tw-warn">Please reconnect YouTube. Your previous connection is no longer valid.</p>
+						<?php else : ?>
+							<p class="tw-muted">Connect the Google account that owns your channel. <?php echo esc_html( TW_BRAND ); ?> only asks for YouTube manage access.</p>
+						<?php endif; ?>
+						<a class="tw-btn tw-btn--primary" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=tw_front_connect' ), 'tw_front_connect' ) ); ?>">Connect YouTube</a>
 						<p class="tw-connect-legal">By connecting, you agree to the <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>.</p>
-						<?php $this->render_connect_paste_form(); ?>
 					<?php endif; ?>
-					<p class="tw-quota-line">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+					<?php if ( current_user_can( 'manage_options' ) ) : ?>
+						<p class="tw-quota-line">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
+					<?php endif; ?>
 				</div>
 			</div>
 		</details>
@@ -587,23 +595,6 @@ class TW_Frontend {
 		<?php
 	}
 
-	/** Paste-the-URL finish form. Only on local/staging (or when filter forces paste). */
-	private function render_connect_paste_form() {
-		if ( ! TW_OAuth::use_paste_flow() ) {
-			return;
-		}
-		?>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-connect-paste">
-			<?php wp_nonce_field( 'tw_front_complete' ); ?>
-			<input type="hidden" name="action" value="tw_front_complete">
-			<label for="tw-front-pasted">Finish connecting</label>
-			<p class="tw-muted">After approving, your browser will show "This site can't be reached." That's expected. Copy the whole address bar and paste it here.</p>
-			<textarea id="tw-front-pasted" name="tw_pasted" rows="3" class="tw-paste" placeholder="http://127.0.0.1:8765/?state=...&amp;code=..." required></textarea>
-			<button type="submit" class="tw-btn tw-btn--primary">Finish connecting</button>
-		</form>
-		<?php
-	}
-
 	private function render_video_list() {
 		$indexed    = TW_Index::count_all();
 		$synced     = (int) TW_Store::get( 'index_synced', 0 );
@@ -671,7 +662,9 @@ class TW_Frontend {
 				<button type="button" class="tw-btn" data-sync="full">Full sync (~<?php echo esc_html( number_format_i18n( $est ) ); ?> units)</button>
 				<button type="button" class="tw-btn tw-btn--primary" data-sync="drafts">Compare drafts</button>
 			</div>
-			<span class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
+			<?php if ( current_user_can( 'manage_options' ) ) : ?>
+				<span class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</span>
+			<?php endif; ?>
 			<?php if ( $sched_note ) : ?>
 				<p class="tw-warn"><?php echo esc_html( $sched_note ); ?></p>
 			<?php endif; ?>
@@ -1062,36 +1055,6 @@ class TW_Frontend {
 		exit;
 	}
 
-	public function handle_complete() {
-		if ( ! is_user_logged_in() ) {
-			wp_safe_redirect( self::url( 'login' ) );
-			exit;
-		}
-		check_admin_referer( 'tw_front_complete' );
-		TW_Context::set_user( get_current_user_id() );
-		if ( ! TW_OAuth::use_paste_flow() ) {
-			$this->flash( 'This site uses the Google redirect flow. Click Connect YouTube instead of pasting a URL.', 'error' );
-			wp_safe_redirect( self::url( 'account' ) );
-			exit;
-		}
-
-		$result = TW_OAuth::complete( wp_unslash( $_POST['tw_pasted'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-		if ( is_wp_error( $result ) ) {
-			$this->flash( $result->get_error_message(), 'error' );
-			wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
-			exit;
-		}
-
-		$channel = TW_YouTube::channel();
-		if ( is_wp_error( $channel ) ) {
-			$this->flash( 'Connected, but could not load the channel: ' . $channel->get_error_message(), 'error' );
-		} else {
-			$this->flash( 'YouTube connected' . ( ! empty( $channel['title'] ) ? ': ' . $channel['title'] : '' ) . '.', 'success' );
-		}
-		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
-		exit;
-	}
-
 	public function handle_disconnect() {
 		if ( ! is_user_logged_in() ) {
 			wp_safe_redirect( self::url( 'login' ) );
@@ -1110,28 +1073,51 @@ class TW_Frontend {
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}
-		TW_Context::set_user( get_current_user_id() );
 		$code  = isset( $_GET['code'] ) ? wp_unslash( $_GET['code'] ) : ''; // phpcs:ignore
 		$state = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : ''; // phpcs:ignore
 		$error = isset( $_GET['error'] ) ? sanitize_text_field( wp_unslash( $_GET['error'] ) ) : ''; // phpcs:ignore
+
+		$done_url = self::url( 'account' );
 		if ( $error ) {
 			$this->flash( 'Google returned an error: ' . $error, 'error' );
-			wp_safe_redirect( self::url( 'account' ) );
+			wp_safe_redirect( $done_url );
 			exit;
 		}
+
 		$result = TW_OAuth::complete_redirect( $code, $state );
+		// complete_redirect sets TW_Context from the verified state (user or site/admin).
+		$is_admin_connect = ! TW_Context::is_user() && current_user_can( 'manage_options' );
+		if ( $is_admin_connect ) {
+			$done_url = admin_url( 'admin.php?page=tubewriter-settings' );
+		}
+
 		if ( is_wp_error( $result ) ) {
-			$this->flash( $result->get_error_message(), 'error' );
-			wp_safe_redirect( self::url( 'account' ) );
+			if ( $is_admin_connect ) {
+				set_transient( 'tw_notice_' . get_current_user_id(), array( 'message' => $result->get_error_message(), 'type' => 'error' ), 60 );
+			} else {
+				$this->flash( $result->get_error_message(), 'error' );
+				$done_url = self::url( 'account' );
+			}
+			wp_safe_redirect( $done_url );
 			exit;
 		}
+
 		$channel = TW_YouTube::channel();
 		if ( is_wp_error( $channel ) ) {
-			$this->flash( 'Connected, but could not load the channel: ' . $channel->get_error_message(), 'error' );
+			$msg  = 'Connected, but could not load the channel: ' . $channel->get_error_message();
+			$type = 'error';
 		} else {
-			$this->flash( 'YouTube connected' . ( ! empty( $channel['title'] ) ? ': ' . $channel['title'] : '' ) . '.', 'success' );
+			$msg  = 'YouTube connected' . ( ! empty( $channel['title'] ) ? ': ' . $channel['title'] : '' ) . '.';
+			$type = 'success';
 		}
-		wp_safe_redirect( self::url( 'account' ) );
+
+		if ( $is_admin_connect ) {
+			set_transient( 'tw_notice_' . get_current_user_id(), array( 'message' => $msg, 'type' => $type ), 60 );
+		} else {
+			$this->flash( $msg, $type );
+			$done_url = self::url( 'account' );
+		}
+		wp_safe_redirect( $done_url );
 		exit;
 	}
 

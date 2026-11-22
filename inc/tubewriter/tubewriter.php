@@ -14,16 +14,13 @@ if ( defined( 'TW_VERSION' ) ) {
 	return;
 }
 
-define( 'TW_VERSION', '2.8.0' );
+define( 'TW_VERSION', '2.9.0' );
 define( 'TW_DIR', trailingslashit( get_template_directory() ) . 'inc/tubewriter/' );
 define( 'TW_URL', trailingslashit( get_template_directory_uri() ) . 'inc/tubewriter/' );
 define( 'TW_BRAND', 'UploadWriter' );
 
-// Desktop OAuth clients accept any loopback redirect. Nothing listens here on purpose:
-// the browser shows a "can't connect" page and the user pastes that URL back into TubeWriter.
-define( 'TW_REDIRECT_URI', 'http://127.0.0.1:8765/' );
 define( 'TW_SCOPE', 'https://www.googleapis.com/auth/youtube.force-ssl' );
-define( 'TW_DEFAULT_MODEL', 'gemini-3.8-flash' );
+define( 'TW_DEFAULT_MODEL', 'gemini-3.6-flash' );
 define( 'TW_DEFAULT_IMAGE_MODEL', 'gemini-2.5-flash-image' );
 define( 'TW_DEFAULT_OPENAI_IMAGE_MODEL', 'gpt-image-2.5-sunburst' );
 define( 'TW_DEFAULT_OPENAI_MODEL', 'gpt-4.1' );
@@ -42,6 +39,7 @@ require_once TW_DIR . 'includes/class-tw-history.php';
 require_once TW_DIR . 'includes/class-tw-plan.php';
 require_once TW_DIR . 'includes/class-tw-index.php';
 require_once TW_DIR . 'includes/class-tw-rate-limit.php';
+require_once TW_DIR . 'includes/class-tw-thumb-library.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
 
@@ -49,6 +47,8 @@ add_action( TW_Settings::CRON_CLEANUP_THUMBS, function () {
 	require_once TW_DIR . 'includes/class-tw-admin.php';
 	TW_Admin::cleanup_generated_thumbs();
 } );
+
+add_action( TW_Settings::CRON_CLEANUP_YT, array( 'TW_OAuth', 'cleanup_disconnected_cache' ) );
 
 /**
  * One-time / theme-switch setup (replaces plugin activation hooks).
@@ -88,17 +88,44 @@ function tw_user_can_app() {
 }
 
 /**
- * True when the current user may use AI thumbnail brief/create.
- * Site admins always can. Other UploadWriter users only when the site setting is on.
+ * True when a user may use AI thumbnail brief/create.
+ * Site admins always can. Others need the site-wide setting, or a per-user grant.
+ *
+ * @param int|null $user_id User id, or null for the current user.
  */
-function tw_user_can_thumbnails() {
-	if ( current_user_can( 'manage_options' ) ) {
-		return true;
-	}
-	if ( ! tw_user_can_app() ) {
+function tw_user_can_thumbnails( $user_id = null ) {
+	$user_id = $user_id ? (int) $user_id : get_current_user_id();
+	if ( ! $user_id ) {
 		return false;
 	}
-	return TW_Settings::thumb_ai_for_users();
+	if ( user_can( $user_id, 'manage_options' ) ) {
+		return true;
+	}
+	if ( ! user_can( $user_id, 'use_uploadwriter' ) ) {
+		return false;
+	}
+	if ( TW_Settings::thumb_ai_for_users() ) {
+		return true;
+	}
+	return tw_user_has_thumb_ai( $user_id );
+}
+
+/** Per-user grant for AI thumbnails (user meta tw_thumb_ai = 1). */
+function tw_user_has_thumb_ai( $user_id ) {
+	return '1' === (string) get_user_meta( (int) $user_id, 'tw_thumb_ai', true );
+}
+
+/** Set or clear the per-user AI thumbnail grant. */
+function tw_user_set_thumb_ai( $user_id, $enabled ) {
+	$user_id = (int) $user_id;
+	if ( ! $user_id ) {
+		return;
+	}
+	if ( $enabled ) {
+		update_user_meta( $user_id, 'tw_thumb_ai', '1' );
+	} else {
+		delete_user_meta( $user_id, 'tw_thumb_ai' );
+	}
 }
 add_action( 'after_switch_theme', 'tw_theme_activate' );
 
@@ -113,6 +140,7 @@ function tw_bootstrap() {
 	TW_Settings::maybe_upgrade_gemini_model();
 	TW_Settings::maybe_upgrade_openai_image_model();
 	TW_Settings::schedule_thumb_cleanup();
+	TW_Settings::schedule_youtube_cache_cleanup();
 	TW_Index::maybe_install();
 	tw_ensure_caps();
 
