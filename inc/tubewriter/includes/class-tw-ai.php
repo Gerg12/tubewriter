@@ -768,8 +768,8 @@ TXT;
 		$b64 = $data['data'][0]['b64_json'] ?? '';
 		if ( '' === $b64 ) {
 			$url = $data['data'][0]['url'] ?? '';
-			if ( $url ) {
-				$fetched = wp_remote_get( $url, array( 'timeout' => 60 ) );
+			if ( $url && self::openai_image_url_allowed( $url ) ) {
+				$fetched = wp_safe_remote_get( $url, array( 'timeout' => 60 ) );
 				if ( ! is_wp_error( $fetched ) && 200 === wp_remote_retrieve_response_code( $fetched ) ) {
 					$bin = wp_remote_retrieve_body( $fetched );
 					if ( $bin ) {
@@ -787,6 +787,19 @@ TXT;
 			'mime' => 'image/png',
 			'data' => $b64,
 		);
+	}
+
+	/** Only https hosts ending in openai.com or oaiusercontent.com. */
+	private static function openai_image_url_allowed( $url ) {
+		$parts = wp_parse_url( (string) $url );
+		if ( empty( $parts['scheme'] ) || 'https' !== strtolower( (string) $parts['scheme'] ) ) {
+			return false;
+		}
+		$host = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( '' === $host ) {
+			return false;
+		}
+		return (bool) preg_match( '/(^|\.)openai\.com$|(^|\.)oaiusercontent\.com$/', $host );
 	}
 
 	/**

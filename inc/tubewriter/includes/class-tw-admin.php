@@ -120,11 +120,11 @@ class TW_Admin {
 						</tr>
 						<tr>
 							<th><label for="tw_client_secret">Google Client Secret</label></th>
-							<td><input type="password" id="tw_client_secret" name="tw_client_secret" class="regular-text code" autocomplete="off" <?php disabled( TW_Settings::google_credentials_from_config() ); ?> placeholder="<?php echo TW_Settings::google_credentials_from_config() ? 'Set via UPLOADWRITER_GOOGLE_CLIENT_SECRET' : ( TW_Settings::get( 'client_secret' ) ? 'Saved. Leave blank to keep it.' : '' ); ?>"></td>
+							<td><input type="password" id="tw_client_secret" name="tw_client_secret" class="regular-text code" autocomplete="off" value="" <?php disabled( TW_Settings::google_credentials_from_config() ); ?> placeholder="<?php echo esc_attr( TW_Settings::google_credentials_from_config() ? 'Set via UPLOADWRITER_GOOGLE_CLIENT_SECRET' : TW_Store::secret_placeholder( 'client_secret' ) ); ?>"></td>
 						</tr>
 						<tr>
 							<th><label for="tw_gemini_key">Gemini API key</label></th>
-							<td><input type="password" id="tw_gemini_key" name="tw_gemini_key" class="regular-text code" autocomplete="off" placeholder="<?php echo TW_Settings::get( 'gemini_key' ) ? 'Saved. Leave blank to keep it.' : ''; ?>"></td>
+							<td><input type="password" id="tw_gemini_key" name="tw_gemini_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'gemini_key' ) ); ?>"></td>
 						</tr>
 						<tr>
 							<th><label for="tw_model">Gemini model</label></th>
@@ -136,7 +136,7 @@ class TW_Admin {
 						<tr>
 							<th><label for="tw_openai_key">OpenAI API key</label></th>
 							<td>
-								<input type="password" id="tw_openai_key" name="tw_openai_key" class="regular-text code" autocomplete="off" placeholder="<?php echo TW_Settings::get( 'openai_key' ) ? 'Saved. Leave blank to keep it.' : ''; ?>">
+								<input type="password" id="tw_openai_key" name="tw_openai_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'openai_key' ) ); ?>">
 								<p class="description">From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>. Used for ChatGPT text in the editor and for OpenAI thumbnails.</p>
 							</td>
 						</tr>
@@ -1150,6 +1150,15 @@ class TW_Admin {
 		$channel_pos = $this->logo_pos( $this->post( 'channel_logo_pos' ), 'lower-left' );
 		$game_pos    = $this->logo_pos( $this->post( 'game_logo_pos' ), 'upper-right' );
 		$game_name   = sanitize_text_field( $this->post( 'game_name' ) );
+		if ( $channel_id && ! $this->user_owns_attachment( $channel_id ) ) {
+			wp_send_json_error( 'That channel logo is not yours.', 403 );
+		}
+		if ( $game_id && ! $this->user_owns_attachment( $game_id ) ) {
+			wp_send_json_error( 'That game logo is not yours.', 403 );
+		}
+		if ( $forget_id && ! $this->user_owns_attachment( $forget_id ) ) {
+			wp_send_json_error( 'That logo is not yours.', 403 );
+		}
 		TW_Store::set( 'channel_logo_id', $channel_id );
 		TW_Store::set( 'channel_logo_pos', $channel_pos );
 		$map = TW_Store::get( 'game_logos', array() );
@@ -1254,6 +1263,10 @@ class TW_Admin {
 			'order'          => 'DESC',
 			'post_mime_type' => 'image',
 		);
+		$uid = get_current_user_id();
+		if ( $uid && ! current_user_can( 'manage_options' ) ) {
+			$args['author'] = $uid;
+		}
 		if ( '' !== $query ) {
 			$args['s'] = $query;
 		} else {
@@ -1274,18 +1287,20 @@ class TW_Admin {
 		}
 
 		if ( '' !== $query && count( $items ) < 4 ) {
-			$extra = new WP_Query(
-				array(
-					'post_type'      => 'attachment',
-					'post_status'    => 'inherit',
-					'posts_per_page' => 8,
-					'orderby'        => 'date',
-					'order'          => 'DESC',
-					'post_mime_type' => 'image',
-					'meta_key'       => '_tw_game_logo',
-					'meta_value'     => '1',
-				)
+			$extra_args = array(
+				'post_type'      => 'attachment',
+				'post_status'    => 'inherit',
+				'posts_per_page' => 8,
+				'orderby'        => 'date',
+				'order'          => 'DESC',
+				'post_mime_type' => 'image',
+				'meta_key'       => '_tw_game_logo',
+				'meta_value'     => '1',
 			);
+			if ( $uid && ! current_user_can( 'manage_options' ) ) {
+				$extra_args['author'] = $uid;
+			}
+			$extra = new WP_Query( $extra_args );
 			foreach ( $extra->posts as $post ) {
 				if ( isset( $seen[ $post->ID ] ) ) {
 					continue;
@@ -1313,6 +1328,9 @@ class TW_Admin {
 	private function logo_search_payload( $id ) {
 		$id = absint( $id );
 		if ( ! $id ) {
+			return null;
+		}
+		if ( ! $this->user_owns_attachment( $id ) ) {
 			return null;
 		}
 		$url = (string) wp_get_attachment_url( $id );
@@ -1727,11 +1745,14 @@ class TW_Admin {
 		if ( ! $att_id || 'attachment' !== get_post_type( $att_id ) ) {
 			wp_send_json_error( 'Pick an image from the Media Library.' );
 		}
+		if ( ! $this->user_owns_attachment( $att_id ) ) {
+			wp_send_json_error( 'That image is not yours.', 403 );
+		}
 		if ( 0 !== strpos( (string) get_post_mime_type( $att_id ), 'image/' ) ) {
 			wp_send_json_error( 'That file is not an image.' );
 		}
 
-		$file = wp_normalize_path( (string) get_attached_file( $att_id ) );
+		$file = $this->safe_uploads_file( (string) get_attached_file( $att_id ) );
 		$url  = (string) wp_get_attachment_url( $att_id );
 		if ( '' === $file || ! is_readable( $file ) || '' === $url ) {
 			wp_send_json_error( 'Could not read that image from the Media Library.' );
@@ -2276,14 +2297,17 @@ class TW_Admin {
 		}
 
 		$candidates = array();
-		$stored     = wp_normalize_path( (string) ( $state['thumb_file'] ?? '' ) );
+		$stored     = (string) ( $state['thumb_file'] ?? '' );
 		if ( '' !== $stored ) {
 			$candidates[] = $stored;
 		}
 
 		$att_id = absint( $state['thumb_attachment_id'] ?? 0 );
 		if ( $att_id ) {
-			$attached = wp_normalize_path( (string) get_attached_file( $att_id ) );
+			if ( ! $this->user_owns_attachment( $att_id ) ) {
+				return new WP_Error( 'tw_thumb', 'That thumbnail is not yours.' );
+			}
+			$attached = (string) get_attached_file( $att_id );
 			if ( '' !== $attached ) {
 				$candidates[] = $attached;
 			}
@@ -2299,20 +2323,17 @@ class TW_Admin {
 
 		$seen = array();
 		foreach ( $candidates as $file ) {
-			$file = wp_normalize_path( (string) $file );
+			$file = $this->safe_uploads_file( $file, $basedir );
 			if ( '' === $file || isset( $seen[ $file ] ) ) {
 				continue;
 			}
 			$seen[ $file ] = true;
-			if ( 0 !== strpos( $file, $basedir ) ) {
-				continue;
-			}
 			if ( ! is_readable( $file ) ) {
 				continue;
 			}
 			$out_url = $url;
 			if ( '' === $out_url ) {
-				$rel     = ltrim( substr( $file, strlen( $basedir ) ), '/' );
+				$rel     = ltrim( substr( $file, strlen( $basedir ) ), '/\\' );
 				$out_url = trailingslashit( $baseurl ) . str_replace( '\\', '/', $rel );
 			}
 			return array(
@@ -2331,16 +2352,16 @@ class TW_Admin {
 	}
 
 	/**
-	 * Map a local uploads URL to an absolute file path.
+	 * Map a local uploads URL to an absolute file path inside uploads.
 	 *
 	 * @param string $url
 	 * @param string $basedir Normalized uploads basedir.
 	 * @param string $baseurl Uploads baseurl without trailing slash.
-	 * @return string Empty when the URL is not under uploads.
+	 * @return string Empty when the URL is not under uploads or escapes it.
 	 */
 	private function uploads_url_to_file( $url, $basedir, $baseurl ) {
 		$url = (string) $url;
-		if ( '' === $url ) {
+		if ( '' === $url || false !== strpos( $url, '..' ) ) {
 			return '';
 		}
 		$variants = array_unique(
@@ -2351,19 +2372,93 @@ class TW_Admin {
 			)
 		);
 		$path = wp_parse_url( $url, PHP_URL_PATH );
+		$raw  = '';
 		foreach ( $variants as $root ) {
 			$root_path = wp_parse_url( $root, PHP_URL_PATH );
 			if ( $root_path && $path && 0 === strpos( $path, $root_path ) ) {
 				$rel = ltrim( substr( $path, strlen( $root_path ) ), '/' );
-				return wp_normalize_path( trailingslashit( $basedir ) . $rel );
+				if ( false !== strpos( $rel, '..' ) ) {
+					return '';
+				}
+				$raw = trailingslashit( $basedir ) . $rel;
+				break;
 			}
 			if ( 0 === strpos( $url, $root . '/' ) ) {
 				$rel = substr( $url, strlen( $root ) + 1 );
 				$rel = (string) strtok( $rel, '?' );
-				return wp_normalize_path( trailingslashit( $basedir ) . $rel );
+				if ( false !== strpos( $rel, '..' ) ) {
+					return '';
+				}
+				$raw = trailingslashit( $basedir ) . $rel;
+				break;
 			}
 		}
-		return '';
+		return $this->safe_uploads_file( $raw, $basedir );
+	}
+
+	/**
+	 * Resolve a path and require it to stay inside the uploads basedir.
+	 *
+	 * @param string      $file    Candidate path.
+	 * @param string|null $basedir Optional basedir.
+	 * @return string Empty when unsafe or missing.
+	 */
+	private function safe_uploads_file( $file, $basedir = null ) {
+		$file = (string) $file;
+		if ( '' === $file || false !== strpos( $file, '..' ) ) {
+			return '';
+		}
+		if ( null === $basedir ) {
+			$uploads = wp_get_upload_dir();
+			$basedir = wp_normalize_path( (string) ( $uploads['basedir'] ?? '' ) );
+		}
+		$basedir = wp_normalize_path( (string) $basedir );
+		if ( '' === $basedir ) {
+			return '';
+		}
+		$real_base = realpath( $basedir );
+		if ( false === $real_base ) {
+			return '';
+		}
+		$real_base = wp_normalize_path( $real_base );
+		$normalized = wp_normalize_path( $file );
+		// File may not exist yet. Check parent when needed.
+		$real = realpath( $normalized );
+		if ( false === $real ) {
+			$parent = realpath( dirname( $normalized ) );
+			if ( false === $parent ) {
+				return '';
+			}
+			$real = wp_normalize_path( $parent ) . '/' . wp_basename( $normalized );
+		} else {
+			$real = wp_normalize_path( $real );
+		}
+		$prefix = trailingslashit( $real_base );
+		if ( 0 !== strpos( $real, $prefix ) && $real !== $real_base ) {
+			return '';
+		}
+		return $real;
+	}
+
+	/**
+	 * Admins may use any attachment. Everyone else only their own.
+	 *
+	 * @param int $attachment_id Attachment id.
+	 * @return bool
+	 */
+	private function user_owns_attachment( $attachment_id ) {
+		if ( class_exists( 'TW_Privacy' ) ) {
+			return TW_Privacy::user_owns_attachment( $attachment_id );
+		}
+		$attachment_id = (int) $attachment_id;
+		if ( ! $attachment_id ) {
+			return false;
+		}
+		if ( current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$uid = get_current_user_id();
+		return $uid && (int) get_post_field( 'post_author', $attachment_id ) === $uid;
 	}
 
 	/**

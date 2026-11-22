@@ -1,0 +1,68 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) { exit; }
+return json_decode( <<<'JSON'
+{
+  "currency": "USD",
+  "billing_period": "month",
+  "status": "preview",
+  "plans": [
+    {
+      "id": "free",
+      "name": "Free",
+      "price": 0,
+      "writing_credits": 3,
+      "thumbnail_credits": 0,
+      "description": "Find your rhythm. Give your next few uploads a better first draft.",
+      "features": [
+        "3 starter AI drafts or rewrites, once",
+        "Titles, descriptions, chapters, and tags",
+        "Your channel library and manual edits",
+        "Calendar, review, publish, and restore",
+        "No AI-generated thumbnail credits"
+      ],
+      "writing_period": "once"
+    },
+    {
+      "id": "creator",
+      "name": "Creator",
+      "price": 4.99,
+      "writing_credits": 25,
+      "thumbnail_credits": 0,
+      "description": "A steady writing partner for a channel that keeps creating.",
+      "features": [
+        "25 AI drafts or rewrites each month",
+        "Titles, descriptions, chapters, and tags",
+        "Your saved channel voice and prompts",
+        "All core workspace tools",
+        "No AI-generated thumbnail credits"
+      ],
+      "writing_period": "month"
+    },
+    {
+      "id": "studio",
+      "name": "Studio",
+      "price": 14.99,
+      "writing_credits": 100,
+      "thumbnail_credits": 10,
+      "description": "From the first words to the first impression. Your full creative toolkit.",
+      "features": [
+        "100 AI drafts or rewrites each month",
+        "10 thumbnail credits each month",
+        "AI thumbnail concepts and image generation",
+        "Use screenshots and logos as references",
+        "Everything in Creator"
+      ],
+      "writing_period": "month"
+    }
+  ],
+  "thumbnail_pack": {
+    "price": 4.99,
+    "credits": 10,
+    "studio_only": true
+  },
+  "standard_thumbnail_credits": 1,
+  "high_detail_thumbnail_credits": 3
+}
+
+JSON
+, true );

@@ -84,4 +84,32 @@ class TW_Store {
 		}
 		return '' !== (string) $v;
 	}
+
+	/**
+	 * Last 4 characters of a decrypted secret for display. Never the full value.
+	 *
+	 * @param string $key Without the tw_ prefix.
+	 * @return string Empty when missing or too short.
+	 */
+	public static function secret_hint( $key ) {
+		$v = self::get( $key, '' );
+		if ( ! is_string( $v ) || strlen( $v ) < 4 ) {
+			return '';
+		}
+		return substr( $v, -4 );
+	}
+
+	/**
+	 * Placeholder text for secret inputs: "Saved ···abcd" or empty.
+	 *
+	 * @param string $key Without the tw_ prefix.
+	 * @return string
+	 */
+	public static function secret_placeholder( $key ) {
+		if ( ! self::has( $key ) ) {
+			return '';
+		}
+		$hint = self::secret_hint( $key );
+		return $hint ? ( 'Saved ···' . $hint ) : 'Saved. Leave blank to keep it.';
+	}
 }

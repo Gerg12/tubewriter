@@ -205,7 +205,7 @@ class TW_Frontend {
 		echo '<a href="' . esc_url( get_privacy_policy_url() ? get_privacy_policy_url() : home_url( '/privacy-policy/' ) ) . '">Privacy Policy</a>';
 		echo '<a href="' . esc_url( home_url( '/terms-of-use/' ) ) . '">Terms of Use</a>';
 		echo '<a href="mailto:hello@uploadwriter.com">Contact</a>';
-		echo '<span>&copy; ' . esc_html( wp_date( 'Y' ) ) . ' Gregory S Johnson LLC</span>';
+		echo '<span>&copy; ' . esc_html( wp_date( 'Y' ) ) . ' UploadWriter.com</span>';
 		echo '</div></footer>';
 		wp_footer();
 		echo '</body></html>';
@@ -233,6 +233,7 @@ class TW_Frontend {
 					<input type="password" id="tw-login-pass" name="pwd" required autocomplete="current-password" placeholder="Your password">
 					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill">Log in</button>
 				</form>
+				<p class="tw-fine"><a href="<?php echo esc_url( wp_lostpassword_url( self::url( 'login' ) ) ); ?>">Forgot password</a></p>
 				<p class="tw-fine">No account yet? <a href="<?php echo esc_url( self::url( 'register' ) ); ?>">Create one</a></p>
 			</section>
 		</main>
@@ -250,12 +251,17 @@ class TW_Frontend {
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-form--auth">
 					<?php wp_nonce_field( 'tw_front_register' ); ?>
 					<input type="hidden" name="action" value="tw_front_register">
+					<input type="hidden" name="tw_form_started" value="<?php echo esc_attr( (string) time() ); ?>">
 					<label for="tw-reg-user">Username</label>
 					<input type="text" id="tw-reg-user" name="user_login" required autocomplete="username" placeholder="Enter a username">
 					<label for="tw-reg-email">Email</label>
 					<input type="email" id="tw-reg-email" name="user_email" required autocomplete="email" placeholder="Enter your email">
 					<label for="tw-reg-pass">Password (8+ chars)</label>
 					<input type="password" id="tw-reg-pass" name="user_pass" required minlength="8" autocomplete="new-password" placeholder="Create a password">
+					<label class="tw-hp" aria-hidden="true" style="position:absolute;left:-9999px;height:1px;width:1px;overflow:hidden">
+						Company
+						<input type="text" name="tw_company" value="" tabindex="-1" autocomplete="off">
+					</label>
 					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill">Create account</button>
 				</form>
 				<p class="tw-fine">Already have an account? <a href="<?php echo esc_url( self::url( 'login' ) ); ?>">Log in</a></p>
@@ -429,14 +435,14 @@ class TW_Frontend {
 					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value.</p>
 					<label for="tw_gemini_key">Gemini API key <?php echo $has_gemini ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
 					<div class="tw-secret">
-						<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" placeholder="<?php echo $has_gemini ? 'Saved. Leave blank to keep it.' : 'Paste Gemini key'; ?>">
+						<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $has_gemini ? TW_Store::secret_placeholder( 'gemini_key' ) : 'Paste Gemini key' ); ?>">
 						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_gemini_key" data-secret-name="Gemini API key" aria-label="Show Gemini API key">
 							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
 						</button>
 					</div>
 					<label for="tw_openai_key">OpenAI / ChatGPT API key <?php echo $has_openai ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
 					<div class="tw-secret">
-						<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" placeholder="<?php echo $has_openai ? 'Saved. Leave blank to keep it.' : 'Paste OpenAI key'; ?>">
+						<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $has_openai ? TW_Store::secret_placeholder( 'openai_key' ) : 'Paste OpenAI key' ); ?>">
 						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_openai_key" data-secret-name="OpenAI API key" aria-label="Show OpenAI API key">
 							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
 						</button>
@@ -458,17 +464,22 @@ class TW_Frontend {
 				if ( $muse_once ) {
 					delete_transient( 'uw_muse_key_once_' . $uid );
 				}
-				$muse_hint = '';
-				if ( $has_muse ) {
-					$mk        = uw_muse_user_key( $uid );
-					$muse_hint = substr( $mk, 0, 4 ) . '…' . substr( $mk, -4 );
+				$muse_hint = ( $has_muse && function_exists( 'uw_muse_user_hint' ) ) ? uw_muse_user_hint( $uid ) : '';
+				$muse_push = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_PUSH' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_PUSH );
+				$muse_rest = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_RESTORE' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_RESTORE );
+				$muse_sync = function_exists( 'uw_muse_user_toggle' ) && defined( 'UW_MUSE_USER_SYNC' ) && uw_muse_user_toggle( $uid, UW_MUSE_USER_SYNC );
+				$muse_log  = array();
+				if ( function_exists( 'uw_muse_recent_actions' ) ) {
+					TW_Context::set_user( $uid );
+					$muse_log = uw_muse_recent_actions( 10 );
 				}
 				?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form">
 					<?php wp_nonce_field( 'tw_front_muse_key' ); ?>
 					<input type="hidden" name="action" value="tw_front_muse_key">
 					<h2>Muse</h2>
-					<p class="tw-muted">Your Muse key only reaches <strong>this account’s videos</strong> (draft packages, generate, push). It cannot create site posts or pages. Muse never signs in to Google or YouTube in a browser.</p>
+					<p class="tw-muted">Muse is your own AI assistant. Anything it can do here, it does with your videos and your AI keys. Rotate or clear the key any time.</p>
+					<p class="tw-muted">Your Muse key only reaches <strong>this account’s videos</strong>. It cannot create site posts or pages. Muse never signs in to Google or YouTube in a browser.</p>
 					<?php if ( $muse_once ) : ?>
 						<p class="tw-ok-line">New Muse key (copy now, shown once): <code class="tw-muse-key-once"><?php echo esc_html( $muse_once ); ?></code></p>
 					<?php endif; ?>
@@ -477,19 +488,41 @@ class TW_Frontend {
 						<?php if ( $has_muse ) : ?>
 							<span class="tw-chip tw-chip--ok">Saved</span>
 							<?php if ( $muse_hint ) : ?>
-								<span class="tw-muted">(<?php echo esc_html( $muse_hint ); ?>)</span>
+								<span class="tw-muted"><code><?php echo esc_html( $muse_hint ); ?></code></span>
 							<?php endif; ?>
 						<?php else : ?>
 							<span class="tw-muted">Not set</span>
 						<?php endif; ?>
 					</p>
 					<p class="tw-muted">Send as <code>x-uw-muse-key</code> to <code>/wp-json/uw/v1/muse/…</code></p>
+					<fieldset class="tw-muse-toggles">
+						<legend class="tw-muted">Permissions (all off by default)</legend>
+						<label><input type="checkbox" name="tw_muse_allow_push" value="1" <?php checked( $muse_push ); ?>> Let Muse push changes to YouTube</label>
+						<label><input type="checkbox" name="tw_muse_allow_restore" value="1" <?php checked( $muse_rest ); ?>> Let Muse restore older versions</label>
+						<label><input type="checkbox" name="tw_muse_allow_sync" value="1" <?php checked( $muse_sync ); ?>> Let Muse pull captions and sync</label>
+					</fieldset>
 					<div class="tw-cta-row">
-						<button type="submit" class="tw-btn tw-btn--primary" name="tw_muse_regen" value="1"><?php echo $has_muse ? 'Rotate Muse key' : 'Generate Muse key'; ?></button>
+						<button type="submit" class="tw-btn tw-btn--primary" name="tw_muse_save_perms" value="1">Save Muse permissions</button>
+						<button type="submit" class="tw-btn" name="tw_muse_regen" value="1"><?php echo $has_muse ? 'Rotate Muse key' : 'Generate Muse key'; ?></button>
 						<?php if ( $has_muse ) : ?>
 							<button type="submit" class="tw-btn tw-btn--danger" name="tw_muse_clear" value="1" onclick="return confirm('Clear this account’s Muse key?');">Clear</button>
 						<?php endif; ?>
 					</div>
+					<?php if ( $muse_log ) : ?>
+						<h3 class="tw-h3">Recent Muse actions</h3>
+						<ul class="tw-muse-log">
+							<?php foreach ( $muse_log as $row ) : ?>
+								<li>
+									<span class="tw-muted"><?php echo esc_html( wp_date( 'M j g:ia', (int) ( $row['time'] ?? 0 ) ) ); ?></span>
+									<code><?php echo esc_html( (string) ( $row['action'] ?? '' ) ); ?></code>
+									<?php if ( ! empty( $row['video'] ) ) : ?>
+										<span class="tw-muted"><?php echo esc_html( (string) $row['video'] ); ?></span>
+									<?php endif; ?>
+									via Muse
+								</li>
+							<?php endforeach; ?>
+						</ul>
+					<?php endif; ?>
 				</form>
 
 				<div class="tw-card-ui">
@@ -938,23 +971,32 @@ class TW_Frontend {
 
 	public function handle_login() {
 		check_admin_referer( 'tw_front_login' );
+		$login = sanitize_text_field( wp_unslash( $_POST['log'] ?? '' ) );
+		if ( $this->auth_locked( 'login', $login ) ) {
+			$this->flash( 'Too many attempts. Wait 15 minutes and try again.', 'error' );
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
 		$creds = array(
-			'user_login'    => sanitize_text_field( wp_unslash( $_POST['log'] ?? '' ) ),
+			'user_login'    => $login,
 			'user_password' => (string) wp_unslash( $_POST['pwd'] ?? '' ), // phpcs:ignore
 			'remember'      => true,
 		);
 		$user = wp_signon( $creds, is_ssl() );
 		if ( is_wp_error( $user ) ) {
+			$this->auth_fail( 'login', $login );
 			$this->flash( 'Could not log in. Check your email/username and password.', 'error' );
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}
 		if ( ! user_can( $user, 'use_uploadwriter' ) && ! user_can( $user, 'manage_options' ) ) {
 			wp_logout();
-			$this->flash( 'That account cannot use UploadWriter.', 'error' );
+			$this->auth_fail( 'login', $login );
+			$this->flash( 'Could not log in. Check your email/username and password.', 'error' );
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;
 		}
+		$this->auth_clear( 'login', $login );
 		wp_safe_redirect( self::url( 'account' ) );
 		exit;
 	}
@@ -964,25 +1006,42 @@ class TW_Frontend {
 		$login = sanitize_user( wp_unslash( $_POST['user_login'] ?? '' ), true );
 		$email = sanitize_email( wp_unslash( $_POST['user_email'] ?? '' ) );
 		$pass  = (string) wp_unslash( $_POST['user_pass'] ?? '' ); // phpcs:ignore
+		$hp    = trim( (string) wp_unslash( $_POST['tw_company'] ?? '' ) );
+		$start = absint( $_POST['tw_form_started'] ?? 0 );
+
+		if ( '' !== $hp || ! $start || ( time() - $start ) < 3 ) {
+			$this->flash( 'Could not create that account. Try again.', 'error' );
+			wp_safe_redirect( self::url( 'register' ) );
+			exit;
+		}
+		if ( $this->auth_locked( 'register', $login . '|' . $email ) ) {
+			$this->flash( 'Too many attempts. Wait 15 minutes and try again.', 'error' );
+			wp_safe_redirect( self::url( 'register' ) );
+			exit;
+		}
 
 		if ( ! $login || ! is_email( $email ) || strlen( $pass ) < 8 ) {
+			$this->auth_fail( 'register', $login . '|' . $email );
 			$this->flash( 'Use a valid username, email, and a password of at least 8 characters.', 'error' );
 			wp_safe_redirect( self::url( 'register' ) );
 			exit;
 		}
 		if ( username_exists( $login ) || email_exists( $email ) ) {
-			$this->flash( 'That username or email is already taken.', 'error' );
+			$this->auth_fail( 'register', $login . '|' . $email );
+			$this->flash( 'Could not create that account. Try a different username or email, or log in.', 'error' );
 			wp_safe_redirect( self::url( 'register' ) );
 			exit;
 		}
 
 		$user_id = wp_create_user( $login, $pass, $email );
 		if ( is_wp_error( $user_id ) ) {
-			$this->flash( $user_id->get_error_message(), 'error' );
+			$this->auth_fail( 'register', $login . '|' . $email );
+			$this->flash( 'Could not create that account. Try again.', 'error' );
 			wp_safe_redirect( self::url( 'register' ) );
 			exit;
 		}
 
+		$this->auth_clear( 'register', $login . '|' . $email );
 		$user = new WP_User( $user_id );
 		$user->set_role( 'tubewriter' );
 		wp_set_current_user( $user_id );
@@ -1038,14 +1097,27 @@ class TW_Frontend {
 			exit;
 		}
 
+		if ( function_exists( 'uw_muse_set_user_toggles' ) ) {
+			uw_muse_set_user_toggles(
+				$user_id,
+				array(
+					'push'    => ! empty( $_POST['tw_muse_allow_push'] ),
+					'restore' => ! empty( $_POST['tw_muse_allow_restore'] ),
+					'sync'    => ! empty( $_POST['tw_muse_allow_sync'] ),
+				)
+			);
+		}
+
 		if ( ! empty( $_POST['tw_muse_clear'] ) ) {
 			uw_muse_set_user_key( $user_id, '' );
 			$this->flash( 'Muse key cleared for this account.', 'success' );
-		} else {
+		} elseif ( ! empty( $_POST['tw_muse_regen'] ) ) {
 			$new = function_exists( 'uw_muse_new_key' ) ? uw_muse_new_key() : wp_generate_password( 48, false, false );
 			uw_muse_set_user_key( $user_id, $new );
 			set_transient( 'uw_muse_key_once_' . $user_id, $new, 120 );
 			$this->flash( 'Muse key ready. Copy it now; it is only shown once.', 'success' );
+		} else {
+			$this->flash( 'Muse permissions saved.', 'success' );
 		}
 
 		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
@@ -1193,17 +1265,59 @@ class TW_Frontend {
 	}
 
 	private function flash( $message, $type = 'success' ) {
-		set_transient( 'tw_front_notice_' . get_current_user_id(), array( 'message' => $message, 'type' => $type ), 60 );
+		set_transient( 'tw_front_notice_' . $this->notice_token(), array( 'message' => $message, 'type' => $type ), 60 );
 	}
 
 	private function pull_notice() {
-		$key    = 'tw_front_notice_' . get_current_user_id();
+		$key    = 'tw_front_notice_' . $this->notice_token();
 		$notice = get_transient( $key );
 		if ( $notice ) {
 			delete_transient( $key );
 			return is_array( $notice ) ? $notice : null;
 		}
 		return null;
+	}
+
+	/** Cookie token for logged-out flashes so anonymous visitors do not share one bucket. */
+	private function notice_token() {
+		$uid = get_current_user_id();
+		if ( $uid ) {
+			return (string) $uid;
+		}
+		$cookie = 'tw_front_nid';
+		if ( ! empty( $_COOKIE[ $cookie ] ) ) {
+			$token = preg_replace( '/[^A-Za-z0-9]/', '', (string) wp_unslash( $_COOKIE[ $cookie ] ) );
+			if ( strlen( $token ) >= 16 ) {
+				return $token;
+			}
+		}
+		$token = wp_generate_password( 24, false, false );
+		if ( ! headers_sent() ) {
+			setcookie( $cookie, $token, time() + WEEK_IN_SECONDS, COOKIEPATH ? COOKIEPATH : '/', COOKIE_DOMAIN, is_ssl(), true );
+		}
+		$_COOKIE[ $cookie ] = $token;
+		return $token;
+	}
+
+	private function auth_bucket_key( $action, $identity ) {
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+		return 'tw_auth_' . sanitize_key( $action ) . '_' . substr( hash( 'sha256', $ip . '|' . strtolower( (string) $identity ) . '|' . wp_salt( 'auth' ) ), 0, 32 );
+	}
+
+	private function auth_locked( $action, $identity ) {
+		$bucket = get_transient( $this->auth_bucket_key( $action, $identity ) );
+		return is_array( $bucket ) && (int) ( $bucket['n'] ?? 0 ) >= 5;
+	}
+
+	private function auth_fail( $action, $identity ) {
+		$key    = $this->auth_bucket_key( $action, $identity );
+		$bucket = get_transient( $key );
+		$n      = is_array( $bucket ) ? (int) ( $bucket['n'] ?? 0 ) : 0;
+		set_transient( $key, array( 'n' => $n + 1 ), 15 * MINUTE_IN_SECONDS );
+	}
+
+	private function auth_clear( $action, $identity ) {
+		delete_transient( $this->auth_bucket_key( $action, $identity ) );
 	}
 }
 

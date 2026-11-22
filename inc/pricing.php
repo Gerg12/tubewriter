@@ -4,7 +4,12 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 function uw_pricing_data() {
     static $data;
     if ( null === $data ) {
-        $data = json_decode( file_get_contents( get_template_directory() . '/inc/pricing-data.json' ), true );
+        $php = get_template_directory() . '/inc/pricing-data.php';
+        $data = is_readable( $php ) ? include $php : null;
+        if ( ! is_array( $data ) ) {
+            $json = get_template_directory() . '/inc/pricing-data.json';
+            $data = is_readable( $json ) ? json_decode( file_get_contents( $json ), true ) : array();
+        }
     }
     return $data;
 }

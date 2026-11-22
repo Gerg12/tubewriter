@@ -17,10 +17,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const UW_MUSE_OPTION_KEY = 'uw_muse_key';
-const UW_MUSE_USER_META  = 'tw_muse_key';
-const UW_MUSE_HEADER     = 'x-uw-muse-key';
-const UW_MUSE_META_EXT   = '_uw_muse_external_id';
+const UW_MUSE_OPTION_KEY  = 'uw_muse_key'; // legacy plain (migrated away)
+const UW_MUSE_OPTION_HASH = 'uw_muse_key_hash';
+const UW_MUSE_OPTION_HINT = 'uw_muse_key_hint';
+const UW_MUSE_USER_META   = 'tw_muse_key'; // legacy plain (migrated away)
+const UW_MUSE_USER_HASH   = 'tw_muse_key_hash';
+const UW_MUSE_USER_HINT   = 'tw_muse_key_hint';
+const UW_MUSE_USER_PUSH   = 'tw_muse_allow_push';
+const UW_MUSE_USER_RESTORE = 'tw_muse_allow_restore';
+const UW_MUSE_USER_SYNC   = 'tw_muse_allow_sync';
+const UW_MUSE_SITE_PUSH   = 'uw_muse_allow_push';
+const UW_MUSE_HEADER      = 'x-uw-muse-key';
+const UW_MUSE_META_EXT    = '_uw_muse_external_id';
+const UW_MUSE_KEYS_MIGRATED = 'uw_muse_keys_hashed_v1';
+const UW_MUSE_RATE_MAX    = 60;
+const UW_MUSE_RATE_WINDOW = 60;
+const UW_MUSE_LOG_MAX     = 50;
 
 /** @var int|null Resolved account for this request. 0 = site/admin storage. */
 $GLOBALS['uw_muse_user_id'] = null;
@@ -29,16 +41,35 @@ function uw_muse_base_url() {
 	return home_url( '/wp-json/uw/v1' );
 }
 
-function uw_muse_user_key( $user_id ) {
+function uw_muse_hash_key( $key ) {
+	return hash_hmac( 'sha256', (string) $key, wp_salt( 'auth' ) );
+}
+
+function uw_muse_new_key() {
+	return 'uwm_' . wp_generate_password( 48, false, false );
+}
+
+function uw_muse_hint_from_key( $key ) {
+	$key = (string) $key;
+	$tail = strlen( $key ) >= 4 ? substr( $key, -4 ) : $key;
+	return 'uwm_…' . $tail;
+}
+
+function uw_muse_user_has_key( $user_id ) {
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) {
+		return false;
+	}
+	return '' !== (string) get_user_meta( $user_id, UW_MUSE_USER_HASH, true );
+}
+
+function uw_muse_user_hint( $user_id ) {
 	$user_id = (int) $user_id;
 	if ( $user_id <= 0 ) {
 		return '';
 	}
-	return (string) get_user_meta( $user_id, UW_MUSE_USER_META, true );
-}
-
-function uw_muse_user_has_key( $user_id ) {
-	return '' !== uw_muse_user_key( $user_id );
+	$hint = (string) get_user_meta( $user_id, UW_MUSE_USER_HINT, true );
+	return $hint ? $hint : '';
 }
 
 function uw_muse_set_user_key( $user_id, $key ) {
@@ -47,50 +78,310 @@ function uw_muse_set_user_key( $user_id, $key ) {
 	if ( $user_id <= 0 ) {
 		return false;
 	}
+	delete_user_meta( $user_id, UW_MUSE_USER_META );
 	if ( '' === $key ) {
-		delete_user_meta( $user_id, UW_MUSE_USER_META );
+		delete_user_meta( $user_id, UW_MUSE_USER_HASH );
+		delete_user_meta( $user_id, UW_MUSE_USER_HINT );
 		return true;
 	}
-	update_user_meta( $user_id, UW_MUSE_USER_META, $key );
+	if ( strlen( $key ) < 32 ) {
+		return false;
+	}
+	update_user_meta( $user_id, UW_MUSE_USER_HASH, uw_muse_hash_key( $key ) );
+	update_user_meta( $user_id, UW_MUSE_USER_HINT, uw_muse_hint_from_key( $key ) );
 	return true;
 }
 
-function uw_muse_new_key() {
-	return wp_generate_password( 48, false, false );
+/** Clear Muse key + toggles (account delete / purge). */
+function uw_muse_purge_user( $user_id ) {
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) {
+		return;
+	}
+	delete_user_meta( $user_id, UW_MUSE_USER_META );
+	delete_user_meta( $user_id, UW_MUSE_USER_HASH );
+	delete_user_meta( $user_id, UW_MUSE_USER_HINT );
+	delete_user_meta( $user_id, UW_MUSE_USER_PUSH );
+	delete_user_meta( $user_id, UW_MUSE_USER_RESTORE );
+	delete_user_meta( $user_id, UW_MUSE_USER_SYNC );
+	delete_transient( 'uw_muse_key_once_' . $user_id );
+	delete_transient( 'uw_muse_rate_' . $user_id );
+}
+
+function uw_muse_user_toggle( $user_id, $meta_key ) {
+	return '1' === (string) get_user_meta( (int) $user_id, $meta_key, true );
+}
+
+function uw_muse_set_user_toggles( $user_id, array $toggles ) {
+	$user_id = (int) $user_id;
+	if ( $user_id <= 0 ) {
+		return;
+	}
+	$map = array(
+		'push'    => UW_MUSE_USER_PUSH,
+		'restore' => UW_MUSE_USER_RESTORE,
+		'sync'    => UW_MUSE_USER_SYNC,
+	);
+	foreach ( $map as $k => $meta ) {
+		if ( ! array_key_exists( $k, $toggles ) ) {
+			continue;
+		}
+		if ( ! empty( $toggles[ $k ] ) ) {
+			update_user_meta( $user_id, $meta, '1' );
+		} else {
+			delete_user_meta( $user_id, $meta );
+		}
+	}
+}
+
+function uw_muse_site_push_allowed() {
+	return '1' === (string) get_option( UW_MUSE_SITE_PUSH, '' );
+}
+
+/** Whether this Muse identity may push to YouTube. */
+function uw_muse_can_push() {
+	$uid = uw_muse_request_user_id();
+	if ( null === $uid ) {
+		return false;
+	}
+	if ( 0 === (int) $uid ) {
+		return uw_muse_site_push_allowed();
+	}
+	return uw_muse_user_toggle( $uid, UW_MUSE_USER_PUSH );
+}
+
+function uw_muse_can_restore() {
+	$uid = uw_muse_request_user_id();
+	if ( null === $uid || 0 === (int) $uid ) {
+		return false;
+	}
+	return uw_muse_user_toggle( $uid, UW_MUSE_USER_RESTORE );
+}
+
+function uw_muse_can_sync() {
+	$uid = uw_muse_request_user_id();
+	if ( null === $uid || 0 === (int) $uid ) {
+		return false;
+	}
+	return uw_muse_user_toggle( $uid, UW_MUSE_USER_SYNC );
+}
+
+function uw_muse_daily_unit_cap() {
+	$uid = uw_muse_request_user_id();
+	if ( null === $uid || 0 === (int) $uid ) {
+		return 0; // site key: no daily Muse cap
+	}
+	return (int) apply_filters( 'uw_muse_daily_youtube_units', 1000, $uid );
+}
+
+function uw_muse_quota_day() {
+	return ( new DateTime( 'now', new DateTimeZone( 'America/Los_Angeles' ) ) )->format( 'Y-m-d' );
+}
+
+function uw_muse_quota_used() {
+	if ( ! class_exists( 'TW_Store' ) ) {
+		return 0;
+	}
+	$q = TW_Store::get( 'muse_quota', array() );
+	return ( is_array( $q ) && ( $q['day'] ?? '' ) === uw_muse_quota_day() ) ? (int) $q['used'] : 0;
 }
 
 /**
- * Find which account owns this Muse key.
- *
- * @return int|null User id, 0 for legacy site key, null if invalid.
+ * @param int $units Estimated YouTube API units this Muse action will use.
+ * @return true|WP_Error
  */
-function uw_muse_resolve_user_id( $sent ) {
-	$sent = is_string( $sent ) ? trim( $sent ) : '';
-	if ( '' === $sent ) {
-		return null;
+function uw_muse_quota_check( $units = 1 ) {
+	$cap = uw_muse_daily_unit_cap();
+	if ( $cap <= 0 ) {
+		return true;
 	}
+	$used = uw_muse_quota_used();
+	if ( ( $used + max( 0, (int) $units ) ) > $cap ) {
+		return new WP_Error(
+			'uw_muse_quota',
+			sprintf( 'Muse daily YouTube unit cap reached (%d / %d). Try again tomorrow.', $used, $cap ),
+			array( 'status' => 429 )
+		);
+	}
+	return true;
+}
 
+function uw_muse_quota_add( $units ) {
+	$units = max( 0, (int) $units );
+	if ( $units <= 0 || ! class_exists( 'TW_Store' ) ) {
+		return;
+	}
+	if ( uw_muse_daily_unit_cap() <= 0 ) {
+		return;
+	}
+	$day  = uw_muse_quota_day();
+	$q    = TW_Store::get( 'muse_quota', array() );
+	$used = ( is_array( $q ) && ( $q['day'] ?? '' ) === $day ) ? (int) $q['used'] : 0;
+	TW_Store::set( 'muse_quota', array( 'day' => $day, 'used' => $used + $units ) );
+}
+
+/**
+ * Log a Muse write. No key values.
+ *
+ * @param string     $action Short label.
+ * @param string     $video  Optional video id.
+ * @param array|null $extra  Extra safe fields.
+ */
+function uw_muse_log( $action, $video = '', $extra = null ) {
+	if ( ! class_exists( 'TW_Store' ) ) {
+		return;
+	}
+	$ip  = isset( $_SERVER['REMOTE_ADDR'] ) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+	$ip  = $ip ? substr( hash( 'sha256', $ip . '|' . wp_salt( 'auth' ) ), 0, 12 ) : '';
+	$log = TW_Store::get( 'muse_log', array() );
+	$log = is_array( $log ) ? $log : array();
+	$row = array(
+		'time'   => time(),
+		'action' => sanitize_key( (string) $action ),
+		'via'    => 'muse',
+		'video'  => preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $video ),
+		'ip'     => $ip,
+	);
+	if ( is_array( $extra ) ) {
+		foreach ( array( 'status', 'note', 'post_id' ) as $k ) {
+			if ( isset( $extra[ $k ] ) ) {
+				$row[ $k ] = is_scalar( $extra[ $k ] ) ? $extra[ $k ] : '';
+			}
+		}
+	}
+	array_unshift( $log, $row );
+	TW_Store::set( 'muse_log', array_slice( $log, 0, UW_MUSE_LOG_MAX ) );
+}
+
+/** Last N Muse actions for the current TW_Store scope (account page). */
+function uw_muse_recent_actions( $limit = 10 ) {
+	if ( ! class_exists( 'TW_Store' ) ) {
+		return array();
+	}
+	$log = TW_Store::get( 'muse_log', array() );
+	$log = is_array( $log ) ? $log : array();
+	return array_slice( $log, 0, max( 1, (int) $limit ) );
+}
+
+/**
+ * @return true|WP_Error
+ */
+function uw_muse_rate_limit( $user_id ) {
+	$key     = 'uw_muse_rate_' . (int) $user_id;
+	$bucket  = get_transient( $key );
+	$bucket  = is_array( $bucket ) ? $bucket : array( 't' => time(), 'n' => 0 );
+	$now     = time();
+	if ( ( $now - (int) $bucket['t'] ) >= UW_MUSE_RATE_WINDOW ) {
+		$bucket = array( 't' => $now, 'n' => 0 );
+	}
+	if ( (int) $bucket['n'] >= UW_MUSE_RATE_MAX ) {
+		return new WP_Error(
+			'uw_muse_rate',
+			'Too many Muse requests. Wait a minute and try again.',
+			array( 'status' => 429 )
+		);
+	}
+	$bucket['n'] = (int) $bucket['n'] + 1;
+	set_transient( $key, $bucket, UW_MUSE_RATE_WINDOW );
+	return true;
+}
+
+function uw_muse_site_has_key() {
+	if ( defined( 'UW_MUSE_KEY' ) && UW_MUSE_KEY ) {
+		return true;
+	}
+	return '' !== (string) get_option( UW_MUSE_OPTION_HASH, '' );
+}
+
+function uw_muse_site_hint() {
+	return (string) get_option( UW_MUSE_OPTION_HINT, '' );
+}
+
+function uw_muse_set_site_key( $key ) {
+	$key = trim( (string) $key );
+	delete_option( UW_MUSE_OPTION_KEY );
+	if ( '' === $key ) {
+		delete_option( UW_MUSE_OPTION_HASH );
+		delete_option( UW_MUSE_OPTION_HINT );
+		return true;
+	}
+	if ( strlen( $key ) < 32 ) {
+		return false;
+	}
+	update_option( UW_MUSE_OPTION_HASH, uw_muse_hash_key( $key ), false );
+	update_option( UW_MUSE_OPTION_HINT, uw_muse_hint_from_key( $key ), false );
+	return true;
+}
+
+/** Migrate plain Muse keys to hash + hint, then delete the plain values. */
+function uw_muse_maybe_migrate_keys() {
+	if ( get_option( UW_MUSE_KEYS_MIGRATED ) ) {
+		return;
+	}
 	$users = get_users(
 		array(
 			'meta_key'     => UW_MUSE_USER_META,
 			'meta_compare' => 'EXISTS',
 			'fields'       => array( 'ID' ),
-			'number'       => 200,
+			'number'       => 500,
 			'count_total'  => false,
 		)
 	);
 	foreach ( $users as $user ) {
-		$stored = uw_muse_user_key( $user->ID );
-		if ( '' !== $stored && hash_equals( $stored, $sent ) ) {
-			return (int) $user->ID;
+		$plain = (string) get_user_meta( $user->ID, UW_MUSE_USER_META, true );
+		if ( '' === $plain ) {
+			delete_user_meta( $user->ID, UW_MUSE_USER_META );
+			continue;
 		}
+		if ( '' === (string) get_user_meta( $user->ID, UW_MUSE_USER_HASH, true ) ) {
+			update_user_meta( $user->ID, UW_MUSE_USER_HASH, uw_muse_hash_key( $plain ) );
+			update_user_meta( $user->ID, UW_MUSE_USER_HINT, uw_muse_hint_from_key( $plain ) );
+		}
+		delete_user_meta( $user->ID, UW_MUSE_USER_META );
+	}
+
+	$site_plain = (string) get_option( UW_MUSE_OPTION_KEY, '' );
+	if ( '' !== $site_plain ) {
+		if ( '' === (string) get_option( UW_MUSE_OPTION_HASH, '' ) ) {
+			update_option( UW_MUSE_OPTION_HASH, uw_muse_hash_key( $site_plain ), false );
+			update_option( UW_MUSE_OPTION_HINT, uw_muse_hint_from_key( $site_plain ), false );
+		}
+		delete_option( UW_MUSE_OPTION_KEY );
+	}
+
+	update_option( UW_MUSE_KEYS_MIGRATED, '1', false );
+}
+
+/**
+ * Find which account owns this Muse key.
+ *
+ * @return int|null User id, 0 for site key, null if invalid.
+ */
+function uw_muse_resolve_user_id( $sent ) {
+	$sent = is_string( $sent ) ? trim( $sent ) : '';
+	if ( '' === $sent || strlen( $sent ) < 16 ) {
+		return null;
+	}
+
+	$hash  = uw_muse_hash_key( $sent );
+	$users = get_users(
+		array(
+			'meta_key'     => UW_MUSE_USER_HASH,
+			'meta_value'   => $hash,
+			'number'       => 1,
+			'fields'       => array( 'ID' ),
+			'count_total'  => false,
+		)
+	);
+	if ( ! empty( $users[0] ) ) {
+		return (int) $users[0]->ID;
 	}
 
 	if ( defined( 'UW_MUSE_KEY' ) && UW_MUSE_KEY && hash_equals( (string) UW_MUSE_KEY, $sent ) ) {
 		return 0;
 	}
-	$site = (string) get_option( UW_MUSE_OPTION_KEY, '' );
-	if ( '' !== $site && hash_equals( $site, $sent ) ) {
+	$site_hash = (string) get_option( UW_MUSE_OPTION_HASH, '' );
+	if ( '' !== $site_hash && hash_equals( $site_hash, $hash ) ) {
 		return 0;
 	}
 	return null;
@@ -135,20 +426,16 @@ function uw_muse_permission( WP_REST_Request $request ) {
 	$sent    = is_string( $sent ) ? trim( $sent ) : '';
 	$user_id = uw_muse_resolve_user_id( $sent );
 	if ( null === $user_id ) {
-		$have_user_keys = (bool) get_users(
-			array(
-				'meta_key'     => UW_MUSE_USER_META,
-				'meta_compare' => 'EXISTS',
-				'number'       => 1,
-				'fields'       => array( 'ID' ),
-				'count_total'  => false,
-			)
-		);
-		$have_any = $have_user_keys || ( defined( 'UW_MUSE_KEY' ) && UW_MUSE_KEY ) || '' !== (string) get_option( UW_MUSE_OPTION_KEY, '' );
-		if ( ! $have_any ) {
-			return new WP_Error( 'uw_muse_no_key', 'Muse key is not configured. Generate one on Account → Keys & voice.', array( 'status' => 503 ) );
-		}
 		return new WP_Error( 'uw_muse_unauthorized', 'Missing or invalid Muse key.', array( 'status' => 401 ) );
+	}
+	if ( $user_id > 0 ) {
+		if ( ! user_can( $user_id, 'use_uploadwriter' ) && ! user_can( $user_id, 'manage_options' ) ) {
+			return new WP_Error( 'uw_muse_unauthorized', 'Missing or invalid Muse key.', array( 'status' => 401 ) );
+		}
+	}
+	$rate = uw_muse_rate_limit( $user_id );
+	if ( is_wp_error( $rate ) ) {
+		return $rate;
 	}
 	uw_muse_apply_context( $user_id );
 	return true;
@@ -291,6 +578,60 @@ add_action(
 		);
 		register_rest_route(
 			'uw/v1',
+			'/muse/videos/(?P<id>[A-Za-z0-9_-]+)/history',
+			array(
+				'methods'             => 'GET',
+				'callback'            => 'uw_muse_rest_videos_history',
+				'permission_callback' => $auth,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
+			'/muse/videos/(?P<id>[A-Za-z0-9_-]+)/restore',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'uw_muse_rest_videos_restore',
+				'permission_callback' => $auth,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
+			'/muse/schedule',
+			array(
+				'methods'             => 'GET',
+				'callback'            => 'uw_muse_rest_schedule',
+				'permission_callback' => $auth,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
+			'/muse/playlists',
+			array(
+				'methods'             => 'GET',
+				'callback'            => 'uw_muse_rest_playlists',
+				'permission_callback' => $auth,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
+			'/muse/sync',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'uw_muse_rest_sync',
+				'permission_callback' => $auth,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
+			'/muse/media',
+			array(
+				'methods'             => 'POST',
+				'callback'            => 'uw_muse_rest_media',
+				'permission_callback' => $auth_site,
+			)
+		);
+		register_rest_route(
+			'uw/v1',
 			'/muse/pages',
 			array(
 				'methods'             => 'POST',
@@ -312,30 +653,46 @@ add_action(
 
 function uw_muse_rest_schema() {
 	$base = uw_muse_base_url();
+	$cap  = uw_muse_daily_unit_cap();
 	return rest_ensure_response(
 		array(
 			'auth_header' => UW_MUSE_HEADER,
 			'base'        => $base,
 			'limits'      => array(
-				'title_max'       => class_exists( 'TW_Validator' ) ? TW_Validator::TITLE_MAX : 100,
-				'tags_hard_max'   => class_exists( 'TW_Validator' ) ? TW_Validator::TAGS_HARD_MAX : 8,
-				'hashtags_max'    => class_exists( 'TW_Validator' ) ? TW_Validator::HASH_MAX : 3,
-				'description_max' => class_exists( 'TW_Validator' ) ? TW_Validator::DESC_MAX : 5000,
-				'videos_per_page' => 20,
+				'title_max'         => class_exists( 'TW_Validator' ) ? TW_Validator::TITLE_MAX : 100,
+				'tags_hard_max'     => class_exists( 'TW_Validator' ) ? TW_Validator::TAGS_HARD_MAX : 8,
+				'hashtags_max'      => class_exists( 'TW_Validator' ) ? TW_Validator::HASH_MAX : 3,
+				'description_max'   => class_exists( 'TW_Validator' ) ? TW_Validator::DESC_MAX : 5000,
+				'videos_per_page'   => 20,
+				'rate_per_minute'   => UW_MUSE_RATE_MAX,
+				'muse_youtube_cap'  => $cap,
+				'muse_youtube_used' => uw_muse_quota_used(),
+				'media_max_bytes'   => 5 * MB_IN_BYTES,
+			),
+			'permissions'       => array(
+				'push'    => uw_muse_can_push(),
+				'restore' => uw_muse_can_restore(),
+				'sync'    => uw_muse_can_sync(),
 			),
 			'video_tw_statuses' => array( '', 'started', 'draft', 'pushed' ),
 			'scope'             => uw_muse_is_site_scope() ? 'site' : 'user',
 			'endpoints'         => array(
-				'schema'          => array( 'GET', $base . '/muse/schema', 'any' ),
-				'status'          => array( 'GET', $base . '/muse/status', 'any' ),
-				'settings'        => array( 'GET|POST|PATCH', $base . '/muse/settings', 'any' ),
-				'youtube_status'  => array( 'GET', $base . '/muse/youtube/status', 'any' ),
-				'videos'          => array( 'GET', $base . '/muse/videos', 'any' ),
-				'video'           => array( 'GET|POST|PATCH', $base . '/muse/videos/{id}', 'any' ),
-				'generate'        => array( 'POST', $base . '/muse/videos/{id}/generate', 'any' ),
-				'push_to_youtube' => array( 'POST', $base . '/muse/videos/{id}/push-to-youtube', 'any' ),
-				'pages'           => array( 'POST', $base . '/muse/pages', 'site' ),
-				'posts'           => array( 'POST', $base . '/muse/posts', 'site' ),
+				'schema'          => array( 'GET', $base . '/muse/schema', 'any', '' ),
+				'status'          => array( 'GET', $base . '/muse/status', 'any', '' ),
+				'settings'        => array( 'GET|POST|PATCH', $base . '/muse/settings', 'any', '' ),
+				'youtube_status'  => array( 'GET', $base . '/muse/youtube/status', 'any', '' ),
+				'videos'          => array( 'GET', $base . '/muse/videos', 'any', '' ),
+				'video'           => array( 'GET|POST|PATCH', $base . '/muse/videos/{id}', 'any', '' ),
+				'generate'        => array( 'POST', $base . '/muse/videos/{id}/generate', 'any', '' ),
+				'push_to_youtube' => array( 'POST', $base . '/muse/videos/{id}/push-to-youtube', 'any', 'push' ),
+				'history'         => array( 'GET', $base . '/muse/videos/{id}/history', 'any', '' ),
+				'restore'         => array( 'POST', $base . '/muse/videos/{id}/restore', 'user', 'restore' ),
+				'schedule'        => array( 'GET', $base . '/muse/schedule', 'any', '' ),
+				'playlists'       => array( 'GET', $base . '/muse/playlists', 'any', '' ),
+				'sync'            => array( 'POST', $base . '/muse/sync', 'user', 'sync' ),
+				'media'           => array( 'POST', $base . '/muse/media', 'site', '' ),
+				'pages'           => array( 'POST', $base . '/muse/pages', 'site', '' ),
+				'posts'           => array( 'POST', $base . '/muse/posts', 'site', '' ),
 			),
 			'fields'            => array(
 				'videos_list'  => array( 'status', 'visibility', 'search', 'page', 'per_page' ),
@@ -352,16 +709,18 @@ function uw_muse_rest_schema() {
 				'pkg'          => array( 'titles', 'title', 'body', 'chapters_heading', 'chapters', 'tags', 'hashtags' ),
 				'generate'     => array( 'notes', 'transcript', 'seed_title', 'seed_desc' ),
 				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint' ),
-				'pages_posts'  => array( 'external_id', 'title', 'slug', 'content_html', 'update' ),
+				'restore'      => array( 'entry_id', 'confirm' ),
+				'pages_posts'  => array( 'external_id', 'title', 'slug', 'content_html', 'update', 'categories', 'tags', 'featured_media' ),
 				'settings'     => class_exists( 'TW_Settings' ) ? TW_Settings::IDENTITY_KEYS : array(),
 			),
 			'notes'             => array(
 				'Always send ' . UW_MUSE_HEADER . ' and Content-Type: application/json.',
-				'User scope (Account → Keys & voice): that user’s videos, channel identity, generate, and push only. No posts/pages.',
-				'Site scope (UploadWriter → Muse legacy key): promotional draft posts/pages, plus the site/admin video index.',
-				'Royal MCP is separate (Authorization: Bearer). Use it for broader WP work with the site Muse connection; it is not granted by a per-user Muse key.',
-				'Videos are YouTube ids from that account’s local index. Muse does not create YouTube uploads.',
-				'POST /muse/pages and /muse/posts are site-key only, drafts only.',
+				'User scope (Account → Keys & voice): that user’s videos only. No posts/pages.',
+				'Site scope (UploadWriter → Muse): promotional draft posts/pages, plus the site/admin video index.',
+				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only.',
+				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day).',
+				'Royal MCP is separate (Authorization: Bearer).',
+				'POST /muse/pages and /muse/posts are site-key only, drafts only. Never publishes.',
 				'Push requires confirm_push:true. Use dry_run:true first.',
 				'Never sign in to Google, YouTube, or wp-admin in a browser as Muse.',
 			),
@@ -412,6 +771,15 @@ function uw_muse_rest_status() {
 			'channel'           => array(
 				'id'    => is_array( $channel ) ? (string) ( $channel['id'] ?? '' ) : '',
 				'title' => is_array( $channel ) ? (string) ( $channel['title'] ?? '' ) : '',
+			),
+			'permissions'       => array(
+				'push'    => uw_muse_can_push(),
+				'restore' => uw_muse_can_restore(),
+				'sync'    => uw_muse_can_sync(),
+			),
+			'muse_quota'        => array(
+				'used' => uw_muse_quota_used(),
+				'cap'  => uw_muse_daily_unit_cap(),
 			),
 			'video_counts'      => array(
 				'indexed'   => (int) ( $counts['all'] ?? 0 ),
@@ -724,6 +1092,9 @@ function uw_muse_rest_videos_update( WP_REST_Request $request ) {
 
 	$state = uw_muse_save_state( $video_id, $extra );
 	$row   = uw_muse_get_video_row( $video_id );
+	if ( $changed ) {
+		uw_muse_log( 'draft_update', $video_id, array( 'status' => 'ok' ) );
+	}
 	return rest_ensure_response(
 		array(
 			'id'      => $video_id,
@@ -796,6 +1167,8 @@ function uw_muse_rest_videos_generate( WP_REST_Request $request ) {
 		)
 	);
 
+	uw_muse_log( 'generate', $video_id, array( 'status' => 'ok' ) );
+
 	return rest_ensure_response(
 		array(
 			'id'           => $video_id,
@@ -823,6 +1196,7 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	$body     = is_array( $body ) ? $body : array();
 	$dry_run  = ! empty( $body['dry_run'] );
 	$confirm  = ! empty( $body['confirm_push'] );
+	$can_push = uw_muse_can_push();
 	$state    = uw_muse_get_state( $video_id );
 	$pkg      = uw_muse_normalize_pkg( $state['pkg'] ?? array() );
 	$opts     = uw_muse_default_opts( $state );
@@ -838,7 +1212,11 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	}
 	$plan = TW_Plan::build( $video, $pkg, $opts, $duration );
 
-	if ( $dry_run || ! $confirm ) {
+	if ( $dry_run || ! $confirm || ! $can_push ) {
+		$note = 'Pass confirm_push:true and fingerprint from this dry_run to push. dry_run:true never calls YouTube write.';
+		if ( ! $can_push ) {
+			$note = 'Muse push is off for this key. Dry run only. Turn on "Let Muse push changes to YouTube" on the account (or the site Muse setting for the site key).';
+		}
 		return rest_ensure_response(
 			array(
 				'dry_run'     => true,
@@ -856,9 +1234,15 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 					'description' => mb_substr( (string) ( $plan['details']['description'] ?? '' ), 0, 400 ),
 				),
 				'schedule'    => $plan['schedule'],
-				'note'        => $confirm ? '' : 'Pass confirm_push:true and fingerprint from this dry_run to push. dry_run:true never calls YouTube write.',
+				'push_allowed'=> $can_push,
+				'note'        => $note,
 			)
 		);
+	}
+
+	$quota = uw_muse_quota_check( 50 );
+	if ( is_wp_error( $quota ) ) {
+		return $quota;
 	}
 
 	$fingerprint = (string) ( $body['fingerprint'] ?? '' );
@@ -870,6 +1254,9 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	if ( is_wp_error( $result ) ) {
 		return $result;
 	}
+
+	uw_muse_quota_add( 50 );
+	uw_muse_log( 'push', $video_id, array( 'status' => ! empty( $result['wrote'] ) ? 'ok' : 'partial' ) );
 
 	uw_muse_save_state(
 		$video_id,
@@ -888,12 +1275,177 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 
 	return rest_ensure_response(
 		array(
-			'dry_run'         => false,
-			'pushed'          => true,
-			'id'              => $video_id,
-			'youtube_url'     => 'https://www.youtube.com/watch?v=' . $video_id,
-			'result'          => $result,
-			'history'         => TW_History::summary( $video_id ),
+			'dry_run'     => false,
+			'pushed'      => true,
+			'id'          => $video_id,
+			'youtube_url' => 'https://www.youtube.com/watch?v=' . $video_id,
+			'result'      => $result,
+			'history'     => TW_History::summary( $video_id ),
+		)
+	);
+}
+
+function uw_muse_rest_videos_history( WP_REST_Request $request ) {
+	$video_id = uw_muse_video_id( $request );
+	$row      = uw_muse_get_video_row( $video_id );
+	if ( ! $row ) {
+		return new WP_Error( 'uw_muse_not_found', 'Video not in the local index.', array( 'status' => 404 ) );
+	}
+	if ( ! class_exists( 'TW_History' ) ) {
+		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	return rest_ensure_response(
+		array(
+			'id'      => $video_id,
+			'history' => TW_History::summary( $video_id ),
+		)
+	);
+}
+
+function uw_muse_rest_videos_restore( WP_REST_Request $request ) {
+	$video_id = uw_muse_video_id( $request );
+	$row      = uw_muse_get_video_row( $video_id );
+	if ( ! $row ) {
+		return new WP_Error( 'uw_muse_not_found', 'Video not in the local index.', array( 'status' => 404 ) );
+	}
+	$body    = $request->get_json_params();
+	$body    = is_array( $body ) ? $body : array();
+	$entry   = sanitize_text_field( (string) ( $body['entry_id'] ?? '' ) );
+	$confirm = ! empty( $body['confirm'] );
+	$can     = uw_muse_can_restore();
+
+	if ( ! $can || ! $confirm ) {
+		$hist = class_exists( 'TW_History' ) ? TW_History::summary( $video_id ) : array();
+		$note = ! $can
+			? 'Muse restore is off for this key. Dry run only. Turn on "Let Muse restore older versions" on the account.'
+			: 'Pass confirm:true and entry_id to restore. Nothing was written.';
+		return rest_ensure_response(
+			array(
+				'dry_run'       => true,
+				'restored'      => false,
+				'id'            => $video_id,
+				'entry_id'      => $entry,
+				'restore_allowed' => $can,
+				'history'       => $hist,
+				'note'          => $note,
+			)
+		);
+	}
+	if ( '' === $entry ) {
+		return new WP_Error( 'uw_muse_entry', 'entry_id is required.', array( 'status' => 400 ) );
+	}
+	$quota = uw_muse_quota_check( 50 );
+	if ( is_wp_error( $quota ) ) {
+		return $quota;
+	}
+	$result = TW_Plan::restore( $video_id, $entry );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+	uw_muse_quota_add( 50 );
+	uw_muse_log( 'restore', $video_id, array( 'status' => ! empty( $result['ok'] ) ? 'ok' : 'partial' ) );
+	TW_Index::refresh_one( $video_id );
+	return rest_ensure_response(
+		array(
+			'dry_run'  => false,
+			'restored' => true,
+			'id'       => $video_id,
+			'result'   => $result,
+			'history'  => TW_History::summary( $video_id ),
+		)
+	);
+}
+
+function uw_muse_rest_schedule() {
+	if ( ! class_exists( 'TW_Index' ) ) {
+		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	return rest_ensure_response(
+		array(
+			'events' => TW_Index::calendar_events(),
+			'units'  => 0,
+		)
+	);
+}
+
+function uw_muse_rest_playlists() {
+	if ( ! class_exists( 'TW_YouTube' ) ) {
+		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	$quota = uw_muse_quota_check( 1 );
+	if ( is_wp_error( $quota ) ) {
+		return $quota;
+	}
+	$list = TW_YouTube::playlists();
+	if ( is_wp_error( $list ) ) {
+		return $list;
+	}
+	uw_muse_quota_add( max( 1, (int) ceil( count( $list ) / 50 ) ) );
+	return rest_ensure_response( array( 'items' => $list ) );
+}
+
+function uw_muse_rest_sync( WP_REST_Request $request ) {
+	if ( ! class_exists( 'TW_Index' ) ) {
+		return new WP_Error( 'uw_muse_app', 'UploadWriter is not loaded.', array( 'status' => 503 ) );
+	}
+	$can = uw_muse_can_sync();
+	if ( ! $can ) {
+		return rest_ensure_response(
+			array(
+				'dry_run'      => true,
+				'synced'       => false,
+				'sync_allowed' => false,
+				'note'         => 'Muse sync is off for this key. Turn on "Let Muse pull captions and sync" on the account.',
+			)
+		);
+	}
+	// Quick sync costs roughly a handful of list units.
+	$quota = uw_muse_quota_check( 20 );
+	if ( is_wp_error( $quota ) ) {
+		return $quota;
+	}
+	$result = TW_Index::sync_batch( 'quick' );
+	if ( is_wp_error( $result ) ) {
+		return $result;
+	}
+	uw_muse_quota_add( 20 );
+	uw_muse_log( 'sync', '', array( 'status' => 'ok' ) );
+	return rest_ensure_response(
+		array(
+			'dry_run' => false,
+			'synced'  => true,
+			'result'  => $result,
+		)
+	);
+}
+
+function uw_muse_rest_media( WP_REST_Request $request ) {
+	$files = $request->get_file_params();
+	$file  = $files['file'] ?? null;
+	if ( ! is_array( $file ) || empty( $file['tmp_name'] ) ) {
+		return new WP_Error( 'uw_muse_media', 'Send a multipart file field named file.', array( 'status' => 400 ) );
+	}
+	$max = 5 * MB_IN_BYTES;
+	if ( ! empty( $file['size'] ) && (int) $file['size'] > $max ) {
+		return new WP_Error( 'uw_muse_media_size', 'Image must be 5 MB or smaller.', array( 'status' => 400 ) );
+	}
+	$check = wp_check_filetype_and_ext( $file['tmp_name'], $file['name'] ?? '' );
+	$type  = (string) ( $check['type'] ?? '' );
+	if ( ! $type || 0 !== strpos( $type, 'image/' ) ) {
+		return new WP_Error( 'uw_muse_media_type', 'Only image uploads are allowed.', array( 'status' => 400 ) );
+	}
+	require_once ABSPATH . 'wp-admin/includes/file.php';
+	require_once ABSPATH . 'wp-admin/includes/media.php';
+	require_once ABSPATH . 'wp-admin/includes/image.php';
+	$att_id = media_handle_upload( 'file', 0 );
+	if ( is_wp_error( $att_id ) ) {
+		return $att_id;
+	}
+	uw_muse_log( 'media', '', array( 'status' => 'ok', 'post_id' => (int) $att_id ) );
+	return rest_ensure_response(
+		array(
+			'id'  => (int) $att_id,
+			'url' => wp_get_attachment_url( $att_id ),
 		)
 	);
 }
@@ -977,6 +1529,31 @@ function uw_muse_save_content( array $item, $post_type = 'page' ) {
 	$post_id = (int) $result;
 	update_post_meta( $post_id, UW_MUSE_META_EXT, $external_id );
 
+	if ( 'post' === $post_type ) {
+		if ( array_key_exists( 'categories', $item ) ) {
+			$cats = is_array( $item['categories'] ) ? $item['categories'] : array( $item['categories'] );
+			$ids  = array_values( array_filter( array_map( 'absint', $cats ) ) );
+			if ( $ids ) {
+				wp_set_post_categories( $post_id, $ids, false );
+			}
+		}
+		if ( array_key_exists( 'tags', $item ) ) {
+			$tags = is_array( $item['tags'] ) ? $item['tags'] : preg_split( '/\s*,\s*/', (string) $item['tags'] );
+			$tags = array_values( array_filter( array_map( 'sanitize_text_field', (array) $tags ) ) );
+			wp_set_post_tags( $post_id, $tags, false );
+		}
+		if ( array_key_exists( 'featured_media', $item ) ) {
+			$fid = absint( $item['featured_media'] );
+			if ( $fid && wp_attachment_is_image( $fid ) ) {
+				set_post_thumbnail( $post_id, $fid );
+			} elseif ( ! $fid ) {
+				delete_post_thumbnail( $post_id );
+			}
+		}
+	}
+
+	uw_muse_log( $post_type, '', array( 'status' => 'ok', 'post_id' => $post_id ) );
+
 	return array(
 		'id'          => $post_id,
 		'external_id' => $external_id,
@@ -1042,6 +1619,15 @@ function uw_muse_rest_posts( WP_REST_Request $request ) {
 	return uw_muse_rest_batch_content( $request, 'post' );
 }
 
+add_action( 'init', 'uw_muse_maybe_migrate_keys', 5 );
+
+add_action(
+	'delete_user',
+	function ( $user_id ) {
+		uw_muse_purge_user( (int) $user_id );
+	}
+);
+
 add_action(
 	'admin_menu',
 	function () {
@@ -1058,13 +1644,27 @@ add_action(
 		}
 		check_admin_referer( 'uw_muse_settings', 'uw_muse_settings_nonce' );
 
-		// Legacy site-scoped key only (admin index / user_id 0). Prefer per-user keys on Account.
 		if ( ! empty( $_POST['uw_muse_clear_key'] ) ) {
-			delete_option( UW_MUSE_OPTION_KEY );
+			uw_muse_set_site_key( '' );
 		} elseif ( ! empty( $_POST['uw_muse_regen_key'] ) ) {
 			$new = uw_muse_new_key();
-			update_option( UW_MUSE_OPTION_KEY, $new, false );
+			uw_muse_set_site_key( $new );
 			set_transient( 'uw_muse_key_once', $new, 60 );
+		} else {
+			$typed = isset( $_POST['uw_muse_key'] ) ? trim( wp_unslash( (string) $_POST['uw_muse_key'] ) ) : '';
+			if ( '' !== $typed ) {
+				if ( strlen( $typed ) < 32 ) {
+					wp_safe_redirect( add_query_arg( array( 'page' => 'uploadwriter-muse', 'err' => 'short' ), admin_url( 'admin.php' ) ) );
+					exit;
+				}
+				uw_muse_set_site_key( $typed );
+			}
+		}
+
+		if ( ! empty( $_POST['uw_muse_allow_push'] ) ) {
+			update_option( UW_MUSE_SITE_PUSH, '1', false );
+		} else {
+			delete_option( UW_MUSE_SITE_PUSH );
 		}
 
 		wp_safe_redirect( add_query_arg( array( 'page' => 'uploadwriter-muse', 'updated' => '1' ), admin_url( 'admin.php' ) ) );
@@ -1076,23 +1676,42 @@ function uw_muse_settings_page() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		return;
 	}
-	$from_cfg = defined( 'UW_MUSE_KEY' ) && UW_MUSE_KEY;
-	$site_key = (string) get_option( UW_MUSE_OPTION_KEY, '' );
-	$has_site = $from_cfg || '' !== $site_key;
-	$base     = uw_muse_base_url();
-	$once     = get_transient( 'uw_muse_key_once' );
+	$from_cfg   = defined( 'UW_MUSE_KEY' ) && UW_MUSE_KEY;
+	$has_site   = uw_muse_site_has_key();
+	$hint       = uw_muse_site_hint();
+	$base       = uw_muse_base_url();
+	$site_push  = uw_muse_site_push_allowed();
+	$once       = get_transient( 'uw_muse_key_once' );
 	if ( $once ) {
 		delete_transient( 'uw_muse_key_once' );
 	}
 	$account_url = class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) . '#tw-keys' : home_url( '/tubewriter/account/#tw-keys' );
 	$with_keys   = get_users(
 		array(
-			'meta_key'     => UW_MUSE_USER_META,
+			'meta_key'     => UW_MUSE_USER_HASH,
 			'meta_compare' => 'EXISTS',
 			'fields'       => array( 'ID', 'user_login' ),
 			'number'       => 50,
 			'count_total'  => false,
 		)
+	);
+	$routes = array(
+		array( 'GET', '/muse/schema', 'any', '' ),
+		array( 'GET', '/muse/status', 'any', '' ),
+		array( 'GET|POST|PATCH', '/muse/settings', 'any', '' ),
+		array( 'GET', '/muse/youtube/status', 'any', '' ),
+		array( 'GET', '/muse/videos', 'any', '' ),
+		array( 'GET|POST|PATCH', '/muse/videos/{id}', 'any', '' ),
+		array( 'POST', '/muse/videos/{id}/generate', 'any', '' ),
+		array( 'POST', '/muse/videos/{id}/push-to-youtube', 'any', 'push' ),
+		array( 'GET', '/muse/videos/{id}/history', 'any', '' ),
+		array( 'POST', '/muse/videos/{id}/restore', 'user', 'restore' ),
+		array( 'GET', '/muse/schedule', 'any', '' ),
+		array( 'GET', '/muse/playlists', 'any', '' ),
+		array( 'POST', '/muse/sync', 'user', 'sync' ),
+		array( 'POST', '/muse/media', 'site', '' ),
+		array( 'POST', '/muse/pages', 'site', '' ),
+		array( 'POST', '/muse/posts', 'site', '' ),
 	);
 	?>
 	<div class="wrap">
@@ -1100,11 +1719,14 @@ function uw_muse_settings_page() {
 		<?php if ( ! empty( $_GET['updated'] ) ) : ?>
 			<div class="notice notice-success is-dismissible"><p>Saved.</p></div>
 		<?php endif; ?>
+		<?php if ( ! empty( $_GET['err'] ) && 'short' === $_GET['err'] ) : ?>
+			<div class="notice notice-error is-dismissible"><p>Muse keys must be at least 32 characters.</p></div>
+		<?php endif; ?>
 		<?php if ( $once ) : ?>
-			<div class="notice notice-warning"><p>Legacy site Muse key (copy now, shown once): <code><?php echo esc_html( $once ); ?></code></p></div>
+			<div class="notice notice-warning"><p>Site Muse key (copy now, shown once): <code><?php echo esc_html( $once ); ?></code></p></div>
 		<?php endif; ?>
 		<p><strong>Per-user keys</strong> (Account → <a href="<?php echo esc_url( $account_url ); ?>">Keys &amp; voice</a>): that user’s videos only. No promotional posts/pages.</p>
-		<p><strong>This site key</strong>: draft posts/pages for marketing, plus the site/admin video index. Pair with Royal MCP (Bearer) for broader WP access — that is a separate key in Royal MCP settings.</p>
+		<p><strong>This site key</strong>: draft posts/pages for marketing, plus the site/admin video index. Pair with Royal MCP (Bearer) for broader WP access. That is a separate key in Royal MCP settings.</p>
 		<p>Accounts with a Muse key: <strong><?php echo esc_html( (string) count( $with_keys ) ); ?></strong>
 			<?php if ( $with_keys ) : ?>
 				(<?php echo esc_html( implode( ', ', wp_list_pluck( $with_keys, 'user_login' ) ) ); ?>)
@@ -1114,42 +1736,67 @@ function uw_muse_settings_page() {
 			<?php wp_nonce_field( 'uw_muse_settings', 'uw_muse_settings_nonce' ); ?>
 			<table class="form-table" role="presentation">
 				<tr>
-					<th scope="row">Legacy site key</th>
+					<th scope="row">Site Muse key</th>
 					<td>
 						<p class="description">
 							Status: <strong><?php echo $has_site ? 'yes' : 'no'; ?></strong>
+							<?php if ( $hint ) : ?>
+								<code><?php echo esc_html( $hint ); ?></code>
+							<?php endif; ?>
 							<?php if ( $from_cfg ) : ?>
 								(set via <code>UW_MUSE_KEY</code> in wp-config; maps to site/admin storage).
 							<?php else : ?>
-								Optional fallback for the site/admin TubeWriter index (user_id 0). Prefer a per-user key instead.
+								Stored as a hash only. Generate shows the full key once.
 							<?php endif; ?>
 						</p>
 						<?php if ( ! $from_cfg ) : ?>
 							<p>
-								<button type="submit" class="button" name="uw_muse_regen_key" value="1">Generate / rotate legacy site key</button>
+								<input type="password" class="regular-text code" name="uw_muse_key" value="" autocomplete="new-password" placeholder="<?php echo $has_site ? esc_attr( $hint ? $hint : 'Saved. Leave blank to keep it.' ) : ''; ?>">
+							</p>
+							<p>
+								<button type="submit" class="button" name="uw_muse_regen_key" value="1">Generate / rotate site key</button>
 								<?php if ( $has_site ) : ?>
-									<label style="margin-left:1em"><input type="checkbox" name="uw_muse_clear_key" value="1"> Clear legacy site key</label>
+									<label style="margin-left:1em"><input type="checkbox" name="uw_muse_clear_key" value="1"> Clear site Muse key</label>
 								<?php endif; ?>
 							</p>
 						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">Site push</th>
+					<td>
+						<label>
+							<input type="checkbox" name="uw_muse_allow_push" value="1" <?php checked( $site_push ); ?>>
+							Allow Muse to push to YouTube (site key)
+						</label>
+						<p class="description">Off by default. When off, push returns a dry run only.</p>
 					</td>
 				</tr>
 			</table>
 			<?php submit_button( 'Save' ); ?>
 		</form>
 		<h2>Endpoints</h2>
-		<ul>
-			<li><code><?php echo esc_html( $base ); ?>/muse/schema</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/status</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/settings</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/videos</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/videos/{id}</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/videos/{id}/generate</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/videos/{id}/push-to-youtube</code></li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/pages</code> — page drafts</li>
-			<li><code><?php echo esc_html( $base ); ?>/muse/posts</code> — post drafts (news)</li>
-		</ul>
-		<p class="description">Header: <code><?php echo esc_html( UW_MUSE_HEADER ); ?>: {key}</code>. Royal MCP is separate (Bearer).</p>
+		<table class="widefat striped" style="max-width:56rem">
+			<thead>
+				<tr>
+					<th>Method</th>
+					<th>Path</th>
+					<th>Scope</th>
+					<th>Toggle</th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $routes as $r ) : ?>
+					<tr>
+						<td><code><?php echo esc_html( $r[0] ); ?></code></td>
+						<td><code><?php echo esc_html( $base . $r[1] ); ?></code></td>
+						<td><?php echo esc_html( $r[2] ); ?></td>
+						<td><?php echo esc_html( $r[3] ? $r[3] : 'none' ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<p class="description">Header: <code><?php echo esc_html( UW_MUSE_HEADER ); ?>: {key}</code>. Royal MCP is separate (Bearer). Rate limit <?php echo (int) UW_MUSE_RATE_MAX; ?>/min per key.</p>
 	</div>
 	<?php
 }

@@ -40,6 +40,7 @@ require_once TW_DIR . 'includes/class-tw-plan.php';
 require_once TW_DIR . 'includes/class-tw-index.php';
 require_once TW_DIR . 'includes/class-tw-rate-limit.php';
 require_once TW_DIR . 'includes/class-tw-thumb-library.php';
+require_once TW_DIR . 'includes/class-tw-privacy.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
 
@@ -145,6 +146,10 @@ function tw_bootstrap() {
 	tw_ensure_caps();
 
 	new TW_Frontend();
+	TW_Privacy::init();
+	TW_Crypto::maybe_migrate_site_secrets();
+	TW_Crypto::ensure_fingerprint();
+	TW_Crypto::maybe_admin_notice();
 
 	if ( get_option( 'tw_front_rewrite' ) !== TW_VERSION ) {
 		update_option( 'tw_front_rewrite', TW_VERSION, false );
