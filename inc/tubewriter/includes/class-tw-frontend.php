@@ -21,6 +21,7 @@ class TW_Frontend {
 		add_action( 'admin_post_tw_front_register', array( $this, 'handle_register' ) );
 		add_action( 'admin_post_tw_front_logout', array( $this, 'handle_logout' ) );
 		add_action( 'admin_post_tw_front_save_keys', array( $this, 'handle_save_keys' ) );
+		add_action( 'admin_post_tw_front_muse_key', array( $this, 'handle_muse_key' ) );
 		add_action( 'admin_post_tw_front_save_identity', array( $this, 'handle_save_identity' ) );
 		add_action( 'admin_post_tw_front_reset_prompt', array( $this, 'handle_reset_prompt' ) );
 		add_action( 'admin_post_tw_front_reset_thumb_prompt', array( $this, 'handle_reset_thumb_prompt' ) );
@@ -448,6 +449,47 @@ class TW_Frontend {
 					</select>
 					<p class="tw-muted">AI thumbnail create is off for regular users until a site admin enables it site-wide (UploadWriter → Settings) or on that user’s profile (Users → Edit → AI thumbnails). Admins always have it. The Gemini / ChatGPT picker next to Generate chooses the image family; this setting is the fallback.</p>
 					<button type="submit" class="tw-btn tw-btn--primary">Save keys</button>
+				</form>
+
+				<?php
+				$uid       = get_current_user_id();
+				$has_muse  = function_exists( 'uw_muse_user_has_key' ) && uw_muse_user_has_key( $uid );
+				$muse_once = get_transient( 'uw_muse_key_once_' . $uid );
+				if ( $muse_once ) {
+					delete_transient( 'uw_muse_key_once_' . $uid );
+				}
+				$muse_hint = '';
+				if ( $has_muse ) {
+					$mk        = uw_muse_user_key( $uid );
+					$muse_hint = substr( $mk, 0, 4 ) . '…' . substr( $mk, -4 );
+				}
+				?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form">
+					<?php wp_nonce_field( 'tw_front_muse_key' ); ?>
+					<input type="hidden" name="action" value="tw_front_muse_key">
+					<h2>Muse</h2>
+					<p class="tw-muted">Your Muse key only reaches <strong>this account’s videos</strong> (draft packages, generate, push). It cannot create site posts or pages. Muse never signs in to Google or YouTube in a browser.</p>
+					<?php if ( $muse_once ) : ?>
+						<p class="tw-ok-line">New Muse key (copy now, shown once): <code class="tw-muse-key-once"><?php echo esc_html( $muse_once ); ?></code></p>
+					<?php endif; ?>
+					<p>
+						Status:
+						<?php if ( $has_muse ) : ?>
+							<span class="tw-chip tw-chip--ok">Saved</span>
+							<?php if ( $muse_hint ) : ?>
+								<span class="tw-muted">(<?php echo esc_html( $muse_hint ); ?>)</span>
+							<?php endif; ?>
+						<?php else : ?>
+							<span class="tw-muted">Not set</span>
+						<?php endif; ?>
+					</p>
+					<p class="tw-muted">Send as <code>x-uw-muse-key</code> to <code>/wp-json/uw/v1/muse/…</code></p>
+					<div class="tw-cta-row">
+						<button type="submit" class="tw-btn tw-btn--primary" name="tw_muse_regen" value="1"><?php echo $has_muse ? 'Rotate Muse key' : 'Generate Muse key'; ?></button>
+						<?php if ( $has_muse ) : ?>
+							<button type="submit" class="tw-btn tw-btn--danger" name="tw_muse_clear" value="1" onclick="return confirm('Clear this account’s Muse key?');">Clear</button>
+						<?php endif; ?>
+					</div>
 				</form>
 
 				<div class="tw-card-ui">
@@ -977,6 +1019,35 @@ class TW_Frontend {
 		TW_Settings::set( 'image_provider', isset( TW_Settings::IMAGE_PROVIDERS[ $provider ] ) ? $provider : TW_DEFAULT_IMAGE_PROVIDER );
 
 		$this->flash( 'Keys saved.', 'success' );
+		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+		exit;
+	}
+
+	public function handle_muse_key() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_muse_key' );
+		$user_id = get_current_user_id();
+		TW_Context::set_user( $user_id );
+
+		if ( ! function_exists( 'uw_muse_set_user_key' ) ) {
+			$this->flash( 'Muse connector is not available.', 'error' );
+			wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+			exit;
+		}
+
+		if ( ! empty( $_POST['tw_muse_clear'] ) ) {
+			uw_muse_set_user_key( $user_id, '' );
+			$this->flash( 'Muse key cleared for this account.', 'success' );
+		} else {
+			$new = function_exists( 'uw_muse_new_key' ) ? uw_muse_new_key() : wp_generate_password( 48, false, false );
+			uw_muse_set_user_key( $user_id, $new );
+			set_transient( 'uw_muse_key_once_' . $user_id, $new, 120 );
+			$this->flash( 'Muse key ready. Copy it now; it is only shown once.', 'success' );
+		}
+
 		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
 		exit;
 	}
