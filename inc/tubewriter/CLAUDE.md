@@ -68,7 +68,7 @@ Do not add per-row API calls to the list page.
 2. Details: title options, description body, chapters, hashtags, tags, category, language (sets both defaultLanguage and defaultAudioLanguage).
 3. Thumbnail (optional): paste up to 2 screenshots (Ctrl+V), Gemini writes a brief, user approves, OpenAI or Gemini creates a 16:9 PNG under `uploads/tubewriter/generated/`. Standing style rules live in `thumb_render_prompt`. Optional **Upload to YouTube** (`thumbnails.set`, ~50 units, confirm required). Advancing past step 3 with a staged unuploaded thumb soft-confirms. Daily cron deletes orphan generated files older than 7 days. Skippable.
 4. Playlist: none, existing, or new (AI "Polish for SEO"). Created only at publish.
-5. Go live: Publish now (public on confirm in step 7), Schedule it (month calendar, orange scheduled / green published, default time from Settings), or Leave as is (stay private / keep schedule, metadata only). Private videos only.
+5. Go live: Publish now (public on confirm in step 7), Schedule it (month calendar, orange scheduled / green published, default time + **account timezone** from Keys & voice), or Leave as is (stay private / keep schedule, metadata only). Private and Unlisted can schedule. Date/time strings are in `TW_Settings::timezone()` (user → site `tw_timezone` → WP Settings); YouTube `publishAt` stays UTC.
 6. Review: server builds the plan against the live video, field-by-field diff, errors block publishing.
 7. Publish: action list, checkbox, confirm pop-up, results, Undo, manual Studio checklist, version history.
 
@@ -83,7 +83,8 @@ Custom thumbnails can be uploaded from step 3 via `thumbnails.set` (channel must
 
 ## Data storage (wp_options, all autoload off)
 
-- `tw_client_id`, `tw_client_secret`, `tw_gemini_key`, `tw_openai_key`, `tw_model`, `tw_image_provider`, `tw_image_model`, `tw_openai_image_model`, `tw_openai_image_quality`, `tw_prompt`, `tw_thumb_prompt`, `tw_thumb_render_prompt`, `tw_default_time`, `tw_default_language`, `tw_default_category`
+- `tw_client_id`, `tw_client_secret`, `tw_gemini_key`, `tw_openai_key`, `tw_model`, `tw_image_provider`, `tw_image_model`, `tw_openai_image_model`, `tw_openai_image_quality`, `tw_prompt`, `tw_thumb_prompt`, `tw_thumb_render_prompt`, `tw_timezone` (site fallback), `tw_default_time`, `tw_default_language`, `tw_default_category`
+- Per-user meta (same keys via `TW_Store`): `tw_timezone`, `tw_default_time`, identity, AI keys, OAuth tokens, drafts
 - `tw_tokens` (access, refresh, expiry), `tw_channel` (id, title, uploads playlist)
 - `tw_state_{videoId}`: draft (transcript, notes, seed title/desc, pkg, opts, thumb_description, thumb_url, thumb_file, thumb_uploaded)
 - Generated thumbs: `uploads/tubewriter/generated/tw-thumb-*.png` (not Media Library). Orphans older than 7 days cleaned by `tw_cleanup_generated_thumbs`. Index YT cache thumbs stay in `uploads/tubewriter/thumbs/`.

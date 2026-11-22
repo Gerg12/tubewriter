@@ -25,6 +25,7 @@ class TW_Settings {
 		'thumb_render_prompt',
 		'thumb_ai_for_users',
 		'beta_access',
+		'timezone',
 		'default_time',
 		'default_language',
 		'default_category',
@@ -599,6 +600,88 @@ class TW_Settings {
 		TW_Store::set( $key, $value );
 	}
 
+	/**
+	 * True when $tz is a usable zone string: IANA id or WordPress manual offset (UTC±N).
+	 *
+	 * @param string $tz
+	 * @return bool
+	 */
+	public static function is_valid_timezone( $tz ) {
+		$tz = (string) $tz;
+		if ( '' === $tz ) {
+			return false;
+		}
+		try {
+			self::timezone_object( $tz );
+			return true;
+		} catch ( Exception $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * Build a DateTimeZone from an IANA id or WordPress "UTC±N" manual offset.
+	 *
+	 * @param string $tz
+	 * @return DateTimeZone
+	 * @throws Exception When $tz cannot be parsed.
+	 */
+	public static function timezone_object( $tz ) {
+		$tz = (string) $tz;
+		if ( preg_match( '/^UTC([+-])(\d+)(?:\.(\d+))?$/', $tz, $m ) ) {
+			$sign  = $m[1];
+			$hours = (int) $m[2];
+			$frac  = isset( $m[3] ) ? (float) ( '0.' . $m[3] ) : 0.0;
+			$mins  = (int) round( $frac * 60 );
+			return new DateTimeZone( sprintf( '%s%02d:%02d', $sign, $hours, $mins ) );
+		}
+		return new DateTimeZone( $tz );
+	}
+
+	/**
+	 * Account timezone for schedule parse/display.
+	 * User meta → site tw_timezone option → WordPress Settings → General.
+	 *
+	 * @return string IANA id or UTC±offset (e.g. Europe/London).
+	 */
+	public static function timezone_string() {
+		if ( TW_Context::is_user() ) {
+			$user = (string) get_user_meta( TW_Context::user_id(), 'tw_timezone', true );
+			if ( self::is_valid_timezone( $user ) ) {
+				return $user;
+			}
+		}
+		$site = (string) get_option( 'tw_timezone', '' );
+		if ( self::is_valid_timezone( $site ) ) {
+			return $site;
+		}
+		return wp_timezone_string();
+	}
+
+	/**
+	 * DateTimeZone for schedule parse/display (account → site → WP).
+	 *
+	 * @return DateTimeZone
+	 */
+	public static function timezone() {
+		try {
+			return self::timezone_object( self::timezone_string() );
+		} catch ( Exception $e ) {
+			return wp_timezone();
+		}
+	}
+
+	/**
+	 * Sanitize a posted timezone; empty or invalid falls back to current resolved value.
+	 *
+	 * @param string $tz Raw posted value.
+	 * @return string Valid zone string.
+	 */
+	public static function sanitize_timezone( $tz ) {
+		$tz = sanitize_text_field( (string) $tz );
+		return self::is_valid_timezone( $tz ) ? $tz : self::timezone_string();
+	}
+
 	/** Front-end user is ready when they have at least one AI key. */
 	public static function user_has_ai_key() {
 		return TW_Store::has( 'gemini_key' ) || TW_Store::has( 'openai_key' );
@@ -646,6 +729,13 @@ class TW_Settings {
 
 		// Site-only gate: new signups wait for approval and notify hello@uploadwriter.com.
 		self::set( 'beta_access', empty( $post['tw_beta_access'] ) ? '' : '1' );
+
+		$tz = sanitize_text_field( wp_unslash( $post['tw_timezone'] ?? '' ) );
+		if ( self::is_valid_timezone( $tz ) ) {
+			update_option( 'tw_timezone', $tz, false );
+		} elseif ( array_key_exists( 'tw_timezone', $post ) && '' === $tz ) {
+			delete_option( 'tw_timezone' );
+		}
 
 		$time = sanitize_text_field( wp_unslash( $post['tw_default_time'] ?? '' ) );
 		self::set( 'default_time', preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : self::DEFAULTS['default_time'] );

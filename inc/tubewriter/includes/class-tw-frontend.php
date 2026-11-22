@@ -21,6 +21,7 @@ class TW_Frontend {
 		add_action( 'admin_post_tw_front_register', array( $this, 'handle_register' ) );
 		add_action( 'admin_post_tw_front_logout', array( $this, 'handle_logout' ) );
 		add_action( 'admin_post_tw_front_save_keys', array( $this, 'handle_save_keys' ) );
+		add_action( 'admin_post_tw_front_save_schedule', array( $this, 'handle_save_schedule' ) );
 		add_action( 'admin_post_tw_front_muse_key', array( $this, 'handle_muse_key' ) );
 		add_action( 'admin_post_tw_front_save_identity', array( $this, 'handle_save_identity' ) );
 		add_action( 'admin_post_tw_front_reset_prompt', array( $this, 'handle_reset_prompt' ) );
@@ -303,8 +304,8 @@ class TW_Frontend {
 		$indexed   = TW_Index::count_all();
 		$scheduled = TW_Index::count_scheduled();
 		$boot      = array(
-			'today'     => wp_date( 'Y-m-d' ),
-			'tz'        => wp_timezone_string(),
+			'today'     => wp_date( 'Y-m-d', null, TW_Settings::timezone() ),
+			'tz'        => TW_Settings::timezone_string(),
 			'editBase'  => self::url( 'account' ),
 			'scheduled' => $scheduled,
 		);
@@ -336,7 +337,7 @@ class TW_Frontend {
                         <div class="tw-schedule-legend" aria-label="Video status legend">
                             <span class="tw-schedule-legend-item tw-schedule-legend-scheduled">Scheduled</span>
                             <span class="tw-schedule-legend-item tw-schedule-legend-published">Published</span>
-                            <span class="tw-schedule-timezone">Times in <?php echo esc_html( wp_timezone_string() ); ?></span>
+                            <span class="tw-schedule-timezone">Times in <?php echo esc_html( TW_Settings::timezone_string() ); ?></span>
                         </div>
                     </div>
 					<aside class="tw-sched-day" id="tw-sched-day" aria-live="polite">
@@ -431,6 +432,8 @@ class TW_Frontend {
 			</summary>
 
 			<?php $this->render_identity_form( $id, $voice_ok ); ?>
+
+			<?php $this->render_schedule_defaults_form(); ?>
 
 			<div class="tw-grid-2">
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form">
@@ -611,6 +614,30 @@ class TW_Frontend {
 			$this->render_video_list();
 			?>
 		</section>
+		<?php
+	}
+
+	/** Account timezone + default publish time (used by Schedule calendar and Go live). */
+	private function render_schedule_defaults_form() {
+		$tz = TW_Settings::timezone_string();
+		if ( ! function_exists( 'wp_timezone_choice' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/template.php';
+		}
+		?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-card-ui tw-form" id="tw-schedule-defaults">
+			<?php wp_nonce_field( 'tw_front_save_schedule' ); ?>
+			<input type="hidden" name="action" value="tw_front_save_schedule">
+			<h2>Schedule timezone</h2>
+			<p class="tw-muted">Calendar and schedule times use <em>your</em> timezone, not the site default. Pick where you are so 7:30 means 7:30 for you.</p>
+			<label for="tw_timezone">Timezone</label>
+			<select id="tw_timezone" name="tw_timezone">
+				<?php echo wp_timezone_choice( $tz ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			</select>
+			<label for="tw_default_time">Default publish time</label>
+			<input type="time" id="tw_default_time" name="tw_default_time" value="<?php echo esc_attr( TW_Settings::get( 'default_time' ) ); ?>">
+			<p class="tw-muted">Used when you schedule a video and leave the time blank or click a calendar day.</p>
+			<button type="submit" class="tw-btn tw-btn--primary">Save schedule defaults</button>
+		</form>
 		<?php
 	}
 
@@ -859,7 +886,7 @@ class TW_Frontend {
 					$meta = number_format_i18n( (int) $item['views'] ) . ' views';
 					if ( 'private' === $priv && ! empty( $item['publish_at'] ) && strtotime( $item['publish_at'] . ' UTC' ) > time() ) {
 						$priv = 'scheduled';
-						$meta .= ' · Publishes ' . wp_date( 'M j, Y \a\t g:i A', strtotime( $item['publish_at'] . ' UTC' ) );
+						$meta .= ' · Publishes ' . wp_date( 'M j, Y \a\t g:i A T', strtotime( $item['publish_at'] . ' UTC' ), TW_Settings::timezone() );
 					}
 					$badge = ucfirst( $priv );
 					?>
@@ -1146,6 +1173,30 @@ class TW_Frontend {
 
 		$this->flash( 'Keys saved.', 'success' );
 		wp_safe_redirect( self::url( 'account' ) . '#tw-keys' );
+		exit;
+	}
+
+	public function handle_save_schedule() {
+		if ( ! is_user_logged_in() ) {
+			wp_safe_redirect( self::url( 'login' ) );
+			exit;
+		}
+		check_admin_referer( 'tw_front_save_schedule' );
+		TW_Context::set_user( get_current_user_id() );
+
+		$tz = sanitize_text_field( wp_unslash( $_POST['tw_timezone'] ?? '' ) );
+		if ( ! TW_Settings::is_valid_timezone( $tz ) ) {
+			$this->flash( 'Pick a valid timezone.', 'error' );
+			wp_safe_redirect( self::url( 'account' ) . '#tw-schedule-defaults' );
+			exit;
+		}
+		TW_Settings::set( 'timezone', $tz );
+
+		$time = sanitize_text_field( wp_unslash( $_POST['tw_default_time'] ?? '' ) );
+		TW_Settings::set( 'default_time', preg_match( '/^\d{2}:\d{2}$/', $time ) ? $time : TW_Settings::DEFAULTS['default_time'] );
+
+		$this->flash( 'Schedule timezone and default time saved.', 'success' );
+		wp_safe_redirect( self::url( 'account' ) . '#tw-schedule-defaults' );
 		exit;
 	}
 

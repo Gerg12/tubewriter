@@ -795,15 +795,15 @@ function uw_muse_rest_schema() {
 				'push'         => array( 'confirm_push', 'dry_run', 'fingerprint', 'privacy', 'schedule_at', 'publish_at', 'schedule' ),
 				'schedule_at'  => array(
 					'format'    => 'ISO 8601 datetime',
-					'timezone'  => 'Prefer UTC with trailing Z. Example: 2026-12-23T12:30:00Z is 7:30 AM America/New_York (site timezone).',
+					'timezone'  => 'Prefer UTC with trailing Z. Bare local datetimes and schedule.date+time use the account timezone from GET /muse/settings defaults.timezone (' . ( class_exists( 'TW_Settings' ) ? TW_Settings::timezone_string() : wp_timezone_string() ) . ').',
 					'aliases'   => array( 'publish_at' ),
-					'or'        => 'schedule: { mode: "schedule"|"set", date: "YYYY-MM-DD", time: "HH:MM" } in site timezone ' . wp_timezone_string(),
+					'or'        => 'schedule: { mode: "schedule"|"set", date: "YYYY-MM-DD", time: "HH:MM" } in account timezone ' . ( class_exists( 'TW_Settings' ) ? TW_Settings::timezone_string() : wp_timezone_string() ),
 					'cost'      => 'Same as push_or_restore: ~50 units total. Scheduling sets privacyStatus=private and publishAt in that one write; do not also charge a privacy_change.',
 					'dry_run'   => 'dry_run:true returns schedule.mode=schedule, schedule.at (UTC Z), schedule.label (local + TZ abbrev), schedule.timezone, actions, and fingerprint covering that exact schedule.',
 				),
 				'opts_schedule'=> array(
 					'mode' => array( 'keep', 'set', 'schedule', 'now' ),
-					'note' => 'PATCH opts.schedule mode "schedule" is stored as "set". date+time are site timezone (' . wp_timezone_string() . '). Push uses stored opts.schedule when schedule_at is omitted.',
+					'note' => 'PATCH opts.schedule mode "schedule" is stored as "set". date+time are the account timezone (' . ( class_exists( 'TW_Settings' ) ? TW_Settings::timezone_string() : wp_timezone_string() ) . '). Push uses stored opts.schedule when schedule_at is omitted.',
 				),
 				'restore'      => array( 'entry_id', 'confirm' ),
 				'pages_posts'  => array( 'external_id', 'title', 'slug', 'content_html', 'update', 'categories', 'tags', 'featured_media' ),
@@ -819,8 +819,8 @@ function uw_muse_rest_schema() {
 				'Privacy change: dry_run:true first (0 write units, may use 1 for videos.list), then confirm_push:true + fingerprint. Real change ~50 units. Never publishes or sets publishAt by itself.',
 				'Prefer Unlisted → read watch-page transcript signed out (free) → paste transcript → push with schedule_at (private + publishAt, ~50), instead of pull_captions (250).',
 				'Scheduling works from Private or Unlisted. A schedule write sets privacyStatus to private and publishAt; it stays private until that time, then goes public. Never publishes immediately.',
-				'Push schedule: POST /muse/videos/{id}/push-to-youtube with schedule_at (UTC Z preferred) or publish_at, or schedule:{mode:"schedule",date,time} in ' . wp_timezone_string() . '. Example: {"dry_run":true,"schedule_at":"2026-12-23T12:30:00Z"} → 7:30 AM Eastern. Real push ~50 units total (not 50+50). Re-send the same schedule_at with confirm_push and the dry_run fingerprint.',
-				'GET /muse/schedule is a read-only calendar; times are UTC with a trailing Z. Site default publish time is 07:30 ' . wp_timezone_string() . '.',
+				'Push schedule: POST /muse/videos/{id}/push-to-youtube with schedule_at (UTC Z preferred) or publish_at, or schedule:{mode:"schedule",date,time} in the account timezone (GET /muse/settings defaults.timezone). Real push ~50 units total (not 50+50). Re-send the same schedule_at with confirm_push and the dry_run fingerprint.',
+				'GET /muse/schedule is a read-only calendar; times are UTC with a trailing Z. Default publish time and timezone are on GET /muse/settings defaults.',
 				'Push / restore / sync need the matching toggle on the account (or site push setting for the site key). Off = dry run only. Sync/restore stay off for site keys.',
 				'Rate limit: ' . UW_MUSE_RATE_MAX . ' requests per minute per key. User keys also have a Muse YouTube unit cap (default 1000/day). Site key cap 0 means unlimited / not tracked.',
 				'YouTube project quota is 10,000 units/day (midnight Pacific). Pull captions = 250. Prefer pasted transcripts and local index reads. See youtube_quota on this schema.',
@@ -940,6 +940,7 @@ function uw_muse_rest_settings_get() {
 				'language' => TW_Settings::get( 'default_language' ),
 				'category' => TW_Settings::get( 'default_category' ),
 				'time'     => TW_Settings::get( 'default_time' ),
+				'timezone' => TW_Settings::timezone_string(),
 			),
 			'limits'            => array(
 				'title_max'       => TW_Validator::TITLE_MAX,
@@ -974,6 +975,22 @@ function uw_muse_rest_settings_patch( WP_REST_Request $request ) {
 		TW_Store::set( $key, $val );
 		$changed[] = $key;
 	}
+	if ( array_key_exists( 'timezone', $body ) ) {
+		$tz = sanitize_text_field( (string) $body['timezone'] );
+		if ( ! TW_Settings::is_valid_timezone( $tz ) ) {
+			return new WP_Error( 'uw_muse_timezone', 'timezone must be a valid IANA id (e.g. Europe/London).', array( 'status' => 400 ) );
+		}
+		TW_Settings::set( 'timezone', $tz );
+		$changed[] = 'timezone';
+	}
+	if ( array_key_exists( 'default_time', $body ) ) {
+		$time = sanitize_text_field( (string) $body['default_time'] );
+		if ( ! preg_match( '/^\d{2}:\d{2}$/', $time ) ) {
+			return new WP_Error( 'uw_muse_default_time', 'default_time must be HH:MM (24h).', array( 'status' => 400 ) );
+		}
+		TW_Settings::set( 'default_time', $time );
+		$changed[] = 'default_time';
+	}
 	if ( $changed && TW_Settings::identity_complete() ) {
 		TW_Store::set( 'identity_complete', '1' );
 	}
@@ -981,6 +998,12 @@ function uw_muse_rest_settings_patch( WP_REST_Request $request ) {
 		array(
 			'changed'  => $changed,
 			'identity' => TW_Settings::identity(),
+			'defaults' => array(
+				'language' => TW_Settings::get( 'default_language' ),
+				'category' => TW_Settings::get( 'default_category' ),
+				'time'     => TW_Settings::get( 'default_time' ),
+				'timezone' => TW_Settings::timezone_string(),
+			),
 			'scope'    => 'user',
 		)
 	);
@@ -1122,7 +1145,7 @@ function uw_muse_schedule_for_response( array $schedule ) {
 		'mode'     => $mode,
 		'at'       => (string) ( $schedule['at'] ?? '' ),
 		'label'    => (string) ( $schedule['label'] ?? '' ),
-		'timezone' => wp_timezone_string(),
+		'timezone' => class_exists( 'TW_Settings' ) ? TW_Settings::timezone_string() : wp_timezone_string(),
 	);
 }
 
@@ -1148,14 +1171,15 @@ function uw_muse_push_fingerprint( $youtube_fp, array $schedule, $privacy = '' )
 /**
  * Apply push-body schedule fields onto opts.schedule.
  * Accepts schedule_at / publish_at (ISO 8601, prefer …Z UTC) or schedule{mode,date,time}.
- * date+time without an offset use the site timezone (America/New_York on production).
+ * date+time without an offset use the account timezone (TW_Settings::timezone).
  *
  * @param array $body Push JSON body.
  * @param array $opts Normalized opts.
  * @return array|WP_Error Updated opts, or error.
  */
 function uw_muse_apply_push_schedule( array $body, array $opts ) {
-	$raw_at = '';
+	$account_tz = class_exists( 'TW_Settings' ) ? TW_Settings::timezone() : wp_timezone();
+	$raw_at     = '';
 	if ( array_key_exists( 'schedule_at', $body ) && '' !== trim( (string) $body['schedule_at'] ) ) {
 		$raw_at = trim( (string) $body['schedule_at'] );
 	} elseif ( array_key_exists( 'publish_at', $body ) && '' !== trim( (string) $body['publish_at'] ) ) {
@@ -1164,22 +1188,23 @@ function uw_muse_apply_push_schedule( array $body, array $opts ) {
 
 	if ( '' !== $raw_at ) {
 		try {
-			// Trailing Z → UTC. Offset present → that zone. Bare local → site timezone.
+			// Trailing Z → UTC. Offset present → that zone. Bare local → account timezone.
 			if ( preg_match( '/Z$/i', $raw_at ) ) {
 				$dt = new DateTime( $raw_at, new DateTimeZone( 'UTC' ) );
 			} elseif ( preg_match( '/[+-]\d{2}:?\d{2}$/', $raw_at ) ) {
 				$dt = new DateTime( $raw_at );
 			} else {
-				$dt = new DateTime( $raw_at, wp_timezone() );
+				$dt = new DateTime( $raw_at, $account_tz );
 			}
 		} catch ( Exception $e ) {
+			$tz_label = class_exists( 'TW_Settings' ) ? TW_Settings::timezone_string() : wp_timezone_string();
 			return new WP_Error(
 				'uw_muse_schedule',
-				'schedule_at / publish_at must be a valid datetime. Prefer UTC with Z, e.g. 2026-12-23T12:30:00Z (7:30 AM America/New_York).',
+				'schedule_at / publish_at must be a valid datetime. Prefer UTC with Z, or local time in ' . $tz_label . '.',
 				array( 'status' => 400 )
 			);
 		}
-		$dt->setTimezone( wp_timezone() );
+		$dt->setTimezone( $account_tz );
 		$opts['schedule'] = array(
 			'mode' => 'set',
 			'date' => $dt->format( 'Y-m-d' ),

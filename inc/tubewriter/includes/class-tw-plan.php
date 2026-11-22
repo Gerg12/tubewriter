@@ -65,11 +65,12 @@ class TW_Plan {
 				$errors[] = 'This video is ' . $current['privacyStatus'] . ', so it can\'t be scheduled. Set privacy to Private or Unlisted first, or set Go live to "Leave as is".';
 			} else {
 				try {
-					$dt = new DateTime( trim( ( $sched_in['date'] ?? '' ) . ' ' . ( $sched_in['time'] ?? '' ) ), wp_timezone() );
+					$tz = TW_Settings::timezone();
+					$dt = new DateTime( trim( ( $sched_in['date'] ?? '' ) . ' ' . ( $sched_in['time'] ?? '' ) ), $tz );
 					if ( $dt->getTimestamp() <= time() + 5 * MINUTE_IN_SECONDS ) {
 						$errors[] = 'The schedule time is in the past or less than 5 minutes away. Pick a later time.';
 					} else {
-						$schedule['label'] = wp_date( 'D M j, Y g:ia T', $dt->getTimestamp() );
+						$schedule['label'] = wp_date( 'D M j, Y g:ia T', $dt->getTimestamp(), $tz );
 						$dt->setTimezone( new DateTimeZone( 'UTC' ) );
 						$schedule['mode'] = 'set';
 						$schedule['at']   = $dt->format( 'Y-m-d\TH:i:s\Z' );
@@ -124,7 +125,7 @@ class TW_Plan {
 		$cat_name = function ( $id ) {
 			return TW_Settings::CATEGORIES[ $id ] ?? ( 'Category ' . $id );
 		};
-		$current_sched = $current['publishAt'] ? wp_date( 'D M j, Y g:ia T', strtotime( $current['publishAt'] ) ) : ( 'private' === $current['privacyStatus'] ? 'Private, not scheduled' : ucfirst( $current['privacyStatus'] ) );
+		$current_sched = $current['publishAt'] ? wp_date( 'D M j, Y g:ia T', strtotime( $current['publishAt'] ), TW_Settings::timezone() ) : ( 'private' === $current['privacyStatus'] ? 'Private, not scheduled' : ucfirst( $current['privacyStatus'] ) );
 		$next_sched    = $current_sched;
 		if ( 'now' === $schedule['mode'] ) {
 			$next_sched = 'Public now';

@@ -44,7 +44,11 @@ class TW_Admin {
 		}
 
 		$account_url = class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) : home_url( '/tubewriter/account/' );
-		$tz          = wp_timezone_string();
+		$tz          = TW_Settings::timezone_string();
+		$site_tz     = (string) get_option( 'tw_timezone', '' );
+		if ( ! TW_Settings::is_valid_timezone( $site_tz ) ) {
+			$site_tz = wp_timezone_string();
+		}
 		?>
 		<div class="wrap tw-wrap">
 			<h1>UploadWriter Settings</h1>
@@ -166,11 +170,25 @@ class TW_Admin {
 
 				<div class="tw-card">
 					<h2>2. Publishing defaults</h2>
-					<p class="description">Site fallbacks when a front-end account has not set its own. Schedules use WordPress timezone: <strong><?php echo esc_html( $tz ); ?></strong> (<a href="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>">Settings &gt; General</a>).</p>
+					<p class="description">Site fallbacks when a front-end account has not set its own timezone or default time. Each account should set timezone under Keys &amp; voice. Ultimate fallback is WordPress <a href="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>">Settings &gt; General</a> (<code><?php echo esc_html( wp_timezone_string() ); ?></code>).</p>
 					<table class="form-table">
 						<tr>
+							<th><label for="tw_timezone">Default timezone</label></th>
+							<td>
+								<select id="tw_timezone" name="tw_timezone">
+									<?php
+									if ( ! function_exists( 'wp_timezone_choice' ) ) {
+										require_once ABSPATH . 'wp-admin/includes/template.php';
+									}
+									echo wp_timezone_choice( $site_tz ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+									?>
+								</select>
+								<p class="description">Used only until the account picks its own. Current resolved timezone for this request: <strong><?php echo esc_html( $tz ); ?></strong>.</p>
+							</td>
+						</tr>
+						<tr>
 							<th><label for="tw_default_time">Default publish time</label></th>
-							<td><input type="time" id="tw_default_time" name="tw_default_time" value="<?php echo esc_attr( TW_Settings::get( 'default_time' ) ); ?>"> <span class="description"><?php echo esc_html( $tz ); ?></span></td>
+							<td><input type="time" id="tw_default_time" name="tw_default_time" value="<?php echo esc_attr( TW_Settings::get( 'default_time' ) ); ?>"> <span class="description">in the account timezone</span></td>
 						</tr>
 						<tr>
 							<th><label for="tw_default_language">Video language</label></th>
@@ -351,11 +369,12 @@ class TW_Admin {
 		$studio        = 'https://studio.youtube.com/video/' . rawurlencode( $video_id ) . '/edit';
 		$index_privacy = TW_Index::privacy_of( $video_id );
 		$badge_privacy = ( 'draft' === $index_privacy ) ? 'draft' : $snap['privacyStatus'];
+		$sched_tz      = TW_Settings::timezone();
 		$boot          = array(
 			'videoId'   => $video_id,
 			'duration'  => $secs,
 			'current'   => $snap,
-			'publishAtLocal' => $snap['publishAt'] ? array( 'date' => wp_date( 'Y-m-d', strtotime( $snap['publishAt'] ) ), 'time' => wp_date( 'H:i', strtotime( $snap['publishAt'] ) ) ) : null,
+			'publishAtLocal' => $snap['publishAt'] ? array( 'date' => wp_date( 'Y-m-d', strtotime( $snap['publishAt'] ), $sched_tz ), 'time' => wp_date( 'H:i', strtotime( $snap['publishAt'] ), $sched_tz ) ) : null,
 			'state'     => is_array( $state ) ? $state : array(),
 			'studioUrl' => $studio,
 			'backUrl'   => $back_url,
@@ -363,13 +382,14 @@ class TW_Admin {
 				'time'     => TW_Settings::get( 'default_time' ),
 				'language' => TW_Settings::get( 'default_language' ),
 				'category' => TW_Settings::get( 'default_category' ),
+				'timezone' => TW_Settings::timezone_string(),
 			),
 			'logos'     => array(
 				'game'    => $this->logo_boot( (int) ( is_array( $state ) ? ( $state['game_logo_id'] ?? 0 ) : 0 ), (string) ( is_array( $state ) ? ( $state['game_logo_pos'] ?? '' ) : '' ), 'upper-right' ),
 				'channel' => $this->logo_boot( (int) TW_Store::get( 'channel_logo_id', 0 ), (string) TW_Store::get( 'channel_logo_pos', '' ), 'lower-left' ),
 			),
-			'today'     => wp_date( 'Y-m-d' ),
-			'tz'        => wp_timezone_string(),
+			'today'     => wp_date( 'Y-m-d', null, $sched_tz ),
+			'tz'        => TW_Settings::timezone_string(),
 			'history'   => TW_History::summary( $video_id ),
 		);
 		$help = function ( $what, array $todo ) {
@@ -769,7 +789,7 @@ class TW_Admin {
 						'Private and Unlisted videos can be scheduled. Scheduling sets the video to private until the chosen time, then it goes public.',
 						'Visibility below saves to YouTube as soon as you apply it (about 50 API units). Default is Keep current.',
 						'Click a day on the calendar. <span class="tw-key tw-key-sched">Scheduled</span> and <span class="tw-key tw-key-pub">Published</span> labels show existing uploads, empty days are open.',
-						'Scheduled times start at your default from Settings (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( wp_timezone_string() ) . ').',
+						'Scheduled times start at your default (' . esc_html( TW_Settings::get( 'default_time' ) ) . ', ' . esc_html( TW_Settings::timezone_string() ) . '). Change timezone under Keys &amp; voice.',
 					)
 				);
 				?>
@@ -798,7 +818,7 @@ class TW_Admin {
 								<div class="tw-inline">
 									<label for="tw-sched-date">Date</label> <input type="date" id="tw-sched-date">
 									<label for="tw-sched-time">Time</label> <input type="time" id="tw-sched-time">
-									<span class="description"><?php echo esc_html( wp_timezone_string() ); ?></span>
+									<span class="description"><?php echo esc_html( TW_Settings::timezone_string() ); ?></span>
 								</div>
 							</div>
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="keep" checked> <span class="tw-choice-copy">Leave as is<span class="description">Keeps the current visibility or schedule. Only the details change.</span></span></label></p>
@@ -1716,6 +1736,7 @@ class TW_Admin {
 				wp_send_json_error( $sync->get_error_message() );
 			}
 		}
+		$tz  = TW_Settings::timezone();
 		$out = array();
 		foreach ( TW_YouTube::calendar_events() as $e ) {
 			$ts    = strtotime( $e['at'] );
@@ -1724,8 +1745,8 @@ class TW_Admin {
 				'id'    => $e['id'],
 				'title' => $e['title'],
 				'type'  => $e['type'],
-				'date'  => wp_date( 'Y-m-d', $ts ),
-				'time'  => wp_date( 'g:ia', $ts ),
+				'date'  => wp_date( 'Y-m-d', $ts, $tz ),
+				'time'  => wp_date( 'g:ia', $ts, $tz ),
 				'thumb' => $thumb ? TW_Index::thumb_url_with_version( $e['id'], $thumb ) : '',
 			);
 		}
@@ -1815,8 +1836,8 @@ class TW_Admin {
 				'thumb'          => $thumb,
 				'publishAtLocal' => $publish_at
 					? array(
-						'date' => wp_date( 'Y-m-d', strtotime( $publish_at ) ),
-						'time' => wp_date( 'H:i', strtotime( $publish_at ) ),
+						'date' => wp_date( 'Y-m-d', strtotime( $publish_at ), TW_Settings::timezone() ),
+						'time' => wp_date( 'H:i', strtotime( $publish_at ), TW_Settings::timezone() ),
 					)
 					: null,
 				'quota'          => TW_YouTube::quota_used(),
