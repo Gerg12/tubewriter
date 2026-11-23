@@ -2740,3 +2740,92 @@ body.tw-app .uw-workspace-tabs > a:hover:not(.is-active) { color: var(--uw-works
  .uw-site .uw-finale-card figcaption strong { font-size: 1.375rem; }
  .uw-site .uw-finale-card .uw-finale-card-accent { flex-basis: 42px; width: 42px; height: 42px; }
 }
+
+/* Studio layouts: ACF presentation, canonical app forms, no build step. */
+.uw-studio-auth { display:grid; grid-template-columns:1.1fr 1fr; min-height:710px; max-width:1600px; margin:0 auto; background:var(--uw-paper); }
+.uw-studio-auth__scene { position:relative; isolation:isolate; min-width:0; overflow:hidden; background:#33342e; color:#fff; }
+.uw-studio-auth__photo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:50% 55%; z-index:-2; }
+.uw-studio-auth__scene:after { content:''; position:absolute; inset:0; background:linear-gradient(180deg,rgba(20,25,20,.65),rgba(20,25,20,.12) 70%,rgba(20,25,20,.65)); z-index:-1; }
+.uw-studio-auth__story { padding:clamp(32px,5vw,80px); max-width:700px; }
+.uw-studio-auth__story .uw-eyebrow { color:#f7e6d6; font-size:.8125rem; letter-spacing:.13em; margin-bottom:26px; }
+.uw-site .uw-studio-auth__story h2 { color:#fffaf1; font-family:Georgia,serif; font-style:italic; font-weight:400; font-size:clamp(2.75rem,4.4vw,4.75rem); line-height:1.04; letter-spacing:-.045em; max-width:10ch; margin:0 0 24px; }
+.uw-studio-auth__story > p:last-child { max-width:31ch; font-size:1.0625rem; color:#fff5e7; }
+.uw-studio-auth__caption { position:absolute; bottom:28px; left:clamp(32px,5vw,80px); right:32px; font-size:.875rem; color:#fff5e7; }
+.uw-studio-auth__paper { min-width:0; width:100%; max-width:560px; padding:52px 56px; align-self:center; justify-self:center; }
+.uw-studio-auth__brand { display:flex; align-items:center; gap:10px; width:fit-content; margin-bottom:42px; }
+.uw-site .uw-studio-auth__brand .uw-mark { width:38px; height:38px; background:transparent; color:var(--uw-ink); border-radius:0; }
+.uw-site .uw-studio-auth__brand .uw-wordmark { color:var(--uw-ink); font-size:1.4rem; }
+.uw-site .uw-studio-auth__brand .uw-domain { color:var(--uw-muted); }
+.uw-studio-auth__paper > .uw-eyebrow { font-size:.75rem; letter-spacing:.12em; color:#756d62; margin-bottom:14px; }
+.uw-site .uw-studio-auth__paper h1 { font-size:clamp(2rem,3vw,2.75rem); letter-spacing:-.055em; line-height:1.12; margin:0 0 14px; }
+.uw-studio-auth__lead { color:var(--uw-muted); line-height:1.65; margin-bottom:26px!important; max-width:36ch; }
+.uw-studio-auth .tw-form--auth { display:flex; flex-direction:column; text-align:left; gap:0; margin:0; }
+.uw-studio-auth .tw-form--auth label { font-family:inherit; font-size:.875rem; font-weight:600; color:var(--uw-ink); margin:0 0 8px; }
+.uw-site .uw-studio-auth .tw-form--auth input:not([type=hidden]) { width:100%; min-height:50px; padding:12px 14px; margin:0 0 20px; font:inherit; font-size:1rem; color:var(--uw-ink); border:1px solid #ccc6bb; border-radius:5px; background:#fffefa; box-shadow:none; }
+.uw-site .uw-studio-auth .tw-form--auth input:focus-visible { outline:2px solid #ca452e; outline-offset:3px; }
+.uw-site .uw-studio-auth .tw-btn { display:flex; align-items:center; justify-content:center; min-height:50px; width:100%; padding:12px 20px; background:#ca452e; border:1px solid #ca452e; color:white; border-radius:5px; font:600 1rem 'DM Sans',sans-serif; box-shadow:none; cursor:pointer; margin:4px 0 22px; }
+.uw-site .uw-studio-auth .tw-btn:hover { background:#aa3522; border-color:#aa3522; transform:none; }
+.uw-site .uw-studio-auth .tw-btn:focus-visible { outline:3px solid #242820; outline-offset:4px; }
+.uw-studio-auth .tw-fine { color:var(--uw-muted); font-size:.875rem; line-height:1.6; margin:0 0 12px; }
+.uw-studio-auth .tw-fine a { color:var(--uw-ink); text-decoration:underline; text-underline-offset:4px; }
+.uw-studio-auth__assurance { display:flex; gap:10px; align-items:flex-start; border-top:1px solid var(--uw-line); padding-top:22px; margin-top:28px; font-size:.8125rem; color:var(--uw-muted); }
+.uw-studio-auth__assurance span { color:#596442; }
+.uw-studio-auth__assurance p { margin:0; }
+.uw-studio-auth__beta,.uw-studio-auth__preview { background:#eee9df; border-left:3px solid #ca452e; padding:14px 16px; font-size:.875rem; margin:0 0 24px; }
+body.tw-app--login .tw-app-bg,body.tw-app--register .tw-app-bg { display:none; }
+.uw-auth-main { width:100%; }
+.uw-process { padding:100px 0; background:#f2efe7; }
+.uw-process__intro { max-width:780px; margin-bottom:48px; }
+.uw-site .uw-process h2,.uw-site .uw-studio-trust h2 { font-size:clamp(2rem,3.4vw,3.4rem); line-height:1.12; margin-bottom:22px; }
+.uw-process__intro > p:last-child,.uw-studio-trust__lead { color:var(--uw-muted); font-size:1.125rem; max-width:58ch; }
+.uw-process__steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; padding:0; margin:0; gap:30px; counter-reset:studio-step; }
+.uw-process__steps li { border-top:1px solid #c9c4b8; padding-top:22px; counter-increment:studio-step; }
+.uw-process__steps li:before { content:counter(studio-step,decimal-leading-zero); display:block; font:italic 1.75rem Georgia,serif; color:#a13b28; margin-bottom:25px; }
+.uw-site .uw-process__steps h3,.uw-site .uw-studio-trust li h3 { font-size:1.125rem; line-height:1.3; letter-spacing:-.025em; margin-bottom:12px; }
+.uw-process__steps li p,.uw-studio-trust li p { color:var(--uw-muted); font-size:1rem; line-height:1.65; }
+.uw-process__steps li:last-child { background:#e5e9ce; border-color:#7b8459; padding:22px; }
+.uw-process__note { font-size:.875rem; color:var(--uw-muted); margin:34px 0 0!important; max-width:90ch; }
+.uw-studio-trust { padding:100px 0; }
+.uw-studio-trust__inner { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:clamp(32px,6vw,90px); }
+.uw-studio-trust figure { margin:0; position:relative; }
+.uw-studio-trust .uw-photo { display:block; width:100%; height:600px; object-fit:cover; border-radius:3px; }
+.uw-studio-trust figcaption { padding:15px 0; border-bottom:1px solid var(--uw-line); font-size:.75rem; letter-spacing:.13em; color:var(--uw-muted); }
+.uw-studio-trust ul { list-style:none; padding:0; margin:30px 0 0; }
+.uw-studio-trust li { border-top:1px solid var(--uw-line); padding:22px 0 4px; }
+.editor-styles-wrapper .uw-studio-auth { min-height:600px; }
+@media(min-width:2000px) { .uw-studio-auth { max-width:1800px; } }
+@media(max-width:1050px) { .uw-studio-auth__paper { padding:40px 32px; } .uw-process__steps { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) {
+ .uw-studio-auth { display:flex; flex-direction:column; min-height:0; }
+ .uw-studio-auth__scene { min-height:310px; order:2; }
+ .uw-studio-auth__story { padding:32px; }
+ .uw-site .uw-studio-auth__story h2 { font-size:2.5rem; max-width:13ch; }
+ .uw-studio-auth__story .uw-eyebrow { margin-bottom:14px; font-size:.6875rem; }
+ .uw-studio-auth__story > p:last-child { max-width:28ch; font-size:1rem; }
+ .uw-studio-auth__caption { position:static; margin:0 32px 24px!important; }
+ .uw-studio-auth__paper { padding:36px 24px; max-width:500px; }
+ .uw-studio-auth__brand { margin-bottom:30px; }
+ .uw-process,.uw-studio-trust { padding:60px 0; }
+ .uw-studio-trust__inner { grid-template-columns:1fr; }
+ .uw-studio-trust .uw-photo { height:360px; }
+}
+@media(max-width:440px) { .uw-process__steps { grid-template-columns:1fr; gap:18px; } .uw-process__steps li:before { margin-bottom:12px; } }
+
+body.tw-app--login,body.tw-app--register { background:var(--uw-paper); }
+
+
+
+/* New studio sections span the same named full track as other page bands. */
+.uw-content-grid > :is(.uw-process,.uw-studio-trust,.uw-studio-auth) { grid-column:full; width:100%; max-width:none; margin-inline:0; }
+
+.uw-studio-auth--register .uw-studio-auth__photo { object-position:65% center; }
+
+@media(max-width:360px) {
+ .uw-site .uw-studio-auth__brand .uw-wordmark { font-size:1.05rem; }
+ .uw-studio-auth__brand { gap:6px; }
+}
+
+/* Keep the How it works portrait unobstructed by its editorial caption. */
+.uw-site .uw-how-it-works-page .uw-journey-visual figure { display:flex; flex-direction:column; }
+.uw-site .uw-how-it-works-page .uw-journey-visual .uw-photo { flex:1; min-height:0; height:0; }
+.uw-site .uw-how-it-works-page .uw-journey-visual figcaption { position:static; order:-1; flex:none; width:100%; border-radius:0; padding:12px 16px; font-size:.875rem; }

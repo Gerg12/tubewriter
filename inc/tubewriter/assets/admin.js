@@ -2956,13 +2956,18 @@ window.TWAjax = window.TWAjax || {
 		}
 		try {
 			var savedProvider = localStorage.getItem('twTextProvider');
+			var preferred = (TW.preferredProvider === 'openai' || TW.preferredProvider === 'gemini') ? TW.preferredProvider : '';
 			if (savedProvider === 'openai' || savedProvider === 'gemini') {
 				sel.value = savedProvider;
+			} else if (preferred) {
+				sel.value = preferred;
 			} else if (TW.hasOpenAI) {
 				sel.value = 'openai';
 			}
 		} catch (e) {
-			if (TW.hasOpenAI) {
+			if (TW.preferredProvider === 'openai' || TW.preferredProvider === 'gemini') {
+				sel.value = TW.preferredProvider;
+			} else if (TW.hasOpenAI) {
 				sel.value = 'openai';
 			}
 		}

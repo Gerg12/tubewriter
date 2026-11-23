@@ -350,3 +350,5 @@ require get_template_directory() . '/inc/brand.php';
 require get_template_directory() . '/inc/muse.php';
 
 require get_template_directory() . '/inc/document.php';
+
+require get_template_directory() . '/inc/studio-blocks.php';

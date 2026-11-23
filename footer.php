@@ -1,6 +1,7 @@
 <footer class="uw-footer">
     <div><a class="uw-logo" href="<?php echo esc_url( home_url( '/' ) ); ?>"><?php uw_brand(); ?></a><p>A little less admin. A lot more creating.</p></div>
     <div class="uw-footer-links">
+        <a href="<?php echo esc_url( uw_story_url() ); ?>">How it works</a>
         <a href="<?php echo esc_url( home_url( '/pricing/' ) ); ?>">Pricing</a>
         <a href="<?php echo esc_url( uw_app_url() ); ?>">Video workspace ↗</a>
         <?php if ( get_privacy_policy_url() ) : ?>

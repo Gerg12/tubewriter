@@ -87,28 +87,30 @@ class TW_Admin {
 							<th><label for="tw_gemini_key">Default Gemini API key</label></th>
 							<td>
 								<input type="password" id="tw_gemini_key" name="tw_gemini_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'gemini_key' ) ); ?>">
-								<p class="description">Optional site fallback. Front-end users add their own keys under Account → Keys &amp; voice.</p>
+								<p class="description">Site fallback when a user has neither their own key nor an assigned key on Users → Edit. Front-end users can still override under Account → Keys &amp; voice.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_model">Gemini model</label></th>
 							<td>
-								<input type="text" id="tw_model" name="tw_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_MODEL ); ?></code>.</p>
+								<select id="tw_model" name="tw_model">
+									<?php TW_Settings::render_model_options( 'gemini', TW_Settings::get( 'model' ) ); ?>
+								</select>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_openai_key">Default OpenAI API key</label></th>
 							<td>
 								<input type="password" id="tw_openai_key" name="tw_openai_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( TW_Store::secret_placeholder( 'openai_key' ) ); ?>">
-								<p class="description">Optional site fallback. From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.</p>
+								<p class="description">Site fallback when a user has neither their own key nor an assigned key on Users → Edit. From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.</p>
 							</td>
 						</tr>
 						<tr>
 							<th><label for="tw_openai_model">OpenAI text model</label></th>
 							<td>
-								<input type="text" id="tw_openai_model" name="tw_openai_model" class="regular-text code" value="<?php echo esc_attr( TW_Settings::get( 'openai_model' ) ); ?>">
-								<p class="description">Default <code><?php echo esc_html( TW_DEFAULT_OPENAI_MODEL ); ?></code>.</p>
+								<select id="tw_openai_model" name="tw_openai_model">
+									<?php TW_Settings::render_model_options( 'openai', TW_Settings::get( 'openai_model' ) ); ?>
+								</select>
 							</td>
 						</tr>
 						<tr>
@@ -298,11 +300,109 @@ class TW_Admin {
 					<?php endif; ?>
 				</td>
 			</tr>
+			<?php
+			$uid              = (int) $user->ID;
+			$own_gemini       = (bool) TW_Store::get_for_user( $uid, 'gemini_key', '' );
+			$own_openai       = (bool) TW_Store::get_for_user( $uid, 'openai_key', '' );
+			$assigned_gemini  = TW_Store::secret_placeholder_for_user( $uid, 'assigned_gemini_key' );
+			$assigned_openai  = TW_Store::secret_placeholder_for_user( $uid, 'assigned_openai_key' );
+			$assigned_provider = (string) TW_Store::get_for_user( $uid, 'assigned_text_provider', '' );
+			$assigned_model    = (string) TW_Store::get_for_user( $uid, 'assigned_model', '' );
+			$assigned_oai_model = (string) TW_Store::get_for_user( $uid, 'assigned_openai_model', '' );
+			?>
+			<tr>
+				<th><label for="tw_assigned_gemini_key">Gemini API key</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins use the default keys in UploadWriter → Settings.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">Give this account the UploadWriter role before assigning keys.</p>
+					<?php else : ?>
+						<input type="password" id="tw_assigned_gemini_key" name="tw_assigned_gemini_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( $assigned_gemini ? $assigned_gemini : 'Paste Gemini key' ); ?>">
+						<?php if ( $assigned_gemini ) : ?>
+							<label for="tw_clear_assigned_gemini_key" style="display:inline-block;margin-top:6px;">
+								<input type="checkbox" id="tw_clear_assigned_gemini_key" name="tw_clear_assigned_gemini_key" value="1">
+								Clear assigned Gemini key
+							</label>
+						<?php endif; ?>
+						<?php if ( $own_gemini ) : ?>
+							<p class="description">This user saved their own Gemini key under Account → Keys &amp; voice. That key overrides whatever you assign here.</p>
+						<?php else : ?>
+							<p class="description">Used when this user has not saved their own Gemini key. Leave blank to keep the current value.</p>
+						<?php endif; ?>
+					<?php endif; ?>
+				</td>
+			</tr>
+			<tr>
+				<th><label for="tw_assigned_openai_key">ChatGPT / OpenAI API key</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins use the default keys in UploadWriter → Settings.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">Give this account the UploadWriter role before assigning keys.</p>
+					<?php else : ?>
+						<input type="password" id="tw_assigned_openai_key" name="tw_assigned_openai_key" class="regular-text code" autocomplete="off" value="" placeholder="<?php echo esc_attr( $assigned_openai ? $assigned_openai : 'Paste OpenAI key' ); ?>">
+						<?php if ( $assigned_openai ) : ?>
+							<label for="tw_clear_assigned_openai_key" style="display:inline-block;margin-top:6px;">
+								<input type="checkbox" id="tw_clear_assigned_openai_key" name="tw_clear_assigned_openai_key" value="1">
+								Clear assigned OpenAI key
+							</label>
+						<?php endif; ?>
+						<?php if ( $own_openai ) : ?>
+							<p class="description">This user saved their own OpenAI key under Account → Keys &amp; voice. That key overrides whatever you assign here.</p>
+						<?php else : ?>
+							<p class="description">Used when this user has not saved their own OpenAI key. Leave blank to keep the current value.</p>
+						<?php endif; ?>
+					<?php endif; ?>
+				</td>
+			</tr>
+			<tr>
+				<th><label for="tw_assigned_text_provider">Preferred model</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins pick the model in the editor; site defaults live in UploadWriter → Settings.</p>
+					<?php elseif ( ! $can_app ) : ?>
+						<p class="description">Give this account the UploadWriter role first.</p>
+					<?php else : ?>
+						<select id="tw_assigned_text_provider" name="tw_assigned_text_provider">
+							<option value="">Site default (ChatGPT)</option>
+							<?php foreach ( TW_Settings::TEXT_PROVIDERS as $id => $label ) : ?>
+								<option value="<?php echo esc_attr( $id ); ?>" <?php selected( $assigned_provider, $id ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						<p class="description" style="margin-top:10px;">
+							<label for="tw_assigned_openai_model">ChatGPT model</label><br>
+							<select id="tw_assigned_openai_model" name="tw_assigned_openai_model">
+								<?php
+								TW_Settings::render_model_options(
+									'openai',
+									$assigned_oai_model,
+									'Site default (' . TW_Settings::get_site_model_label( 'openai' ) . ')'
+								);
+								?>
+							</select>
+						</p>
+						<p class="description" style="margin-top:10px;">
+							<label for="tw_assigned_model">Gemini model</label><br>
+							<select id="tw_assigned_model" name="tw_assigned_model">
+								<?php
+								TW_Settings::render_model_options(
+									'gemini',
+									$assigned_model,
+									'Site default (' . TW_Settings::get_site_model_label( 'gemini' ) . ')'
+								);
+								?>
+							</select>
+						</p>
+						<p class="description">Default for the Generate picker. The user can still switch in the editor. “Site default” inherits UploadWriter → Settings.</p>
+					<?php endif; ?>
+				</td>
+			</tr>
 		</table>
 		<?php
 	}
 
-	/** Save beta approval, Muse access, and the per-user AI thumbnail grant from the profile form. */
+	/** Save beta approval, Muse access, AI thumbnail grant, and assigned AI keys/models from the profile form. */
 	public function save_user_thumb_ai_field( $user_id ) {
 		if ( ! current_user_can( self::CAP ) ) {
 			return;
@@ -332,6 +432,8 @@ class TW_Admin {
 			$approved = ! empty( $_POST['tw_beta_approved'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 			tw_user_set_beta_pending( $user_id, ! $approved );
 		}
+
+		TW_Settings::save_assigned_ai_from_post( $user_id, $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 	}
 
 	public function page_editor( $video_id, $back_url = '' ) {

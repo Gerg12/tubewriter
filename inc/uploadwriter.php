@@ -4,6 +4,11 @@ if ( ! defined( 'ABSPATH' ) ) { exit; }
 function uw_app_url() {
     return class_exists( 'TW_Frontend' ) ? TW_Frontend::url( is_user_logged_in() ? 'account' : 'register' ) : wp_login_url();
 }
+/** Prefer the detailed editable story page when it is published. */
+function uw_story_url() {
+    $page = get_page_by_path( 'how-it-works' );
+    return $page && 'publish' === $page->post_status && ! $page->post_password ? get_permalink( $page ) : home_url( '/#workflow' );
+}
 function uw_field( $name, $default ) {
     $value = function_exists( 'get_field' ) ? get_field( $name ) : null;
     return null === $value || false === $value || '' === $value ? $default : $value;
@@ -72,7 +77,7 @@ add_action( 'acf/init', function () {
 } );
 add_action( 'init', function () {
     if ( ! function_exists( 'register_block_pattern' ) ) { return; }
-    register_block_pattern( 'uploadwriter/homepage', array( 'title' => 'UploadWriter homepage', 'categories' => array( 'featured' ), 'content' => '<!-- wp:acf/uploadwriter-hero /--><!-- wp:acf/uploadwriter-features /--><!-- wp:acf/uploadwriter-workflow /--><!-- wp:acf/uploadwriter-cta /-->' ) );
+    register_block_pattern( 'uploadwriter/homepage', array( 'title' => 'UploadWriter homepage', 'categories' => array( 'featured' ), 'content' => '<!-- wp:acf/uploadwriter-hero {"name":"acf/uploadwriter-hero","mode":"preview"} /--><!-- wp:acf/uploadwriter-features {"name":"acf/uploadwriter-features","mode":"preview"} /--><!-- wp:acf/uploadwriter-workflow {"name":"acf/uploadwriter-workflow","mode":"preview"} /--><!-- wp:acf/uploadwriter-cta {"name":"acf/uploadwriter-cta","mode":"preview"} /-->' ) );
 } );
 function uw_button( $default = 'Start your workspace' ) {
     $link = uw_field( 'uw_link', array() );

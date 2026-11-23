@@ -12,7 +12,7 @@ class TW_Store {
 
 	const SITE_ONLY = array( 'client_id', 'client_secret', 'thumb_ai_for_users', 'beta_access' );
 
-	const SECRETS = array( 'gemini_key', 'openai_key', 'client_secret' );
+	const SECRETS = array( 'gemini_key', 'openai_key', 'client_secret', 'assigned_gemini_key', 'assigned_openai_key' );
 
 	/**
 	 * @param string $key Without the tw_ prefix.
@@ -43,6 +43,124 @@ class TW_Store {
 			return TW_Crypto::decrypt( $value );
 		}
 		return $value;
+	}
+
+	/**
+	 * Read a site option even while a user context is active (no user/assigned fallback).
+	 *
+	 * @param string $key Without the tw_ prefix.
+	 * @param mixed  $default
+	 * @return mixed
+	 */
+	public static function get_site( $key, $default = '' ) {
+		$prev = TW_Context::user_id();
+		TW_Context::clear();
+		$value = self::get( $key, $default );
+		TW_Context::set_user( $prev );
+		return $value;
+	}
+
+	/**
+	 * True when this user (or site, when no user context) has their own stored value —
+	 * ignores assigned keys and site fallbacks used by TW_Settings::get().
+	 *
+	 * @param string $key Without the tw_ prefix.
+	 */
+	public static function has_own( $key ) {
+		return self::has( $key );
+	}
+
+	/**
+	 * Last 4 of a secret for a specific user without changing request context.
+	 *
+	 * @param int    $user_id
+	 * @param string $key Without the tw_ prefix.
+	 * @return string
+	 */
+	public static function secret_hint_for_user( $user_id, $key ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return '';
+		}
+		$prev = TW_Context::user_id();
+		TW_Context::set_user( $user_id );
+		$hint = self::secret_hint( $key );
+		TW_Context::set_user( $prev );
+		return $hint;
+	}
+
+	/**
+	 * Placeholder for a secret on a specific user profile.
+	 *
+	 * @param int    $user_id
+	 * @param string $key Without the tw_ prefix.
+	 * @return string
+	 */
+	public static function secret_placeholder_for_user( $user_id, $key ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return '';
+		}
+		$prev = TW_Context::user_id();
+		TW_Context::set_user( $user_id );
+		$out = self::secret_placeholder( $key );
+		TW_Context::set_user( $prev );
+		return $out;
+	}
+
+	/**
+	 * Read a key for a specific user without changing lasting request context.
+	 *
+	 * @param int    $user_id
+	 * @param string $key Without the tw_ prefix.
+	 * @param mixed  $default
+	 * @return mixed
+	 */
+	public static function get_for_user( $user_id, $key, $default = '' ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return $default;
+		}
+		$prev = TW_Context::user_id();
+		TW_Context::set_user( $user_id );
+		$value = self::get( $key, $default );
+		TW_Context::set_user( $prev );
+		return $value;
+	}
+
+	/**
+	 * Write a key for a specific user without changing lasting request context.
+	 *
+	 * @param int    $user_id
+	 * @param string $key Without the tw_ prefix.
+	 * @param mixed  $value
+	 */
+	public static function set_for_user( $user_id, $key, $value ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return;
+		}
+		$prev = TW_Context::user_id();
+		TW_Context::set_user( $user_id );
+		self::set( $key, $value );
+		TW_Context::set_user( $prev );
+	}
+
+	/**
+	 * Delete a key for a specific user without changing lasting request context.
+	 *
+	 * @param int    $user_id
+	 * @param string $key Without the tw_ prefix.
+	 */
+	public static function delete_for_user( $user_id, $key ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return;
+		}
+		$prev = TW_Context::user_id();
+		TW_Context::set_user( $user_id );
+		self::delete( $key );
+		TW_Context::set_user( $prev );
 	}
 
 	/**

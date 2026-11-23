@@ -9,7 +9,7 @@ $items = uw_field( 'uw_items', array(
     <?php uw_float_art( 'orbit', 'uw-journey-orbit' ); ?>
     <div class="uw-wrap uw-journey-inner">
         <div class="uw-journey-visual">
-            <figure><?php uw_image( uw_field( 'uw_image', 0 ), 'creator-planning', 'A creator planning her next video with a notebook and laptop in a sunlit studio.', 'uw-photo', false, '(max-width: 760px) 100vw, (max-width: 1600px) 80vw, 1000px' ); ?><figcaption><span aria-hidden="true">●</span> MORE TIME FOR THE PART YOU LOVE.</figcaption></figure>
+            <figure><?php uw_image( uw_field( 'uw_image', 0 ), ( is_page( 'how-it-works' ) ? 'how-source' : 'creator-planning' ), ( is_page( 'how-it-works' ) ? 'A creator listening through headphones while making notes from source material.' : 'A creator planning her next video with a notebook and laptop in a sunlit studio.' ), 'uw-photo', false, '(max-width: 760px) 100vw, (max-width: 1600px) 80vw, 1000px' ); ?><figcaption><span aria-hidden="true">●</span> MORE TIME FOR THE PART YOU LOVE.</figcaption></figure>
             <div class="uw-journey-ticket"><span class="uw-journey-ticket-mark" aria-hidden="true">↗</span><p>Made by you.<br><em>Fine-tuned with UploadWriter.</em></p><span class="uw-journey-ticket-line" aria-hidden="true"></span></div>
             <?php uw_float_art( 'arrow', 'uw-journey-arrow' ); ?>
         </div>

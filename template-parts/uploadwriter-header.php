@@ -3,7 +3,7 @@
     <button class="uw-menu-toggle" type="button" aria-expanded="false" aria-controls="uw-navigation">Menu <span aria-hidden="true">☰</span></button>
     <nav id="uw-navigation" class="uw-navigation" aria-label="Main navigation">
         <a href="<?php echo esc_url( home_url( '/#features' ) ); ?>">The toolkit</a>
-        <a href="<?php echo esc_url( home_url( '/#workflow' ) ); ?>">How it works</a>
+        <a href="<?php echo esc_url( uw_story_url() ); ?>"<?php echo is_page( 'how-it-works' ) ? ' aria-current="page"' : ''; ?>>How it works</a>
         <a href="<?php echo esc_url( home_url( '/pricing/' ) ); ?>"<?php echo is_page( 'pricing' ) ? ' aria-current="page"' : ''; ?>>Pricing</a>
         <a href="<?php echo esc_url( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) : wp_login_url() ); ?>">Your videos</a>
         <?php if ( ! is_user_logged_in() ) : ?><a class="uw-login" href="<?php echo esc_url( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'login' ) : wp_login_url() ); ?>">Log in</a><?php endif; ?>

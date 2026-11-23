@@ -16,6 +16,7 @@ class TW_Settings {
 		'openai_key',
 		'openai_model',
 		'model',
+		'text_provider',
 		'image_provider',
 		'image_model',
 		'openai_image_model',
@@ -40,6 +41,116 @@ class TW_Settings {
 		'channel_logo_brief',
 		'identity_complete',
 	);
+
+	/** Keys that resolve user own → admin-assigned → site option when in user context. */
+	const USER_SITE_FALLBACK = array(
+		'gemini_key',
+		'openai_key',
+		'model',
+		'openai_model',
+		'text_provider',
+		'image_provider',
+		'image_model',
+		'openai_image_model',
+		'openai_image_quality',
+	);
+
+	/** Text AI picker (Generate / revise). */
+	const TEXT_PROVIDERS = array(
+		'openai' => 'ChatGPT',
+		'gemini' => 'Gemini',
+	);
+
+	/** Gemini text models for Settings / profile / Account dropdowns. */
+	const GEMINI_MODELS = array(
+		'gemini-3.6-flash'      => 'Gemini 3.6 Flash (recommended)',
+		'gemini-3.5-flash-lite' => 'Gemini 3.5 Flash Lite',
+		'gemini-3.8-flash'      => 'Gemini 3.8 Flash',
+		'gemini-2.5-flash'      => 'Gemini 2.5 Flash',
+		'gemini-flash-latest'   => 'Gemini Flash (latest alias)',
+	);
+
+	/** OpenAI / ChatGPT text models for Settings / profile / Account dropdowns. */
+	const OPENAI_MODELS = array(
+		'gpt-4.1'      => 'GPT-4.1 (recommended)',
+		'gpt-4.1-mini' => 'GPT-4.1 Mini',
+		'gpt-4o'       => 'GPT-4o',
+		'gpt-4o-mini'  => 'GPT-4o Mini',
+		'o4-mini'      => 'o4-mini',
+		'o3'           => 'o3',
+	);
+
+	/**
+	 * Print <option> list for a text-model family.
+	 *
+	 * @param string $family  gemini|openai
+	 * @param string $selected Current value.
+	 * @param string $empty_label When non-empty, first option value="" with this label.
+	 */
+	public static function render_model_options( $family, $selected, $empty_label = '' ) {
+		$choices  = ( 'openai' === $family ) ? self::OPENAI_MODELS : self::GEMINI_MODELS;
+		$selected = (string) $selected;
+		if ( '' !== $empty_label ) {
+			printf(
+				'<option value="" %s>%s</option>',
+				selected( $selected, '', false ),
+				esc_html( $empty_label )
+			);
+		}
+		if ( '' !== $selected && ! isset( $choices[ $selected ] ) ) {
+			printf(
+				'<option value="%s" selected>%s</option>',
+				esc_attr( $selected ),
+				esc_html( $selected . ' (current)' )
+			);
+		}
+		foreach ( $choices as $id => $label ) {
+			printf(
+				'<option value="%s" %s>%s</option>',
+				esc_attr( $id ),
+				selected( $selected, $id, false ),
+				esc_html( $label )
+			);
+		}
+	}
+
+	/**
+	 * Sanitize a posted model id against the known list (keeps unknown current values).
+	 *
+	 * @param string $family gemini|openai
+	 * @param string $value
+	 * @param bool   $allow_empty
+	 * @return string
+	 */
+	public static function sanitize_model( $family, $value, $allow_empty = false ) {
+		$value    = sanitize_text_field( (string) $value );
+		$choices  = ( 'openai' === $family ) ? self::OPENAI_MODELS : self::GEMINI_MODELS;
+		$fallback = ( 'openai' === $family ) ? TW_DEFAULT_OPENAI_MODEL : TW_DEFAULT_MODEL;
+		if ( '' === $value ) {
+			return $allow_empty ? '' : $fallback;
+		}
+		if ( isset( $choices[ $value ] ) ) {
+			return $value;
+		}
+		// Allow a previously saved custom id through once so a save does not wipe it.
+		return $value;
+	}
+
+	/**
+	 * Friendly label for the site-level model (for “Site default (…)” options).
+	 *
+	 * @param string $family gemini|openai
+	 * @return string
+	 */
+	public static function get_site_model_label( $family ) {
+		$key     = ( 'openai' === $family ) ? 'openai_model' : 'model';
+		$choices = ( 'openai' === $family ) ? self::OPENAI_MODELS : self::GEMINI_MODELS;
+		$id      = (string) TW_Store::get_site( $key, '' );
+		if ( '' === $id ) {
+			$id = ( 'openai' === $family ) ? TW_DEFAULT_OPENAI_MODEL : TW_DEFAULT_MODEL;
+		}
+		return isset( $choices[ $id ] ) ? $choices[ $id ] : $id;
+	}
 
 	const DEFAULTS = array(
 		'default_time'         => '07:30',
@@ -549,6 +660,15 @@ class TW_Settings {
 			return self::google_client_secret();
 		}
 		$value = TW_Store::get( $key, '' );
+		if ( ( '' === $value || false === $value || null === $value ) && TW_Context::is_user() && in_array( $key, self::USER_SITE_FALLBACK, true ) ) {
+			$assigned_key = 'assigned_' . $key;
+			$assigned     = TW_Store::get( $assigned_key, '' );
+			if ( '' !== $assigned && false !== $assigned && null !== $assigned ) {
+				$value = $assigned;
+			} else {
+				$value = TW_Store::get_site( $key, '' );
+			}
+		}
 		if ( 'model' === $key && '' === $value ) {
 			return TW_DEFAULT_MODEL;
 		}
@@ -560,6 +680,10 @@ class TW_Settings {
 		}
 		if ( 'openai_model' === $key && '' === $value ) {
 			return TW_DEFAULT_OPENAI_MODEL;
+		}
+		if ( 'text_provider' === $key ) {
+			$value = (string) $value;
+			return isset( self::TEXT_PROVIDERS[ $value ] ) ? $value : 'openai';
 		}
 		if ( 'image_provider' === $key ) {
 			$value = (string) $value;
@@ -682,9 +806,80 @@ class TW_Settings {
 		return self::is_valid_timezone( $tz ) ? $tz : self::timezone_string();
 	}
 
-	/** Front-end user is ready when they have at least one AI key. */
+	/** Front-end user is ready when they have at least one AI key (own, admin-assigned, or site fallback). */
 	public static function user_has_ai_key() {
-		return TW_Store::has( 'gemini_key' ) || TW_Store::has( 'openai_key' );
+		return '' !== (string) self::get( 'gemini_key' ) || '' !== (string) self::get( 'openai_key' );
+	}
+
+	/**
+	 * Where the effective key came from for UI copy.
+	 *
+	 * @param string $key gemini_key|openai_key
+	 * @return string own|assigned|site|none
+	 */
+	public static function key_source( $key ) {
+		if ( ! in_array( $key, array( 'gemini_key', 'openai_key' ), true ) ) {
+			return 'none';
+		}
+		if ( TW_Store::has_own( $key ) ) {
+			return 'own';
+		}
+		if ( TW_Context::is_user() && TW_Store::has_own( 'assigned_' . $key ) ) {
+			return 'assigned';
+		}
+		$site = TW_Store::get_site( $key, '' );
+		if ( is_string( $site ) && '' !== $site ) {
+			return 'site';
+		}
+		return 'none';
+	}
+
+	/**
+	 * Save admin-assigned AI keys / preferred model from Users → Edit.
+	 *
+	 * @param int   $user_id
+	 * @param array $post
+	 */
+	public static function save_assigned_ai_from_post( $user_id, array $post ) {
+		$user_id = (int) $user_id;
+		if ( $user_id < 1 ) {
+			return;
+		}
+
+		$gemini = sanitize_text_field( wp_unslash( $post['tw_assigned_gemini_key'] ?? '' ) );
+		if ( ! empty( $post['tw_clear_assigned_gemini_key'] ) ) {
+			TW_Store::delete_for_user( $user_id, 'assigned_gemini_key' );
+		} elseif ( '' !== $gemini ) {
+			TW_Store::set_for_user( $user_id, 'assigned_gemini_key', $gemini );
+		}
+
+		$openai = sanitize_text_field( wp_unslash( $post['tw_assigned_openai_key'] ?? '' ) );
+		if ( ! empty( $post['tw_clear_assigned_openai_key'] ) ) {
+			TW_Store::delete_for_user( $user_id, 'assigned_openai_key' );
+		} elseif ( '' !== $openai ) {
+			TW_Store::set_for_user( $user_id, 'assigned_openai_key', $openai );
+		}
+
+		$provider = sanitize_text_field( wp_unslash( $post['tw_assigned_text_provider'] ?? '' ) );
+		if ( isset( self::TEXT_PROVIDERS[ $provider ] ) ) {
+			TW_Store::set_for_user( $user_id, 'assigned_text_provider', $provider );
+		} elseif ( array_key_exists( 'tw_assigned_text_provider', $post ) && '' === $provider ) {
+			TW_Store::delete_for_user( $user_id, 'assigned_text_provider' );
+		}
+
+		$model = self::sanitize_model( 'gemini', wp_unslash( $post['tw_assigned_model'] ?? '' ), true );
+		if ( '' === $model ) {
+			TW_Store::delete_for_user( $user_id, 'assigned_model' );
+		} else {
+			TW_Store::set_for_user( $user_id, 'assigned_model', $model );
+		}
+
+		$openai_model = self::sanitize_model( 'openai', wp_unslash( $post['tw_assigned_openai_model'] ?? '' ), true );
+		if ( '' === $openai_model ) {
+			TW_Store::delete_for_user( $user_id, 'assigned_openai_model' );
+		} else {
+			TW_Store::set_for_user( $user_id, 'assigned_openai_model', $openai_model );
+		}
 	}
 
 	public static function save_from_post( array $post ) {
@@ -706,11 +901,8 @@ class TW_Settings {
 		if ( '' !== $openai ) {
 			self::set( 'openai_key', $openai );
 		}
-		$openai_model = sanitize_text_field( wp_unslash( $post['tw_openai_model'] ?? '' ) );
-		self::set( 'openai_model', '' === $openai_model ? TW_DEFAULT_OPENAI_MODEL : $openai_model );
-
-		$model = sanitize_text_field( wp_unslash( $post['tw_model'] ?? '' ) );
-		self::set( 'model', '' === $model ? TW_DEFAULT_MODEL : $model );
+		self::set( 'openai_model', self::sanitize_model( 'openai', wp_unslash( $post['tw_openai_model'] ?? '' ) ) );
+		self::set( 'model', self::sanitize_model( 'gemini', wp_unslash( $post['tw_model'] ?? '' ) ) );
 
 		$provider = sanitize_text_field( wp_unslash( $post['tw_image_provider'] ?? '' ) );
 		self::set( 'image_provider', isset( self::IMAGE_PROVIDERS[ $provider ] ) ? $provider : TW_DEFAULT_IMAGE_PROVIDER );

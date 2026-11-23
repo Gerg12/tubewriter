@@ -154,6 +154,7 @@ class TW_Frontend {
 				'imageProvider'      => is_user_logged_in() ? TW_Settings::get( 'image_provider' ) : TW_DEFAULT_IMAGE_PROVIDER,
 				'imageProviderLabel' => is_user_logged_in() ? TW_Settings::image_provider_label() : '',
 				'hasOpenAI'          => ( is_user_logged_in() && TW_Settings::get( 'openai_key' ) ) ? 1 : 0,
+				'preferredProvider'  => is_user_logged_in() ? TW_Settings::get( 'text_provider' ) : 'openai',
 				'canThumbnails'      => ( is_user_logged_in() && tw_user_can_thumbnails() ) ? 1 : 0,
 				'thumbLibrary'       => ( is_user_logged_in() ) ? TW_Thumb_Library::usage() : array( 'used' => 0, 'limit' => TW_Thumb_Library::FREE_LIMIT, 'unlimited' => 0, 'remaining' => TW_Thumb_Library::FREE_LIMIT ),
 				'settingsUrl'        => self::url( 'account' ) . ( TW_Settings::identity_complete() ? '#tw-keys' : '#tw-voice' ),
@@ -218,42 +219,22 @@ class TW_Frontend {
 	}
 
 	private function view_login() {
-		?>
-		<main id="primary" tabindex="-1" class="tw-shell tw-shell--auth">
-			<section class="tw-auth-card tw-auth-center">
-				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
-				<span class="tw-brand-mark" aria-hidden="true"></span>
-				<h1>Log in</h1>
-				<p class="tw-lead">Back to your channel workspace.</p>
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-form--auth">
-					<?php wp_nonce_field( 'tw_front_login' ); ?>
-					<input type="hidden" name="action" value="tw_front_login">
-					<label for="tw-login-user">Email or username</label>
-					<input type="text" id="tw-login-user" name="log" required autocomplete="username" placeholder="Email or username">
-					<label for="tw-login-pass">Password</label>
-					<input type="password" id="tw-login-pass" name="pwd" required autocomplete="current-password" placeholder="Your password">
-					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill">Log in</button>
-				</form>
-				<p class="tw-fine"><a href="<?php echo esc_url( wp_lostpassword_url( self::url( 'login' ) ) ); ?>">Forgot password</a></p>
-				<p class="tw-fine">No account yet? <a href="<?php echo esc_url( self::url( 'register' ) ); ?>">Create one</a></p>
-			</section>
-		</main>
-		<?php
-	}
+        echo '<main id="primary" tabindex="-1" class="uw-auth-main">';
+        uw_render_auth_page( 'login' );
+        echo '</main>';
+    }
 
-	private function view_register() {
-		$beta = TW_Settings::beta_access();
-		?>
-		<main id="primary" tabindex="-1" class="tw-shell tw-shell--auth">
-			<section class="tw-auth-card tw-auth-center">
-				<p class="tw-brand"><?php echo esc_html( TW_BRAND ); ?></p>
-				<span class="tw-brand-mark" aria-hidden="true"></span>
-				<h1>Create account</h1>
-				<?php if ( $beta ) : ?>
-					<p class="tw-lead">UploadWriter is in private beta. Request access and we will email you when your account is approved.</p>
-				<?php else : ?>
-					<p class="tw-lead">Connect AI and YouTube, draft metadata, and publish only after review. Your keys stay encrypted on this site.</p>
-				<?php endif; ?>
+    private function view_register() {
+        echo '<main id="primary" tabindex="-1" class="uw-auth-main">';
+        uw_render_auth_page( 'register' );
+        echo '</main>';
+    }
+
+    /** One canonical form renderer for app routes and ACF presentation blocks. */
+    public static function auth_form( $view ) {
+        $beta = TW_Settings::beta_access();
+        if ( 'register' === $view ) {
+            ?>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-form--auth">
 					<?php wp_nonce_field( 'tw_front_register' ); ?>
 					<input type="hidden" name="action" value="tw_front_register">
@@ -271,10 +252,23 @@ class TW_Frontend {
 					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill"><?php echo $beta ? 'Request access' : 'Create account'; ?></button>
 				</form>
 				<p class="tw-fine">Already have an account? <a href="<?php echo esc_url( self::url( 'login' ) ); ?>">Log in</a></p>
-			</section>
-		</main>
-		<?php
-	}
+            <?php
+        } else {
+            ?>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="tw-form tw-form--auth">
+					<?php wp_nonce_field( 'tw_front_login' ); ?>
+					<input type="hidden" name="action" value="tw_front_login">
+					<label for="tw-login-user">Email or username</label>
+					<input type="text" id="tw-login-user" name="log" required autocomplete="username" placeholder="Email or username">
+					<label for="tw-login-pass">Password</label>
+					<input type="password" id="tw-login-pass" name="pwd" required autocomplete="current-password" placeholder="Your password">
+					<button type="submit" class="tw-btn tw-btn--primary tw-btn--block tw-btn--pill">Log in</button>
+				</form>
+				<p class="tw-fine"><a href="<?php echo esc_url( wp_lostpassword_url( self::url( 'login' ) ) ); ?>">Forgot password</a></p>
+				<p class="tw-fine">No account yet? <a href="<?php echo esc_url( self::url( 'register' ) ); ?>">Create one</a></p>
+            <?php
+        }
+    }
 
 	private function view_account() {
 		TW_Context::set_user( get_current_user_id() );
@@ -389,8 +383,12 @@ class TW_Frontend {
         <?php
     }
 	private function render_workspace( $channel ) {
-		$has_gemini = TW_Store::has( 'gemini_key' );
-		$has_openai = TW_Store::has( 'openai_key' );
+		$gemini_src = TW_Settings::key_source( 'gemini_key' );
+		$openai_src = TW_Settings::key_source( 'openai_key' );
+		$has_gemini = 'none' !== $gemini_src;
+		$has_openai = 'none' !== $openai_src;
+		$own_gemini = 'own' === $gemini_src;
+		$own_openai = 'own' === $openai_src;
 		$connected  = TW_OAuth::is_connected();
 		$site_ok    = TW_Settings::get( 'client_id' ) && TW_Settings::get( 'client_secret' );
 		$voice_ok   = TW_Settings::identity_complete();
@@ -440,21 +438,66 @@ class TW_Frontend {
 					<?php wp_nonce_field( 'tw_front_save_keys' ); ?>
 					<input type="hidden" name="action" value="tw_front_save_keys">
 					<h2>AI keys</h2>
-					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value.</p>
-					<label for="tw_gemini_key">Gemini API key <?php echo $has_gemini ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
+					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value. Your keys override any keys an admin assigned for this account.</p>
+					<label for="tw_gemini_key">Gemini API key <?php
+					if ( $own_gemini ) {
+						echo '<span class="tw-chip tw-chip--ok">Your key</span>';
+					} elseif ( 'assigned' === $gemini_src ) {
+						echo '<span class="tw-chip tw-chip--ok">Admin key</span>';
+					} elseif ( 'site' === $gemini_src ) {
+						echo '<span class="tw-chip tw-chip--ok">Site key</span>';
+					}
+					?></label>
 					<div class="tw-secret">
-						<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $has_gemini ? TW_Store::secret_placeholder( 'gemini_key' ) : 'Paste Gemini key' ); ?>">
+						<input type="password" id="tw_gemini_key" name="tw_gemini_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $own_gemini ? TW_Store::secret_placeholder( 'gemini_key' ) : ( $has_gemini ? 'Optional — overrides admin key' : 'Paste Gemini key' ) ); ?>">
 						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_gemini_key" data-secret-name="Gemini API key" aria-label="Show Gemini API key">
 							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
 						</button>
 					</div>
-					<label for="tw_openai_key">OpenAI / ChatGPT API key <?php echo $has_openai ? '<span class="tw-chip tw-chip--ok">Saved</span>' : ''; ?></label>
+					<label for="tw_openai_key">OpenAI / ChatGPT API key <?php
+					if ( $own_openai ) {
+						echo '<span class="tw-chip tw-chip--ok">Your key</span>';
+					} elseif ( 'assigned' === $openai_src ) {
+						echo '<span class="tw-chip tw-chip--ok">Admin key</span>';
+					} elseif ( 'site' === $openai_src ) {
+						echo '<span class="tw-chip tw-chip--ok">Site key</span>';
+					}
+					?></label>
 					<div class="tw-secret">
-						<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $has_openai ? TW_Store::secret_placeholder( 'openai_key' ) : 'Paste OpenAI key' ); ?>">
+						<input type="password" id="tw_openai_key" name="tw_openai_key" autocomplete="off" value="" placeholder="<?php echo esc_attr( $own_openai ? TW_Store::secret_placeholder( 'openai_key' ) : ( $has_openai ? 'Optional — overrides admin key' : 'Paste OpenAI key' ) ); ?>">
 						<button type="button" class="tw-secret-toggle" data-toggle-secret="tw_openai_key" data-secret-name="OpenAI API key" aria-label="Show OpenAI API key">
 							<span class="tw-icon tw-icon--eye" aria-hidden="true"></span>
 						</button>
 					</div>
+					<label for="tw_text_provider">Preferred model</label>
+					<select id="tw_text_provider" name="tw_text_provider">
+						<?php foreach ( TW_Settings::TEXT_PROVIDERS as $id_key => $label ) : ?>
+							<option value="<?php echo esc_attr( $id_key ); ?>" <?php selected( TW_Settings::get( 'text_provider' ), $id_key ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
+					<label for="tw_openai_model">ChatGPT model</label>
+					<select id="tw_openai_model" name="tw_openai_model">
+						<?php
+						$own_oai_model = (string) TW_Store::get( 'openai_model', '' );
+						TW_Settings::render_model_options(
+							'openai',
+							$own_oai_model,
+							'Admin / site default (' . TW_Settings::get_site_model_label( 'openai' ) . ')'
+						);
+						?>
+					</select>
+					<label for="tw_model">Gemini model</label>
+					<select id="tw_model" name="tw_model">
+						<?php
+						$own_gem_model = (string) TW_Store::get( 'model', '' );
+						TW_Settings::render_model_options(
+							'gemini',
+							$own_gem_model,
+							'Admin / site default (' . TW_Settings::get_site_model_label( 'gemini' ) . ')'
+						);
+						?>
+					</select>
+					<p class="tw-muted">Preferred model is the Generate picker default. You can still switch per video in the editor.</p>
 					<label for="tw_image_provider">Thumbnail image provider (fallback)</label>
 					<select id="tw_image_provider" name="tw_image_provider">
 						<?php foreach ( TW_Settings::IMAGE_PROVIDERS as $id_key => $label ) : ?>
@@ -1168,6 +1211,22 @@ class TW_Frontend {
 		if ( '' !== $openai ) {
 			TW_Settings::set( 'openai_key', $openai );
 		}
+		$text_provider = sanitize_text_field( wp_unslash( $_POST['tw_text_provider'] ?? '' ) );
+		TW_Settings::set( 'text_provider', isset( TW_Settings::TEXT_PROVIDERS[ $text_provider ] ) ? $text_provider : 'openai' );
+
+		$openai_model = TW_Settings::sanitize_model( 'openai', wp_unslash( $_POST['tw_openai_model'] ?? '' ), true );
+		if ( '' === $openai_model ) {
+			TW_Store::delete( 'openai_model' );
+		} else {
+			TW_Settings::set( 'openai_model', $openai_model );
+		}
+		$model = TW_Settings::sanitize_model( 'gemini', wp_unslash( $_POST['tw_model'] ?? '' ), true );
+		if ( '' === $model ) {
+			TW_Store::delete( 'model' );
+		} else {
+			TW_Settings::set( 'model', $model );
+		}
+
 		$provider = sanitize_text_field( wp_unslash( $_POST['tw_image_provider'] ?? '' ) );
 		TW_Settings::set( 'image_provider', isset( TW_Settings::IMAGE_PROVIDERS[ $provider ] ) ? $provider : TW_DEFAULT_IMAGE_PROVIDER );
 
