@@ -57,16 +57,28 @@ class TW_History {
 
 	public static function finish( $video_id, $entry_id, array $results, $status ) {
 		$list = self::for_video( $video_id );
+		$action = '';
 		foreach ( $list as &$entry ) {
 			if ( $entry['id'] === $entry_id ) {
 				$entry['results'] = $results;
 				$entry['status']  = $status;
+				$action           = (string) ( $entry['action'] ?? '' );
 				self::log( $video_id, $entry );
 				break;
 			}
 		}
 		unset( $entry );
 		TW_Store::set( self::key( $video_id ), $list );
+		// Launch benchmark counters only. Does not change publish or restore behavior.
+		if ( 'publish' === $action && class_exists( 'TW_Launch' ) ) {
+			$reason = '';
+			foreach ( (array) $results as $step ) {
+				if ( is_array( $step ) && ! empty( $step['error'] ) ) {
+					$reason .= ' ' . (string) $step['error'];
+				}
+			}
+			TW_Launch::record_push( $status, $reason );
+		}
 	}
 
 	private static function log( $video_id, array $entry ) {

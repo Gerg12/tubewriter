@@ -59,6 +59,8 @@ class TW_Admin {
 					Videos, channel identity, and YouTube connect live on the front-end app:
 					<a href="<?php echo esc_url( $account_url ); ?>"><?php echo esc_html( $account_url ); ?></a>.
 					This screen is for site app keys and access gates only.
+					Phase 1 quota, beta, and waitlist numbers live under
+					<a href="<?php echo esc_url( admin_url( 'admin.php?page=tubewriter-launch' ) ); ?>">Launch Benchmarks</a>.
 				</p>
 			</div>
 
@@ -1622,6 +1624,11 @@ class TW_Admin {
 		if ( $usage ) {
 			$payload['ai_usage'] = $usage;
 		}
+		if ( class_exists( 'TW_Launch' ) ) {
+			$quality = strtolower( (string) $this->post( 'image_quality' ) );
+			$detail  = ( false !== strpos( $quality, 'high' ) || 'hd' === $quality ) ? 'high' : 'standard';
+			TW_Launch::record_thumbnail_credit( $detail );
+		}
 		wp_send_json_success( $payload );
 	}
 
@@ -2143,6 +2150,9 @@ class TW_Admin {
 			$check['ai_usage'] = $usage;
 		}
 		$check['quota'] = TW_YouTube::quota_used();
+		if ( class_exists( 'TW_Launch' ) ) {
+			TW_Launch::record_writing_credit();
+		}
 		wp_send_json_success( $check );
 	}
 

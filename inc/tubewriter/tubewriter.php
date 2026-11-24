@@ -46,6 +46,8 @@ require_once TW_DIR . 'includes/class-tw-thumb-library.php';
 require_once TW_DIR . 'includes/class-tw-privacy.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
+require_once TW_DIR . 'includes/class-tw-launch.php';
+TW_Launch::boot();
 
 add_action( TW_Settings::CRON_CLEANUP_THUMBS, function () {
 	require_once TW_DIR . 'includes/class-tw-admin.php';

@@ -274,6 +274,7 @@ class TW_Frontend {
 
 	private function view_account() {
 		TW_Context::set_user( get_current_user_id() );
+		update_user_meta( get_current_user_id(), 'tw_last_active', time() );
 		TW_Index::maybe_install();
 		$video   = isset( $_GET['video'] ) ? sanitize_text_field( wp_unslash( $_GET['video'] ) ) : ''; // phpcs:ignore
 		$channel = TW_Store::get( 'channel', array() );

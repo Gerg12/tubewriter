@@ -344,6 +344,7 @@ require get_template_directory() . '/inc/tubewriter/tubewriter.php';
 require get_template_directory() . '/inc/uploadwriter.php';
 
 require get_template_directory() . '/inc/pricing.php';
+require get_template_directory() . '/inc/waitlist.php';
 
 require get_template_directory() . '/inc/brand.php';
 

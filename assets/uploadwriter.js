@@ -83,6 +83,36 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// Pricing page: Hosted vs BYOK toggle. Phase 1 defaults to BYOK.
+document.addEventListener('DOMContentLoaded', () => {
+  const root = document.querySelector('[data-uw-pricing-track]');
+  const plans = document.querySelector('[data-uw-pricing-plans]');
+  if (!root || !plans) return;
+  const note = root.querySelector('[data-uw-track-note]');
+  const cards = [...plans.querySelectorAll('.uw-price-card')];
+  const notes = {
+    hosted: 'Planned, not buyable yet.',
+    byok: 'Available today, bring your own Gemini or OpenAI key.'
+  };
+  const apply = track => {
+    if (note) note.textContent = notes[track] || notes.byok;
+    cards.forEach(card => {
+      const amount = card.querySelector('[data-uw-price-amount]');
+      const priceNote = card.querySelector('[data-uw-price-note]');
+      const key = track === 'hosted' ? 'priceHosted' : 'priceByok';
+      if (amount) amount.textContent = card.dataset[key] || amount.textContent;
+      if (priceNote) priceNote.textContent = notes[track] || notes.byok;
+    });
+  };
+  root.querySelectorAll('[data-uw-track]').forEach(input => {
+    input.addEventListener('change', () => {
+      if (input.checked) apply(input.value);
+    });
+  });
+  const selected = root.querySelector('[data-uw-track]:checked');
+  apply(selected ? selected.value : 'byok');
+});
+
 // Decorative motion has a separate pause control and follows OS preferences.
 document.addEventListener('DOMContentLoaded', () => {
   const button = document.querySelector('[data-uw-motion-toggle]');
