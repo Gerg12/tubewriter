@@ -207,7 +207,7 @@ class TW_Frontend {
 		echo '<footer class="uw-footer uw-footer--app">';
 		echo '<div class="uw-footer-links">';
 		echo '<a href="' . esc_url( get_privacy_policy_url() ? get_privacy_policy_url() : home_url( '/privacy-policy/' ) ) . '">Privacy Policy</a>';
-		echo '<a href="' . esc_url( home_url( '/terms-of-use/' ) ) . '">Terms of Use</a>';
+		echo '<a href="' . esc_url( home_url( '/terms/' ) ) . '">Terms of Use</a>';
 		echo '<a href="mailto:hello@uploadwriter.com">Contact</a>';
 		echo '<span>&copy; ' . esc_html( wp_date( 'Y' ) ) . ' UploadWriter.com</span>';
 		echo '</div></footer>';

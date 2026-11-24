@@ -9,7 +9,7 @@
         <?php else : ?>
             <a href="<?php echo esc_url( home_url( '/privacy-policy/' ) ); ?>">Privacy Policy</a>
         <?php endif; ?>
-        <a href="<?php echo esc_url( home_url( '/terms-of-use/' ) ); ?>">Terms of Use</a>
+        <a href="<?php echo esc_url( home_url( '/terms/' ) ); ?>">Terms of Use</a>
         <a href="mailto:hello@uploadwriter.com">Contact</a>
         <span>&copy; <?php echo esc_html( wp_date( 'Y' ) ); ?> UploadWriter.com</span>
     </div>
