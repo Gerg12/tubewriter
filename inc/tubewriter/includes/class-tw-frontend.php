@@ -142,6 +142,8 @@ class TW_Frontend {
 
 		wp_enqueue_style( 'tubewriter-front', TW_URL . 'assets/front.css', array(), filemtime( TW_DIR . 'assets/front.css' ) );
 		wp_enqueue_style( 'tubewriter-admin', TW_URL . 'assets/admin.css', array( 'tubewriter-front' ), filemtime( TW_DIR . 'assets/admin.css' ) );
+		wp_enqueue_style( 'tubewriter-calendar', TW_URL . 'assets/calendar.css', array( 'tubewriter-admin' ), filemtime( TW_DIR . 'assets/calendar.css' ) );
+		wp_enqueue_script( 'tubewriter-calendar', TW_URL . 'assets/calendar.js', array( 'tubewriter-front' ), filemtime( TW_DIR . 'assets/calendar.js' ), true );
 		wp_enqueue_script( 'tubewriter-front', TW_URL . 'assets/front.js', array(), filemtime( TW_DIR . 'assets/front.js' ), true );
 		// Localize onto front.js so TW exists before that file runs (Schedule calendar, etc.).
 		wp_localize_script(
@@ -291,72 +293,17 @@ class TW_Frontend {
 
 	private function view_schedule() {
 		TW_Context::set_user( get_current_user_id() );
-		TW_Index::maybe_install();
+		TW_Index::maybe_install(); TW_Calendar::maybe_install();
 		$this->render_topbar( 'schedule' );
-		$connected = TW_OAuth::is_connected();
-		$ready     = TW_Settings::user_has_ai_key() && $connected && TW_Settings::identity_complete();
-		$indexed   = TW_Index::count_all();
-		$scheduled = TW_Index::count_scheduled();
-		$boot      = array(
-			'today'     => wp_date( 'Y-m-d', null, TW_Settings::timezone() ),
-			'tz'        => TW_Settings::timezone_string(),
-			'editBase'  => self::url( 'account' ),
-			'scheduled' => $scheduled,
-		);
+		$boot = array( 'today' => wp_date( 'Y-m-d', null, TW_Settings::user_timezone() ), 'tz' => TW_Settings::timezone_string(), 'editBase' => self::url( 'account' ), 'detectTimezone' => ! TW_Store::has_own( 'timezone' ) );
 		?>
 		<main id="primary" tabindex="-1" class="tw-shell tw-shell--account tw-shell--schedule">
-			<section class="tw-panel tw-workspace-head">
-				<div class="tw-panel-head">
-					<h1>Schedule</h1>
-					<p>Browse scheduled and published uploads by day. Click a day to review its posts above the calendar, then open one to edit.</p>
-				</div>
+			<section id="uw-planner" data-boot="<?php echo esc_attr( wp_json_encode( $boot ) ); ?>" aria-label="Publishing workspace">
+				<div class="uwp-hero"><div><span class="uwp-eyebrow">PUBLISHING WORKSPACE</span><h1>Schedule</h1><p>Pick a day to see its videos. Click any video card to open the editor.</p></div><button type="button" class="tw-btn tw-btn--primary" data-action="new">+ Plan a video</button></div>
+				<div id="uwp-message" role="status" aria-live="polite"></div>
+				<div id="uwp-app"><p class="tw-muted">Opening your publishing calendar...</p></div>
 			</section>
-
-			<?php if ( ! $ready ) : ?>
-				<section class="tw-panel">
-					<div class="tw-card-ui">
-						<p>Finish setup on <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-keys">Keys &amp; voice</a> (channel identity, AI key, YouTube), then sync your videos before using the schedule calendar.</p>
-					</div>
-				</section>
-			<?php elseif ( ! $indexed ) : ?>
-				<section class="tw-panel">
-					<div class="tw-card-ui">
-						<p>No videos in the local index yet. Go to <a href="<?php echo esc_url( self::url( 'account' ) ); ?>#tw-videos">Videos</a> and run Full sync or Quick sync first.</p>
-					</div>
-				</section>
-			<?php else : ?>
-				<section class="tw-panel" id="tw-schedule" data-boot="<?php echo esc_attr( wp_json_encode( $boot ) ); ?>">
-                    <div class="tw-help tw-schedule-intro">
-                        <p><strong>Your publishing calendar, in focus.</strong> Select a date to see its videos and open one to edit.</p>
-                        <div class="tw-schedule-legend" aria-label="Video status legend">
-                            <span class="tw-schedule-legend-item tw-schedule-legend-scheduled">Scheduled</span>
-                            <span class="tw-schedule-legend-item tw-schedule-legend-published">Published</span>
-                            <span class="tw-schedule-timezone">Times in <?php echo esc_html( TW_Settings::timezone_string() ); ?></span>
-                        </div>
-                    </div>
-					<aside class="tw-sched-day" id="tw-sched-day" aria-live="polite">
-						<h2 id="tw-sched-day-heading">Pick a day</h2>
-						<p class="tw-muted" id="tw-sched-day-empty">Click a day on the calendar to see its posts.</p>
-						<div class="tw-sched-day-list" id="tw-sched-day-list" hidden></div>
-					</aside>
-
-					<div class="tw-cal tw-sched-cal uw-calendar">
-						<div class="tw-cal-head">
-							<button type="button" class="tw-btn tw-btn--small" id="tw-sched-prev" aria-label="Previous month">&larr;</button>
-							<strong id="tw-sched-title"></strong>
-							<button type="button" class="tw-btn tw-btn--small" id="tw-sched-next" aria-label="Next month">&rarr;</button>
-							<button type="button" class="tw-btn tw-btn--ghost tw-btn--small" id="tw-sched-refresh">Refresh from YouTube</button>
-						</div>
-						<p class="tw-schedule-mobile-hint">Dates show video counts. Select a day for full titles and thumbnails above.</p>
-						<div class="tw-cal-grid" id="tw-sched-grid" role="group" aria-label="Publishing calendar">
-							<p class="tw-muted">Loading schedule…</p>
-						</div>
-						<?php if ( current_user_can( 'manage_options' ) ) : ?>
-							<p class="tw-muted tw-quota">YouTube API today: about <?php echo esc_html( number_format_i18n( TW_YouTube::quota_used() ) ); ?> / 10,000 units</p>
-						<?php endif; ?>
-					</div>
-				</section>
-			<?php endif; ?>
+			<dialog id="uwp-dialog" class="uwp-dialog" aria-labelledby="uwp-dialog-title"></dialog>
 		</main>
 		<?php
 	}
@@ -673,13 +620,21 @@ class TW_Frontend {
 			<h2>Schedule timezone</h2>
 			<p class="tw-muted">Calendar and schedule times use <em>your</em> timezone, not the site default. Pick where you are so 7:30 means 7:30 for you.</p>
 			<label for="tw_timezone">Timezone</label>
-			<select id="tw_timezone" name="tw_timezone">
+			<select id="tw_timezone" name="tw_timezone" data-detect="<?php echo TW_Store::has_own( 'timezone' ) ? '0' : '1'; ?>">
 				<?php echo wp_timezone_choice( $tz ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
 			</select>
 			<label for="tw_default_time">Default publish time</label>
 			<input type="time" id="tw_default_time" name="tw_default_time" value="<?php echo esc_attr( TW_Settings::get( 'default_time' ) ); ?>">
 			<p class="tw-muted">Used when you schedule a video and leave the time blank or click a calendar day.</p>
 			<button type="submit" class="tw-btn tw-btn--primary">Save schedule defaults</button>
+			<section id="uwp-feed" data-enabled="<?php echo TW_Store::get( 'feed_hash' ) ? '1' : '0'; ?>">
+				<h3>Calendar feed</h3><p>Subscribe from your calendar app. Anyone with the private link can read its events. Editor links still need a login.</p>
+				<p id="uwp-feed-state"><?php echo TW_Store::get( 'feed_hash' ) ? 'Feed is on. Link ends in ' . esc_html( TW_Store::get( 'feed_hint' ) ) . '.' : 'Feed is off.'; ?></p>
+				<label><input type="checkbox" id="uwp-feed-published" <?php checked( (bool) TW_Store::get( 'feed_published' ) ); ?>> Include published videos</label>
+				<label><input type="checkbox" id="uwp-feed-notes" <?php checked( (bool) TW_Store::get( 'feed_notes' ) ); ?>> Include planned card notes</label>
+				<div class="uwp-feed-actions"><button type="button" class="tw-btn" data-feed="create">Turn on</button><button type="button" class="tw-btn" data-feed="copy" disabled>Copy link</button><button type="button" class="tw-btn" data-feed="rotate">Make a new link</button><button type="button" class="tw-btn" data-feed="off">Turn off</button><button type="button" class="tw-btn" data-feed="save">Save feed options</button></div>
+				<p>Copy your link when it appears. It is shown only at creation. Make a new link replaces the previous link.</p><output id="uwp-feed-result" aria-live="polite"></output>
+			</section>
 		</form>
 		<?php
 	}

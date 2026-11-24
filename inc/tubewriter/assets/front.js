@@ -160,6 +160,21 @@
 			});
 		}
 
+		// Native search clear (X) only empties the box; resubmit so the list returns.
+		var searchForm = document.querySelector('.tw-filters');
+		var searchInput = searchForm ? searchForm.querySelector('input[type="search"][name="s"]') : null;
+		if (searchForm && searchInput) {
+			searchInput.addEventListener('search', function () {
+				if (searchInput.value !== '') {
+					return;
+				}
+				if (!params.has('s') || params.get('s') === '') {
+					return;
+				}
+				searchForm.requestSubmit ? searchForm.requestSubmit() : searchForm.submit();
+			});
+		}
+
 		// Some embedded browsers focus <a> tabs but never navigate. Force assign.
 		document.querySelectorAll('a.tw-tab, a.tw-sort, a.tw-page, a.tw-video-card, a.tw-sched-post').forEach(function (a) {
 			a.addEventListener('click', function (e) {

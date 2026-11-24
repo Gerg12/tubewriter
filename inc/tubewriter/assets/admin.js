@@ -252,7 +252,9 @@ window.TWAjax = window.TWAjax || {
 		plan: null,          // last review result, null when stale
 		playlists: null,
 		events: null,
-		calMonth: null,      // Date at the 1st of the shown month
+		calMonth: null,      // Date anchor for the shown range (1st of month in month view)
+		calView: 'upcoming', // upcoming | month | week — used when Schedule it is selected
+		schedModeSet: false, // tracks Schedule it so we only default to upcoming on enter
 		published: false,    // true after a successful step-7 publish this session
 		shots: [],           // up to 2 pasted screenshots {mime, data, url}
 		refs: [],            // pasted thumbs saved in the Media Library
@@ -348,7 +350,14 @@ window.TWAjax = window.TWAjax || {
 		tip.className = 'tw-action-tip tw-action-tip--' + (kind || 'info');
 		tip.setAttribute('role', 'status');
 		tip.textContent = text;
-		var host = anchor.closest('.tw-actions-left, .tw-actions, .tw-footer-mid, .tw-footer-action, .tw-inline, .tw-pull-wrap, p') || anchor.parentNode;
+		/* Never inject into the footer bar — that used to become a flex/grid
+		   sibling and shove Back / Save / Publish toward the middle. */
+		var footerBar = anchor.closest('.tw-footer-bar');
+		if (footerBar) {
+			footerBar.insertAdjacentElement('beforebegin', tip);
+			return tip;
+		}
+		var host = anchor.closest('.tw-actions-left, .tw-actions, .tw-footer-mid, .tw-footer-action, .tw-footer-end, .tw-inline, .tw-pull-wrap, p') || anchor.parentNode;
 		host.insertAdjacentElement('afterend', tip);
 		return tip;
 	}
@@ -2522,7 +2531,20 @@ window.TWAjax = window.TWAjax || {
 		canSchedule = cur.privacyStatus === 'private' || cur.privacyStatus === 'unlisted';
 		$('tw-sched-locked').hidden = canSchedule;
 		$('tw-sched-controls').hidden = !canSchedule;
-		$('tw-sched-set').hidden = radio('tw-sched-mode') !== 'set';
+		var scheduling = radio('tw-sched-mode') === 'set';
+		$('tw-sched-set').hidden = !scheduling;
+		var views = $('tw-cal-views');
+		if (views) {
+			views.hidden = !scheduling;
+		}
+		if (scheduling && !S.schedModeSet) {
+			S.calView = 'upcoming';
+			var anchor = el.schedDate.value && el.schedDate.value >= boot.today ? el.schedDate.value : boot.today;
+			var ap = anchor.split('-');
+			S.calMonth = new Date(parseInt(ap[0], 10), parseInt(ap[1], 10) - 1, parseInt(ap[2], 10));
+		}
+		S.schedModeSet = scheduling;
+		syncCalViewButtons();
 		$('tw-sched-current').textContent = currentScheduleText();
 		syncPrivacyLabel();
 		renderCalendar();
@@ -2599,17 +2621,80 @@ window.TWAjax = window.TWAjax || {
 		return ymd(new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10) + n));
 	}
 
+	function weekStartSunday(d) {
+		var copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+		copy.setDate(copy.getDate() - copy.getDay());
+		return copy;
+	}
+
+	function prettyDayRange(firstKey, lastKey) {
+		var a = firstKey.split('-');
+		var b = lastKey.split('-');
+		var start = new Date(parseInt(a[0], 10), parseInt(a[1], 10) - 1, parseInt(a[2], 10));
+		var end = new Date(parseInt(b[0], 10), parseInt(b[1], 10) - 1, parseInt(b[2], 10));
+		var sameYear = start.getFullYear() === end.getFullYear();
+		return start.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: sameYear ? undefined : 'numeric' }) +
+			' to ' +
+			end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+	}
+
+	function activeCalView() {
+		return radio('tw-sched-mode') === 'set' ? (S.calView || 'upcoming') : 'month';
+	}
+
+	function syncCalViewButtons() {
+		var views = $('tw-cal-views');
+		if (!views) {
+			return;
+		}
+		var current = activeCalView();
+		views.querySelectorAll('[data-view]').forEach(function (btn) {
+			btn.setAttribute('aria-pressed', btn.getAttribute('data-view') === current ? 'true' : 'false');
+		});
+	}
+
+	function syncCalNavLabels() {
+		var view = activeCalView();
+		var unit = view === 'month' ? 'month' : 'week';
+		var prev = $('tw-cal-prev');
+		var next = $('tw-cal-next');
+		if (prev) {
+			prev.setAttribute('aria-label', 'Previous ' + unit);
+		}
+		if (next) {
+			next.setAttribute('aria-label', 'Next ' + unit);
+		}
+	}
+
+	function calendarRange() {
+		var view = activeCalView();
+		var anchor = S.calMonth || new Date();
+		if (view === 'week') {
+			var weekFirst = weekStartSunday(anchor);
+			return { first: weekFirst, days: 7, blanks: 0 };
+		}
+		if (view === 'upcoming') {
+			var upFirst = weekStartSunday(anchor);
+			return { first: upFirst, days: 28, blanks: 0 };
+		}
+		var monthFirst = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+		var daysInMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate();
+		return { first: monthFirst, days: daysInMonth, blanks: monthFirst.getDay() };
+	}
+
 	function loadCalendar(force) {
 		if (!S.calMonth) {
 			var base = el.schedDate.value || boot.today;
 			var p = base.split('-');
-			S.calMonth = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
+			S.calMonth = radio('tw-sched-mode') === 'set'
+				? new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10))
+				: new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
 		}
 		if (S.events && !force) {
 			renderCalendar();
 			return Promise.resolve();
 		}
-		$('tw-cal-grid').innerHTML = '<p class="description">Loading your schedule from YouTube...</p>';
+		$('tw-cal-grid').innerHTML = '<p class="description">Loading your local schedule...</p>';
 		return call('calendar', { force: force ? '1' : '0' }).then(function (ev) {
 			S.events = ev;
 			renderCalendar();
@@ -2623,30 +2708,38 @@ window.TWAjax = window.TWAjax || {
 		if (!S.calMonth) {
 			return;
 		}
-		var m = S.calMonth;
-		$('tw-cal-title').textContent = m.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+		var view = activeCalView();
+		var range = calendarRange();
+		var firstKey = ymd(range.first);
+		var lastKey = addDaysYmd(firstKey, range.days - 1);
+		if (view === 'month') {
+			$('tw-cal-title').textContent = S.calMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+		} else {
+			$('tw-cal-title').textContent = prettyDayRange(firstKey, lastKey);
+		}
+		syncCalViewButtons();
+		syncCalNavLabels();
 		var byDay = {};
 		(S.events || []).forEach(function (e) {
 			(byDay[e.date] = byDay[e.date] || []).push(e);
 		});
 		var html = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(function (d) { return '<div class="tw-cal-dow">' + d + '</div>'; }).join('');
-		var first = new Date(m.getFullYear(), m.getMonth(), 1);
-		var days = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
-		for (var i = 0; i < first.getDay(); i++) {
+		for (var i = 0; i < range.blanks; i++) {
 			html += '<div class="tw-cal-day is-blank"></div>';
 		}
 		var picked = radio('tw-sched-mode') === 'set' ? el.schedDate.value : '';
-		for (var d = 1; d <= days; d++) {
-			var key = ymd(new Date(m.getFullYear(), m.getMonth(), d));
+		for (var d = 0; d < range.days; d++) {
+			var cellDate = new Date(range.first.getFullYear(), range.first.getMonth(), range.first.getDate() + d);
+			var key = ymd(cellDate);
 			var ev = byDay[key] || [];
 			var past = key < boot.today;
 			var cls = 'tw-cal-day' + (past ? ' is-past' : '') + (!ev.length && !past ? ' is-open' : '') + (key === picked ? ' is-picked' : '') + (key === boot.today ? ' is-today' : '');
-			html += '<div class="' + cls + '" data-date="' + key + '" role="button" tabindex="' + (past || !canSchedule ? '-1' : '0') + '" aria-disabled="' + (past || !canSchedule ? 'true' : 'false') + '" aria-pressed="' + (key === picked ? 'true' : 'false') + '" aria-label="' + esc(key + ', ' + ev.length + ' uploads') + '"><span class="tw-cal-day-head"><span class="tw-cal-num">' + d + '</span>' + (ev.length ? '<span class="tw-cal-day-count" aria-hidden="true">' + ev.length + '<span class="tw-cal-count-label"> video' + (ev.length === 1 ? '' : 's') + '</span></span>' : '') + '</span>';
+			html += '<div class="' + cls + '" data-date="' + key + '" role="button" tabindex="' + (past || !canSchedule ? '-1' : '0') + '" aria-disabled="' + (past || !canSchedule ? 'true' : 'false') + '" aria-pressed="' + (key === picked ? 'true' : 'false') + '" aria-label="' + esc(key + ', ' + ev.length + ' uploads') + '"><span class="tw-cal-day-head"><span class="tw-cal-num">' + cellDate.getDate() + '</span>' + (ev.length ? '<span class="tw-cal-day-count" aria-hidden="true">' + ev.length + '<span class="tw-cal-count-label"> video' + (ev.length === 1 ? '' : 's') + '</span></span>' : '') + '</span>';
 			ev.forEach(function (e) {
 				var mine = e.id === boot.videoId ? ' is-mine' : '';
 				var thumb = e.thumb ? '<img class="tw-chip-thumb" src="' + esc(e.thumb) + '" alt="" loading="lazy">' : '';
-                var state = e.type === 'scheduled' ? 'Scheduled' : 'Published';
-                html += '<span class="tw-chip tw-chip-' + e.type + mine + '" title="' + esc(e.time + ' · ' + e.title) + '">' + thumb + '<span class="tw-chip-body"><span class="tw-chip-meta"><span class="tw-chip-state">' + state + '</span><span class="tw-chip-time">' + esc(e.time) + '</span></span><span class="tw-chip-title">' + esc(e.title) + '</span></span></span>';
+				var state = e.type === 'scheduled' ? 'Scheduled' : 'Published';
+				html += '<span class="tw-chip tw-chip-' + e.type + mine + '" title="' + esc(e.time + ' · ' + e.title) + '">' + thumb + '<span class="tw-chip-body"><span class="tw-chip-meta"><span class="tw-chip-state">' + state + '</span><span class="tw-chip-time">' + esc(e.time) + '</span></span><span class="tw-chip-title">' + esc(e.title) + '</span></span></span>';
 			});
 			html += '</div>';
 		}
@@ -2658,15 +2751,29 @@ window.TWAjax = window.TWAjax || {
 			say('This video is public, so it cannot be scheduled. Set visibility to Private or Unlisted first.', 'error');
 			return;
 		}
+		var alreadySet = radio('tw-sched-mode') === 'set';
+		var keepView = alreadySet ? (S.calView || 'upcoming') : 'upcoming';
 		setRadio('tw-sched-mode', 'set');
 		el.schedDate.value = key;
 		if (!el.schedTime.value) {
 			el.schedTime.value = boot.defaults.time;
 		}
 		var p = key.split('-');
-		S.calMonth = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
+		S.calView = keepView;
+		S.calMonth = keepView === 'month'
+			? new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1)
+			: new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+		S.schedModeSet = true;
 		staleReview();
-		toggleSchedule();
+		var views = $('tw-cal-views');
+		if (views) {
+			views.hidden = false;
+		}
+		$('tw-sched-set').hidden = false;
+		$('tw-sched-current').textContent = currentScheduleText();
+		syncPrivacyLabel();
+		syncCalViewButtons();
+		renderCalendar();
 	}
 
 	/** First empty day on or after today, or after the current pick when one is set. */
@@ -2707,13 +2814,47 @@ window.TWAjax = window.TWAjax || {
 		pickScheduleDate(cell.dataset.date);
 	});
 	$('tw-cal-prev').addEventListener('click', function () {
-		S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() - 1, 1);
+		var view = activeCalView();
+		if (view === 'month') {
+			S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() - 1, 1);
+		} else {
+			S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth(), S.calMonth.getDate() - 7);
+		}
 		renderCalendar();
 	});
 	$('tw-cal-next').addEventListener('click', function () {
-		S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + 1, 1);
+		var view = activeCalView();
+		if (view === 'month') {
+			S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth() + 1, 1);
+		} else {
+			S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth(), S.calMonth.getDate() + 7);
+		}
 		renderCalendar();
 	});
+	var calViews = $('tw-cal-views');
+	if (calViews) {
+		calViews.addEventListener('click', function (e) {
+			var btn = e.target.closest('[data-view]');
+			if (!btn || radio('tw-sched-mode') !== 'set') {
+				return;
+			}
+			var next = btn.getAttribute('data-view');
+			if (!next || next === S.calView) {
+				return;
+			}
+			S.calView = next;
+			if (next === 'month') {
+				S.calMonth = new Date(S.calMonth.getFullYear(), S.calMonth.getMonth(), 1);
+			} else if (S.calMonth.getDate() === 1 && boot.today) {
+				var tp = boot.today.split('-');
+				var today = new Date(parseInt(tp[0], 10), parseInt(tp[1], 10) - 1, parseInt(tp[2], 10));
+				if (today.getFullYear() === S.calMonth.getFullYear() && today.getMonth() === S.calMonth.getMonth()) {
+					S.calMonth = today;
+				}
+			}
+			renderCalendar();
+		});
+	}
 	$('tw-cal-next-open').addEventListener('click', function () {
 		if (!canSchedule) {
 			say('This video is public, so it cannot be scheduled. Set visibility to Private or Unlisted first.', 'error');
@@ -2752,6 +2893,12 @@ window.TWAjax = window.TWAjax || {
 			if (plan.warnings.length) {
 				h += '<div class="tw-msg tw-msg-info"><strong>Heads up:</strong><ul>' + plan.warnings.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>';
 			}
+			var outcome = planOutcome(plan);
+			if (outcome.kind === 'scheduled' || outcome.kind === 'keep_scheduled') {
+				h += '<div class="tw-msg tw-msg-warning"><strong>' + esc(outcome.headline) + '</strong><p>' + esc(outcome.detail) + '</p></div>';
+			} else if (outcome.kind === 'live_now') {
+				h += '<div class="tw-msg tw-msg-success"><strong>' + esc(outcome.headline) + '</strong><p>' + esc(outcome.detail) + '</p></div>';
+			}
 			h += '<table class="widefat tw-diff"><thead><tr><th>Field</th><th>On YouTube now</th><th>After publishing</th></tr></thead><tbody>';
 			plan.rows.forEach(function (r) {
 				var rowErr = plan.errors.some(function (err) {
@@ -2779,6 +2926,48 @@ window.TWAjax = window.TWAjax || {
 
 	/* ================================================================ step 7 */
 
+	function planOutcome(plan) {
+		var o = plan && plan.outcome;
+		if (o && o.kind) {
+			return o;
+		}
+		var mode = plan && plan.schedule ? plan.schedule.mode : 'keep';
+		if (mode === 'now') {
+			return {
+				kind: 'live_now',
+				label: 'Public now',
+				headline: 'Goes live when you publish',
+				detail: 'Confirming writes the details and makes this video public on YouTube right away.',
+				button: 'Publish & go live'
+			};
+		}
+		if (mode === 'set') {
+			var label = (plan.schedule && plan.schedule.label) || 'the chosen time';
+			return {
+				kind: 'scheduled',
+				label: label,
+				headline: 'Details publish now — video stays scheduled',
+				detail: 'Confirming saves the listing to YouTube and schedules it for ' + label + '. It will not go live until that time.',
+				button: 'Publish & schedule'
+			};
+		}
+		return {
+			kind: 'details_only',
+			label: '',
+			headline: 'Details publish — visibility unchanged',
+			detail: 'Confirming updates the listing on YouTube. Go live was left as is, so visibility and schedule do not change.',
+			button: 'Publish changes'
+		};
+	}
+
+	function setPublishButtonLabels(label) {
+		var text = label || 'Publish changes';
+		el.publish.textContent = text;
+		if (el.publishFooter) {
+			el.publishFooter.textContent = text;
+		}
+	}
+
 	function syncPublishButtons() {
 		var ready = S.step === 7 && !S.published && el.ack.checked && !!S.plan;
 		el.publish.disabled = !ready;
@@ -2801,6 +2990,17 @@ window.TWAjax = window.TWAjax || {
 		el.results.hidden = true;
 		el.ack.checked = false;
 		el.actions.innerHTML = (S.plan ? S.plan.actions : []).map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('');
+		var outcomeEl = $('tw-publish-outcome');
+		var outcome = planOutcome(S.plan);
+		if (outcomeEl) {
+			var kindClass = outcome.kind === 'live_now'
+				? 'tw-msg-success'
+				: (outcome.kind === 'scheduled' || outcome.kind === 'keep_scheduled' ? 'tw-msg-warning' : 'tw-msg-info');
+			outcomeEl.hidden = false;
+			outcomeEl.className = 'tw-publish-outcome tw-msg ' + kindClass;
+			outcomeEl.innerHTML = '<strong>' + esc(outcome.headline) + '</strong><p>' + esc(outcome.detail) + '</p>';
+		}
+		setPublishButtonLabels(outcome.button);
 		syncPublishButtons();
 	}
 
@@ -2810,8 +3010,15 @@ window.TWAjax = window.TWAjax || {
 		if (!S.plan || !el.ack.checked) {
 			throw new Error('Run the review and tick the box first.');
 		}
+		var outcome = planOutcome(S.plan);
 		var list = S.plan.actions.map(function (a) { return '• ' + a; }).join('\n');
-		if (!window.confirm('Last check. TubeWriter will back up the current details, then:\n\n' + list + '\n\nGo ahead?')) {
+		var lead = 'Last check. TubeWriter will back up the current details, then:\n\n' + list;
+		if (outcome.kind === 'scheduled' || outcome.kind === 'keep_scheduled') {
+			lead += '\n\nThis publishes the listing now. The video stays scheduled for ' + outcome.label + ' and will NOT go live until then.';
+		} else if (outcome.kind === 'live_now') {
+			lead += '\n\nThis makes the video public on YouTube right away.';
+		}
+		if (!window.confirm(lead + '\n\nGo ahead?')) {
 			return null;
 		}
 		return callWrite('publish', {
@@ -2825,8 +3032,15 @@ window.TWAjax = window.TWAjax || {
 			$('tw-confirm').hidden = true;
 			el.results.hidden = false;
 			var back = boot.backUrl ? '<a class="button button-primary button-hero" href="' + esc(boot.backUrl) + '">Done — back to videos</a> ' : '';
+			var doneOutcome = d.outcome || outcome;
+			var doneLead = 'You\'re finished here. Head back to your videos, or open Studio for game title and end screen.';
+			if (d.ok && (doneOutcome.kind === 'scheduled' || doneOutcome.kind === 'keep_scheduled')) {
+				doneLead = 'Listing is on YouTube. The video is scheduled for ' + doneOutcome.label + ' and is not live yet.';
+			} else if (d.ok && doneOutcome.kind === 'live_now') {
+				doneLead = 'Listing is on YouTube and the video is public now.';
+			}
 			el.results.innerHTML = '<div class="tw-msg tw-msg-' + (d.ok ? 'success' : 'error') + '"><strong>' + esc(d.message) + '</strong>' +
-				(d.ok ? '<p class="tw-done-lead">You\'re finished here. Head back to your videos, or open Studio for game title and end screen.</p>' : '') +
+				(d.ok ? '<p class="tw-done-lead">' + esc(doneLead) + '</p>' : '') +
 				'</div>' +
 				'<ul class="tw-result-list">' + d.results.map(function (r) {
 					return '<li class="' + (r.ok ? 'ok' : 'bad') + '">' + (r.ok ? '✔ ' : '✖ ') + esc(r.text) + '</li>';
@@ -2849,8 +3063,17 @@ window.TWAjax = window.TWAjax || {
 		}
 		button.addEventListener('click', function () {
 			var buttons = [el.publish, el.publishFooter].filter(Boolean);
-			buttons.forEach(function (b) { busy(b, true, 'Publishing...'); });
-			tipNear(button, 'Publishing. Stay here.', 'working');
+			var outcome = planOutcome(S.plan);
+			var busyLabel = outcome.kind === 'live_now'
+				? 'Going live...'
+				: (outcome.kind === 'scheduled' || outcome.kind === 'keep_scheduled' ? 'Publishing & scheduling...' : 'Publishing details...');
+			var tipLabel = outcome.kind === 'live_now'
+				? 'Publishing and making it public. Stay here.'
+				: (outcome.kind === 'scheduled' || outcome.kind === 'keep_scheduled'
+					? 'Publishing details. It stays scheduled — not live yet.'
+					: 'Publishing details. Stay here.');
+			buttons.forEach(function (b) { busy(b, true, busyLabel); });
+			tipNear(button, tipLabel, 'working');
 			Promise.resolve().then(runPublish).then(function () {
 				var tip = document.getElementById('tw-action-tip');
 				if (tip && tip.classList.contains('tw-action-tip--working')) {
@@ -2922,6 +3145,14 @@ window.TWAjax = window.TWAjax || {
 	showSavedPullStatus();
 	toggleGuide();
 	fillOpts(saved.opts);
+	var calendarPrefill = new URLSearchParams(window.location.search);
+	if (/^\d{4}-\d{2}-\d{2}$/.test(calendarPrefill.get('schedule_date') || '') && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(calendarPrefill.get('schedule_time') || '')) {
+		el.schedDate.value = calendarPrefill.get('schedule_date');
+		el.schedTime.value = calendarPrefill.get('schedule_time');
+		setRadio('tw-sched-mode', 'set');
+		toggleSchedule();
+	}
+
 	if (saved.pkg && (saved.pkg.title || saved.pkg.body)) {
 		fillDetails(saved.pkg);
 		S.plan = null;
@@ -2932,7 +3163,7 @@ window.TWAjax = window.TWAjax || {
 	renderShots();
 	renderHistory(boot.history);
 	(function () {
-		var start = recalledStep();
+		var start = calendarPrefill.has('schedule_date') ? 5 : recalledStep();
 		if (start === 7 && !canGo(7)) {
 			start = 6;
 		}
@@ -2977,4 +3208,32 @@ window.TWAjax = window.TWAjax || {
 			} catch (err) {}
 		});
 	})();
+})();
+
+/* Local-only inspection of the selected finished thumbnail. */
+(function(){
+ 'use strict';
+ var preview=document.getElementById('tw-thumb-preview');
+ if(!preview)return;
+ var trigger=document.createElement('button');
+ trigger.type='button';trigger.className='tw-thumb-enlarge';
+ trigger.setAttribute('aria-label','View finished thumbnail larger');
+ trigger.setAttribute('aria-haspopup','dialog');
+ preview.parentNode.insertBefore(trigger,preview);trigger.appendChild(preview);
+ var hint=document.createElement('span');hint.className='tw-thumb-enlarge-hint';hint.textContent='Click the thumbnail to view it larger';
+ trigger.after(hint);
+ var viewer=null;
+ trigger.addEventListener('click',function(){
+  var source=preview.currentSrc||preview.getAttribute('src');
+  if(!source)return;
+  if(!viewer){
+   viewer=document.createElement('dialog');viewer.className='tw-thumb-enlarge-dialog';viewer.setAttribute('aria-label','Finished thumbnail preview');
+   viewer.innerHTML='<div class="tw-thumb-enlarge-dialog-heading"><h2>Finished thumbnail</h2><button type="button" aria-label="Close thumbnail preview">Close ×</button></div><img alt="Finished thumbnail enlarged">';
+   document.body.appendChild(viewer);
+   viewer.querySelector('button').addEventListener('click',function(){viewer.close();});
+   viewer.addEventListener('click',function(event){if(event.target===viewer)viewer.close();});
+   viewer.addEventListener('close',function(){viewer.querySelector('img').removeAttribute('src');trigger.focus({preventScroll:true});});
+  }
+  viewer.querySelector('img').src=source;viewer.showModal();
+ });
 })();

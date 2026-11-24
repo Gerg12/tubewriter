@@ -660,6 +660,9 @@ class TW_Settings {
 			return self::google_client_secret();
 		}
 		$value = TW_Store::get( $key, '' );
+		if ( 'default_time' === $key && '' === (string) $value && TW_Context::is_user() ) {
+			$value = TW_Store::get_site( 'default_time', '' );
+		}
 		if ( ( '' === $value || false === $value || null === $value ) && TW_Context::is_user() && in_array( $key, self::USER_SITE_FALLBACK, true ) ) {
 			$assigned_key = 'assigned_' . $key;
 			$assigned     = TW_Store::get( $assigned_key, '' );
@@ -787,6 +790,8 @@ class TW_Settings {
 	 *
 	 * @return DateTimeZone
 	 */
+	public static function user_timezone() { return self::timezone(); }
+
 	public static function timezone() {
 		try {
 			return self::timezone_object( self::timezone_string() );

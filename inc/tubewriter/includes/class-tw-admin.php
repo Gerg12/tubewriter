@@ -17,7 +17,7 @@ class TW_Admin {
 		add_action( 'personal_options_update', array( $this, 'save_user_thumb_ai_field' ) );
 		add_action( 'edit_user_profile_update', array( $this, 'save_user_thumb_ai_field' ) );
 
-		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'review', 'publish', 'restore', 'refresh', 'sync', 'privacy', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_library', 'thumb_library_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
+		foreach ( array( 'captions', 'generate', 'revise', 'save', 'playlists', 'playlist_suggest', 'calendar', 'calendar_workspace', 'review', 'publish', 'restore', 'refresh', 'sync', 'privacy', 'thumb_describe', 'thumb_generate', 'thumb_upload', 'thumb_set', 'thumb_clear', 'thumb_ref_save', 'thumb_refs', 'thumb_ref_delete', 'thumb_library', 'thumb_library_delete', 'thumb_logos_save', 'thumb_logo_search' ) as $action ) {
 			add_action( 'wp_ajax_tw_' . $action, array( $this, 'ajax_' . $action ) );
 		}
 	}
@@ -849,15 +849,15 @@ class TW_Admin {
 				<h2>Step 4: Playlist</h2>
 				<?php
 				$help(
-					'Adds the video to a playlist, or creates a new playlist for it. Nothing is created until you publish in step 7.',
+					'Optionally add the video to a playlist, or create a new one. Nothing is created until you publish in step 7.',
 					array(
-						'Choose <strong>Don\'t add</strong>, <strong>Add to an existing playlist</strong>, or <strong>Create a new playlist</strong>.',
-						'For a new playlist, type a rough name and click <strong>Polish for SEO</strong>. Edit the result if you want.',
+						'Choose <strong>Leave playlists as they are</strong> if it is already in the right playlist (or you will handle that in Studio).',
+						'Or <strong>Add to an existing playlist</strong> / <strong>Create a new playlist</strong>. For a new one, type a rough name and click <strong>Polish for SEO</strong>.',
 						'UploadWriter never removes videos from playlists. If you pick the wrong one, remove it in Studio.',
 					)
 				);
 				?>
-				<p><label class="tw-radio"><input type="radio" name="tw-pl-mode" value="none" checked> Don't add to a playlist</label></p>
+				<p><label class="tw-radio"><input type="radio" name="tw-pl-mode" value="none" checked> Leave playlists as they are</label></p>
 				<p><label class="tw-radio"><input type="radio" name="tw-pl-mode" value="existing"> Add to an existing playlist</label></p>
 				<div class="tw-sub" id="tw-pl-existing" hidden>
 					<select id="tw-pl-select"><option value="">Loading playlists...</option></select>
@@ -915,7 +915,7 @@ class TW_Admin {
 						<div id="tw-sched-locked" class="notice notice-info inline" hidden><p>This video is public, so it can't be scheduled or published-now from here. Set visibility to Private or Unlisted first, or leave Go live as is and only update the details.</p></div>
 						<div id="tw-sched-controls">
 							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="now"> <span class="tw-choice-copy">Publish now<span class="description">Goes public when you confirm in step 7.</span></span></label></p>
-							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> <span class="tw-choice-copy">Schedule it</span></label></p>
+							<p><label class="tw-radio"><input type="radio" name="tw-sched-mode" value="set"> <span class="tw-choice-copy">Schedule it<span class="description">Saves the listing when you confirm in step 7, but stays private until the chosen time — not live on publish.</span></span></label></p>
 							<div class="tw-sub" id="tw-sched-set" hidden>
 								<div class="tw-inline">
 									<label for="tw-sched-date">Date</label> <input type="date" id="tw-sched-date">
@@ -931,6 +931,11 @@ class TW_Admin {
 							<button type="button" class="button" id="tw-cal-prev" aria-label="Previous month">&larr;</button>
 							<strong id="tw-cal-title"></strong>
 							<button type="button" class="button" id="tw-cal-next" aria-label="Next month">&rarr;</button>
+							<div class="tw-cal-views" id="tw-cal-views" role="group" aria-label="Calendar view" hidden>
+								<button type="button" data-view="upcoming" aria-pressed="true">Upcoming</button>
+								<button type="button" data-view="month" aria-pressed="false">Month</button>
+								<button type="button" data-view="week" aria-pressed="false">Week</button>
+							</div>
 							<button type="button" class="button-link" id="tw-cal-next-open">Next available</button>
 							<button type="button" class="button-link" id="tw-cal-refresh">Refresh from YouTube</button>
 						</div>
@@ -964,14 +969,16 @@ class TW_Admin {
 				$help(
 					'Saves a backup of the current details, then makes exactly the changes listed below. Nothing else on the video is touched.',
 					array(
-						'Read the list of changes.',
+						'Read the list of changes and the go-live note below. Publishing the listing is separate from going public.',
+						'If the video is scheduled, confirming saves the details and keeps (or sets) the schedule — it does <strong>not</strong> go live until that time.',
 						'Tick the box to confirm you reviewed them.',
-						'Click <strong>Publish changes</strong>, then confirm once more in the pop-up.',
+						'Click the publish button, then confirm once more in the pop-up.',
 						'When it finishes, use <strong>Done — back to videos</strong> to return to your library. You can still open Studio for game title and end screen.',
 					)
 				);
 				?>
 				<div id="tw-confirm">
+					<div id="tw-publish-outcome" class="tw-publish-outcome" hidden></div>
 					<h3>These changes will be made</h3>
 					<ul id="tw-actions" class="tw-action-list"></ul>
 					<p class="tw-backup-note">Before anything changes, UploadWriter saves the current title, description, tags, category, language and schedule. You can restore them from <strong>Version history</strong> below.</p>
@@ -1012,10 +1019,12 @@ class TW_Admin {
 						<button type="button" class="button" id="tw-save">Save draft</button>
 						<span id="tw-saved" class="description"></span>
 					</span>
-					<span class="tw-footer-action" id="tw-publish-footer-wrap" hidden>
-						<button type="button" class="button button-primary" id="tw-publish-footer">Publish changes</button>
+					<span class="tw-footer-end">
+						<span class="tw-footer-action" id="tw-publish-footer-wrap" hidden>
+							<button type="button" class="button button-primary" id="tw-publish-footer">Publish changes</button>
+						</span>
+						<button type="button" class="button button-primary" id="tw-next">Next &rarr;</button>
 					</span>
-					<button type="button" class="button button-primary" id="tw-next">Next &rarr;</button>
 				</div>
 			</div>
 		</div>
@@ -1828,6 +1837,62 @@ class TW_Admin {
 		);
 		$out['playlist_polished'] = 1;
 		wp_send_json_success( $out );
+	}
+
+	/** All workspace operations share the standard nonce, login, capability and account guard. */
+	public function ajax_calendar_workspace() {
+		$this->ajax_guard();
+		$op = $this->post( 'op' );
+		$in = json_decode( wp_unslash( $_POST['data'] ?? '{}' ), true );
+		$in = is_array( $in ) ? $in : array();
+		$result = true;
+		if ( 'plan_save' === $op ) { $result = TW_Calendar::save_plan( $in ); }
+		elseif ( 'plan_remove' === $op ) { $result = TW_Calendar::remove_plan( $in['id'] ?? 0 ); }
+		elseif ( 'rhythms' === $op ) { $result = TW_Calendar::save_rhythms( $in ); }
+		elseif ( 'timezone' === $op ) {
+			if ( ! TW_Store::has_own( 'timezone' ) && TW_Settings::is_valid_timezone( $in['timezone'] ?? '' ) ) { TW_Store::set( 'timezone', $in['timezone'] ); }
+			wp_send_json_success( true );
+		}
+		elseif ( 'feed' === $op ) {
+			if ( ! in_array( $in['action'] ?? '', array( 'create', 'rotate', 'off', 'save' ), true ) ) { wp_send_json_error( 'Choose a feed action.' ); }
+			wp_send_json_success( TW_Calendar::feed_settings( $in['action'], $in ) );
+		}
+		elseif ( in_array( $op, array( 'schedule_review', 'schedule_confirm' ), true ) ) {
+			$id = sanitize_text_field( $in['video'] ?? '' );
+			// Require a local owned row even when the account has an empty library.
+			if ( ! TW_Index::exists( $id ) ) { wp_send_json_error( 'That video is not in your library.' ); }
+			$live = $this->assert_writable_video( $id );
+			if ( is_wp_error( $live ) ) { wp_send_json_error( $live->get_error_message() ); }
+			$date = sanitize_text_field( $in['date'] ?? '' ); $time = sanitize_text_field( $in['time'] ?? '' );
+			$plan = TW_Plan::build_schedule( $live, $date, $time );
+			if ( $plan['errors'] ) { wp_send_json_error( implode( ' ', $plan['errors'] ) ); }
+			$key = 'tw_cal_review_' . TW_Context::user_id() . '_' . $id;
+			if ( 'schedule_review' === $op ) {
+				$token = $this->issue_publish_token( $id, $plan['fingerprint'] );
+				set_transient( $key, array( 'date' => $date, 'time' => $time, 'fingerprint' => $plan['fingerprint'] ), 15 * MINUTE_IN_SECONDS );
+				wp_send_json_success( array( 'fingerprint' => $plan['fingerprint'], 'publish_token' => $token, 'label' => $plan['schedule']['label'], 'title' => $plan['current']['title'] ) );
+			}
+			if ( empty( $in['confirmed'] ) ) { wp_send_json_error( 'Confirm the schedule change first.' ); }
+			$review = get_transient( $key );
+			if ( ! is_array( $review ) || $review['date'] !== $date || $review['time'] !== $time || ! hash_equals( $review['fingerprint'], (string) ( $in['fingerprint'] ?? '' ) ) ) { wp_send_json_error( 'The date or time changed after review. Review again.' ); }
+			$rl_opts = array( 'pace_ack' => ! empty( $in['pace_ack'] ), 'high_risk' => false );
+			$rl = TW_Rate_Limit::check( 'publish', $id, $rl_opts );
+			if ( is_wp_error( $rl ) ) { $this->send_rate_error( $rl ); }
+			$valid = $this->consume_publish_token( $id, (string) ( $in['publish_token'] ?? '' ), (string) ( $in['fingerprint'] ?? '' ) );
+			if ( is_wp_error( $valid ) ) { wp_send_json_error( $valid->get_error_message() ); }
+			delete_transient( $key );
+			$result = TW_Plan::publish( $id, array(), array( 'schedule' => array( 'date' => $date, 'time' => $time ) ), 0, $in['fingerprint'], true );
+			if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+			if ( ! empty( $result['wrote'] ) ) { TW_Rate_Limit::hit( 'publish', $id, $rl_opts ); }
+			if ( empty( $result['wrote'] ) ) { wp_send_json_error( $result['message'] ); }
+			TW_Index::refresh_one( $id ); TW_Index::apply_visibility( $id, 'set', $result['schedule']['at'] );
+			// A schedule change must not mark an unpushed metadata draft as pushed.
+			wp_send_json_success( array( 'backup' => $result['backup'], 'video' => $id ) );
+		}
+		elseif ( 'load' !== $op ) { wp_send_json_error( 'Unknown calendar action.' ); }
+		if ( is_wp_error( $result ) ) { wp_send_json_error( $result->get_error_message() ); }
+		if ( false === $result ) { wp_send_json_error( 'Could not save your changes.' ); }
+		wp_send_json_success( TW_Calendar::workspace() );
 	}
 
 	public function ajax_calendar() {

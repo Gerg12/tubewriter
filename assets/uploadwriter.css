@@ -2476,6 +2476,11 @@ body.tw-app .tw-editor-shell #tw-sched-current { background: var(--uw-workspace-
 body.tw-app .tw-editor-shell .uw-calendar { width: 100%; min-width: 0; padding: 18px; background: var(--uw-workspace-surface); border-color: var(--tw-line); box-shadow: var(--uw-workspace-shadow); overflow: visible; }
 body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-prev,#tw-cal-next) { color: var(--uw-workspace-surface); background: var(--uw-workspace-control); border: 1px solid var(--uw-workspace-control-line); box-shadow: none; min-width: 48px; min-height: 48px; border-radius: 6px; }
 body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-prev,#tw-cal-next):hover { background: var(--uw-workspace-control-hover); }
+body.tw-app .uw-calendar .tw-cal-views { display: inline-flex; gap: 3px; padding: 4px; border: 1px solid var(--uw-workspace-control-line); border-radius: 8px; background: var(--uw-workspace-control); }
+body.tw-app .uw-calendar .tw-cal-views[hidden] { display: none !important; }
+body.tw-app .uw-calendar .tw-cal-views button { min-height: 40px; border: 0; border-radius: 6px; background: transparent; padding: 6px 12px; color: var(--uw-workspace-surface); font-size: 1rem; font-weight: 650; cursor: pointer; }
+body.tw-app .uw-calendar .tw-cal-views button:hover { background: var(--uw-workspace-control-hover); }
+body.tw-app .uw-calendar .tw-cal-views button[aria-pressed="true"] { background: var(--uw-workspace-surface); color: var(--uw-workspace-heading); }
 body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-next-open,#tw-cal-refresh) { padding: 10px 16px; border-radius: 6px; font-size: 1rem; font-weight: 650; min-height: 48px; text-decoration: none; }
 body.tw-app .uw-calendar .tw-cal-head #tw-cal-next-open { color: var(--uw-workspace-surface); background: var(--uw-primary); border: 1px solid var(--uw-primary); }
 body.tw-app .uw-calendar .tw-cal-head #tw-cal-next-open:hover { background: var(--uw-primary-deep); border-color: var(--uw-primary-deep); }
@@ -2500,6 +2505,8 @@ body.tw-app .tw-key-pub { color: var(--uw-workspace-success); background: var(--
   body.tw-app .tw-editor-shell .tw-sched-side { padding: 14px; }
   body.tw-app .tw-editor-shell .uw-calendar { padding: 10px; }
   body.tw-app .uw-calendar .tw-cal-head :is(#tw-cal-next-open,#tw-cal-refresh) { margin: 0; flex: 1 1 100%; }
+  body.tw-app .uw-calendar .tw-cal-views { flex: 1 1 100%; justify-content: stretch; }
+  body.tw-app .uw-calendar .tw-cal-views button { flex: 1; }
   body.tw-app .tw-editor-calendar .tw-cal-head strong { order: 0; flex: 1; font-size: 1.125rem; }
 }
 /* Preserve whole status words in the seven-column editor view. */

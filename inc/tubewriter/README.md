@@ -117,3 +117,41 @@ That's roughly 30 videos a day if you pull captions for each. Pasting transcript
 ## Make it yours
 
 Everything about the voice lives in **Settings > Channel voice prompt**. The JSON output rules get added behind the scenes, so you only describe tone, the warning text, chapter style, tags and hashtags. **Reset prompt to default** brings back the GG prompt.
+
+## Publishing calendar
+
+The Schedule workspace reads the local index. Browsing, search, plans, readiness,
+rhythms, Shorts filters, clashes, best-time calculations and calendar feeds cost
+0 YouTube API units. Full sync and explicit schedule confirmation are separate
+YouTube operations with confirmation and visible cost information.
+
+- Calendar times use the account timezone. Browser detection fills an unset
+  account timezone once. The site timezone remains the fallback. UTC is still
+  sent to YouTube. Invalid local dates and DST gaps are rejected.
+- Plans live in the per-user `tw_plans` table and can have one of six color tags.
+  Removing a plan removes only a local row. Linked plans follow indexed uploads.
+- Long videos and Shorts have independent posting rhythms. Shorts are classified
+  by duration at 180 seconds or less, not by a YouTube Shorts flag.
+- Best times uses public uploads aged 14 days to 18 months, normalized against
+  the median views of eligible uploads within 60 days. Cells need three videos.
+  Full sync is required and the per-user cache is cleared after sync completion.
+- Moving an upload reviews live metadata, binds confirmation to the date, time
+  and fingerprint, then uses `TW_Plan::publish` with its schedule-only path.
+  It never reads saved editor metadata. The ordinary backup, stale-review,
+  rate-limit and History/Undo protections apply. Moving a plan stays local.
+- Private feeds use a random 64-character capability token. Only its HMAC and
+  last four characters persist. Copy the link when it is created. Rotation
+  invalidates the previous link. Feeds are limited to 60 requests per hour.
+
+Before enabling feeds on a host with Varnish or a page cache, exclude
+`/tubewriter/feed/` from caching. The workspace includes
+`I:/apps/tube-writer/conf/calendar-feed.vcl` as a hosting VCL example. Merge it
+into the host configuration rather than replacing the site's existing VCL.
+PHP also sends private/no-store, Surrogate-Control no-store, X-Accel-Expires 0
+and noindex headers on valid and invalid feed responses.
+
+Local verification scripts and machine-readable results are under
+`I:/apps/tube-writer/planning/`. `test-calendar.php` uses disposable accounts
+and intercepts Google HTTP. `test-calendar-browser.cjs` tests the actual
+browser date/rhythm functions without network access. These test files are
+outside the web root and are not part of the shipped theme.

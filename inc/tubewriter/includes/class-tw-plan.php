@@ -66,12 +66,13 @@ class TW_Plan {
 			} else {
 				try {
 					$tz = TW_Settings::timezone();
-					$dt = new DateTime( trim( ( $sched_in['date'] ?? '' ) . ' ' . ( $sched_in['time'] ?? '' ) ), $tz );
+					$dt = TW_Calendar::local_datetime( (string) ( $sched_in['date'] ?? '' ), (string) ( ! empty( $sched_in['time'] ) ? $sched_in['time'] : TW_Settings::get( 'default_time' ) ) );
+					if ( is_wp_error( $dt ) ) { throw new Exception( $dt->get_error_message() ); }
 					if ( $dt->getTimestamp() <= time() + 5 * MINUTE_IN_SECONDS ) {
 						$errors[] = 'The schedule time is in the past or less than 5 minutes away. Pick a later time.';
 					} else {
 						$schedule['label'] = wp_date( 'D M j, Y g:ia T', $dt->getTimestamp(), $tz );
-						$dt->setTimezone( new DateTimeZone( 'UTC' ) );
+						$dt = $dt->setTimezone( new DateTimeZone( 'UTC' ) );
 						$schedule['mode'] = 'set';
 						$schedule['at']   = $dt->format( 'Y-m-d\TH:i:s\Z' );
 					}
@@ -98,7 +99,7 @@ class TW_Plan {
 		$pl_mode  = $pl_in['mode'] ?? 'none';
 		if ( 'existing' === $pl_mode ) {
 			if ( empty( $pl_in['id'] ) ) {
-				$errors[] = 'Pick a playlist, or set Playlist to "Don\'t add to a playlist".';
+				$errors[] = 'Pick a playlist, or set Playlist to "Leave playlists as they are".';
 			} else {
 				$playlist = array( 'mode' => 'existing', 'id' => sanitize_text_field( $pl_in['id'] ), 'title' => sanitize_text_field( $pl_in['title'] ?? '' ) );
 			}
@@ -153,7 +154,8 @@ class TW_Plan {
 			self::row( 'privacy', 'Visibility', ucfirst( $current['privacyStatus'] ), ucfirst( $next_privacy ) ),
 			self::row( 'schedule', 'Go live', $current_sched, $next_sched ),
 		);
-		$pl_text = 'Not added to a playlist';
+		// Mode none means this publish skips playlist writes; existing membership is kept.
+		$pl_text = 'Leave playlists as they are';
 		if ( 'existing' === $playlist['mode'] ) {
 			$pl_text = 'Add to "' . $playlist['title'] . '"';
 		} elseif ( 'new' === $playlist['mode'] ) {
@@ -162,7 +164,7 @@ class TW_Plan {
 		$rows[] = array(
 			'key'     => 'playlist',
 			'label'   => 'Playlist',
-			'current' => '(no change)',
+			'current' => 'Existing membership kept',
 			'next'    => $pl_text,
 			'changed' => 'none' !== $playlist['mode'],
 		);
@@ -199,11 +201,13 @@ class TW_Plan {
 					}
 					break;
 				case 'schedule':
-					$actions[] = 'now' === $schedule['mode']
-						? 'Make it public now'
-						: ( 'unlisted' === $current['privacyStatus']
-							? 'Set to private and schedule it to go public ' . $schedule['label']
-							: 'Schedule it to go public ' . $schedule['label'] );
+					if ( 'now' === $schedule['mode'] ) {
+						$actions[] = 'Make it public now (goes live as soon as this publish finishes)';
+					} elseif ( 'unlisted' === $current['privacyStatus'] ) {
+						$actions[] = 'Set to private and schedule it for ' . $schedule['label'] . ' (stays private until then — not live on publish)';
+					} else {
+						$actions[] = 'Schedule it for ' . $schedule['label'] . ' (stays private until then — not live on publish)';
+					}
 					break;
 				case 'playlist':
 					$actions[] = $pl_text;
@@ -221,11 +225,92 @@ class TW_Plan {
 			'actions'     => $actions,
 			'details'     => $details,
 			'schedule'    => $schedule,
+			'outcome'     => self::publish_outcome( $schedule, $current ),
 			'privacy'     => $want_privacy,
 			'playlist'    => $playlist,
 			'fingerprint' => TW_YouTube::fingerprint( $current ),
 			'current'     => $current,
 			'pkg'         => $check['pkg'],
+		);
+	}
+
+	/**
+	 * Plain-English go-live outcome for Review / Publish UI.
+	 * Separates "details are written" from "video goes public".
+	 *
+	 * @param array $schedule Plan schedule slice (mode, at, label).
+	 * @param array $current  Live snapshot.
+	 * @return array{kind: string, label: string, headline: string, detail: string, button: string}
+	 */
+	private static function publish_outcome( array $schedule, array $current ) {
+		$mode  = (string) ( $schedule['mode'] ?? 'keep' );
+		$label = (string) ( $schedule['label'] ?? '' );
+		$existing = '';
+		if ( ! empty( $current['publishAt'] ) && strtotime( $current['publishAt'] ) > time() ) {
+			$existing = wp_date( 'D M j, Y g:ia T', strtotime( $current['publishAt'] ), TW_Settings::timezone() );
+		}
+
+		if ( 'now' === $mode ) {
+			return array(
+				'kind'     => 'live_now',
+				'label'    => $label ?: 'Public now',
+				'headline' => 'Goes live when you publish',
+				'detail'   => 'Confirming writes the details and makes this video public on YouTube right away.',
+				'button'   => 'Publish & go live',
+			);
+		}
+		if ( 'set' === $mode ) {
+			return array(
+				'kind'     => 'scheduled',
+				'label'    => $label,
+				'headline' => 'Details publish now — video stays scheduled',
+				'detail'   => 'Confirming saves the listing to YouTube and schedules it for ' . $label . '. It will not go live until that time.',
+				'button'   => 'Publish & schedule',
+			);
+		}
+		if ( $existing ) {
+			return array(
+				'kind'     => 'keep_scheduled',
+				'label'    => $existing,
+				'headline' => 'Details publish now — still scheduled',
+				'detail'   => 'Confirming updates the listing only. The video stays scheduled for ' . $existing . ' and will not go live when you publish.',
+				'button'   => 'Publish changes (still scheduled)',
+			);
+		}
+		return array(
+			'kind'     => 'details_only',
+			'label'    => '',
+			'headline' => 'Details publish — visibility unchanged',
+			'detail'   => 'Confirming updates the listing on YouTube. Go live was left as is, so visibility and schedule do not change.',
+			'button'   => 'Publish changes',
+		);
+	}
+
+	/** Build a schedule-only review exclusively from the live snapshot. Never reads editor state. */
+	public static function build_schedule( array $video, $date, $time ) {
+		$current = TW_YouTube::snapshot( $video );
+		$errors = array();
+		$dt = TW_Calendar::local_datetime( $date, $time );
+		if ( is_wp_error( $dt ) ) { $errors[] = $dt->get_error_message(); }
+		elseif ( $dt->getTimestamp() < time() + 15 * MINUTE_IN_SECONDS ) { $errors[] = 'Choose a time at least 15 minutes from now.'; }
+		if ( ! in_array( $current['privacyStatus'], array( 'private', 'unlisted' ), true ) ) { $errors[] = 'Published videos cannot be moved. Choose a draft or scheduled video.'; }
+		if ( ! empty( $current['publishAt'] ) && strtotime( $current['publishAt'] ) < time() + 15 * MINUTE_IN_SECONDS ) { $errors[] = 'This video goes live in under 15 minutes and cannot be moved.'; }
+		$at = is_wp_error( $dt ) ? '' : $dt->setTimezone( new DateTimeZone( 'UTC' ) )->format( 'Y-m-d\TH:i:s\Z' );
+		$label = is_wp_error( $dt ) ? '' : wp_date( 'D M j, Y g:ia T', $dt->getTimestamp(), TW_Settings::user_timezone() );
+		$details = array_intersect_key( $current, array_flip( array( 'title', 'description', 'tags', 'categoryId', 'defaultLanguage', 'defaultAudioLanguage' ) ) );
+		$schedule = array( 'mode' => 'set', 'at' => $at, 'label' => $label );
+		return array(
+			'errors'      => $errors,
+			'warnings'    => array(),
+			'details'     => $details,
+			'current'     => $current,
+			'fingerprint' => TW_YouTube::fingerprint( $current ),
+			'schedule'    => $schedule,
+			'outcome'     => self::publish_outcome( $schedule, $current ),
+			'privacy'     => '',
+			'playlist'    => array( 'mode' => 'none' ),
+			'actions'     => array( 'Schedule this video for ' . $label . ' (stays private until then — not live on confirm)' ),
+			'rows'        => array( self::row( 'schedule', 'Schedule', $current['publishAt'] ?: 'Not scheduled', $label ) ),
 		);
 	}
 
@@ -244,12 +329,12 @@ class TW_Plan {
 	 *
 	 * @return array{ok: bool, results: array, backup: string, message: string}|WP_Error
 	 */
-	public static function publish( $video_id, array $pkg, array $opts, $duration, $fingerprint ) {
+	public static function publish( $video_id, array $pkg, array $opts, $duration, $fingerprint, $schedule_only = false ) {
 		$video = TW_YouTube::get_video( $video_id );
 		if ( is_wp_error( $video ) ) {
 			return $video;
 		}
-		$plan = self::build( $video, $pkg, $opts, $duration );
+		$plan = $schedule_only ? self::build_schedule( $video, $opts['schedule']['date'], $opts['schedule']['time'] ) : self::build( $video, $pkg, $opts, $duration );
 
 		if ( ! hash_equals( $plan['fingerprint'], (string) $fingerprint ) ) {
 			return new WP_Error( 'tw_stale', 'This video changed on YouTube after you reviewed it (maybe in Studio). Nothing was changed. Go back to Review to see the latest, then publish again.' );
@@ -289,9 +374,11 @@ class TW_Plan {
 				$results[] = array( 'ok' => true, 'text' => 'Visibility set to ' . $plan['privacy'] );
 			}
 			if ( 'now' === $plan['schedule']['mode'] ) {
-				$results[] = array( 'ok' => true, 'text' => 'Made public on YouTube' );
+				$results[] = array( 'ok' => true, 'text' => 'Made public on YouTube (live now)' );
 			} elseif ( 'set' === $plan['schedule']['mode'] ) {
-				$results[] = array( 'ok' => true, 'text' => 'Scheduled to go public ' . $plan['schedule']['label'] );
+				$results[] = array( 'ok' => true, 'text' => 'Scheduled for ' . $plan['schedule']['label'] . ' — not live yet' );
+			} elseif ( ! empty( $plan['outcome']['kind'] ) && 'keep_scheduled' === $plan['outcome']['kind'] ) {
+				$results[] = array( 'ok' => true, 'text' => 'Still scheduled for ' . $plan['outcome']['label'] . ' — not live yet' );
 			}
 		}
 
@@ -323,13 +410,29 @@ class TW_Plan {
 
 		TW_History::finish( $video_id, $backup, $results, $ok ? 'done' : 'partial' );
 
+		$outcome = isset( $plan['outcome'] ) && is_array( $plan['outcome'] )
+			? $plan['outcome']
+			: self::publish_outcome( $plan['schedule'], $plan['current'] );
+		if ( $ok ) {
+			if ( 'live_now' === $outcome['kind'] ) {
+				$message = 'Published and live on YouTube. A backup of the old details was saved first.';
+			} elseif ( in_array( $outcome['kind'], array( 'scheduled', 'keep_scheduled' ), true ) ) {
+				$message = 'Details published. Scheduled for ' . $outcome['label'] . ' — not live yet. A backup of the old details was saved first.';
+			} else {
+				$message = 'Details published. Visibility and schedule were left as they were. A backup of the old details was saved first.';
+			}
+		} else {
+			$message = 'Some steps failed. See below. A backup of the old details was saved first.';
+		}
+
 		return array(
 			'ok'       => $ok,
 			'wrote'    => $wrote,
 			'schedule' => $plan['schedule'],
+			'outcome'  => $outcome,
 			'results'  => $results,
 			'backup'   => $backup,
-			'message'  => $ok ? 'Published. A backup of the old details was saved first.' : 'Some steps failed. See below. A backup of the old details was saved first.',
+			'message'  => $message,
 		);
 	}
 
@@ -391,6 +494,7 @@ class TW_Plan {
 			$changes[] = 'Put the old schedule back';
 		}
 		$backup = TW_History::start( $video_id, $before['title'], 'restore', $live, $changes );
+		if ( ! TW_History::get( $video_id, $backup ) ) { return new WP_Error( 'tw_backup', 'Could not save a backup, so nothing was changed.' ); }
 
 		$write   = TW_YouTube::write_video( $video, $details, $schedule, $at );
 		$results = array();

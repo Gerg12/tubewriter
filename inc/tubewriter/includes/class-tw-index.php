@@ -154,11 +154,14 @@ class TW_Index {
 
 		// Private/scheduled thumbs are signed i9.ytimg URLs that expire. Download
 		// while the API URL is fresh so the Videos list never hotlinks YouTube.
-		// Only force-redownload when asked (or missing). Forcing every sync row
-		// re-fetches hundreds of ytimg files and makes Quick sync look stuck.
+		// Force only when asked (or missing). Optional check_thumb does a free CDN
+		// HEAD (0 API units) and re-downloads only when the remote size changed —
+		// so Studio custom thumbs show up without re-fetching the whole channel.
 		$remote_thumb = self::remote_thumb_from_snippet( $sn );
-		$force_thumb  = ! empty( $opts['force_thumb'] ) || ! self::has_local_thumb( $v['id'] );
-		$thumb        = self::cache_thumbnail( $v['id'], $remote_thumb, $force_thumb );
+		$missing      = ! self::has_local_thumb( $v['id'] );
+		$force_thumb  = ! empty( $opts['force_thumb'] ) || $missing;
+		$check_thumb  = ! empty( $opts['check_thumb'] ) && ! $force_thumb;
+		$thumb        = self::cache_thumbnail( $v['id'], $remote_thumb, $force_thumb, $check_thumb );
 		$row          = array(
 			'id'           => $v['id'],
 			'title'        => (string) ( $sn['title'] ?? '' ),
@@ -361,9 +364,10 @@ class TW_Index {
 		$pages  = 'quick' === $mode ? self::QUICK_PAGES : self::BATCH_PAGES;
 		$synced = 0;
 		$total  = 0;
-		// Quick sync: refresh list thumbs for the newest handful only, so a Studio
-		// or Media Library replace shows up without re-downloading the whole channel.
-		$force_thumbs_left = ( 'quick' === $mode && '' === (string) $token ) ? 12 : 0;
+		// Quick sync: always force-refresh the newest handful, and cheap-check the
+		// rest (CDN HEAD, 0 API units) so Studio custom thumbs replace stale locals.
+		$is_quick          = ( 'quick' === $mode );
+		$force_thumbs_left = ( $is_quick && '' === (string) $token ) ? 12 : 0;
 
 		for ( $i = 0; $i < $pages; $i++ ) {
 			$page = TW_YouTube::uploads_page( $token );
@@ -381,6 +385,7 @@ class TW_Index {
 					array(
 						'from_uploads' => true,
 						'force_thumb'  => $force_one,
+						'check_thumb'  => $is_quick && ! $force_one,
 					)
 				);
 				$synced++;
@@ -392,24 +397,24 @@ class TW_Index {
 			}
 		}
 
-		$done      = ( 'quick' === $mode ) || ! $token;
+		$done      = $is_quick || ! $token;
 		$scheduled = 0;
 		$drafts    = 0;
 		$removed   = 0;
 		$note      = '';
 		if ( $done ) {
 			// Same run id, and before the local delete, or a full sync would drop them.
-			$search_pages = 'quick' === $mode ? 3 : 11;
+			$search_pages = $is_quick ? 3 : 11;
 			$found        = TW_YouTube::playlist_excluded_videos( $search_pages );
 			foreach ( $found['scheduled'] as $video ) {
-				self::upsert( $video, $run );
+				self::upsert( $video, $run, array( 'check_thumb' => $is_quick ) );
 				$scheduled++;
 			}
 			foreach ( $found['drafts'] as $video ) {
-				self::upsert( $video, $run, array( 'as_draft' => true ) );
+				self::upsert( $video, $run, array( 'as_draft' => true, 'check_thumb' => $is_quick ) );
 				$drafts++;
 			}
-			$refreshed = self::refresh_private_schedules( $run );
+			$refreshed = self::refresh_private_schedules( $run, $is_quick );
 			if ( $refreshed['scheduled'] > $scheduled ) {
 				$scheduled = $refreshed['scheduled'];
 			}
@@ -438,6 +443,7 @@ class TW_Index {
 				}
 			}
 			TW_Store::set( 'index_synced', time() );
+			delete_transient( 'tw_best_' . self::uid() );
 			delete_transient( 'tw_calendar_' . self::uid() );
 		}
 
@@ -498,6 +504,7 @@ class TW_Index {
 		}
 		TW_Store::set( 'scheduled_sync_note', $note );
 		TW_Store::set( 'index_synced', time() );
+		delete_transient( 'tw_best_' . self::uid() );
 		delete_transient( 'tw_calendar_' . self::uid() );
 
 		$draft_count = self::count_drafts();
@@ -559,7 +566,11 @@ class TW_Index {
 	 * Re-fetch publishAt for indexed private and draft videos.
 	 * videos.list omits deleted uploads, so drop those stale local rows.
 	 */
-	private static function refresh_private_schedules( $run ) {
+	/**
+	 * @param string $run
+	 * @param bool   $check_thumbs Cheap CDN thumb check (Quick sync). 0 API units.
+	 */
+	private static function refresh_private_schedules( $run, $check_thumbs = false ) {
 		global $wpdb;
 		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM " . self::table() . " WHERE user_id = %d AND privacy IN ('private','draft')", self::uid() ) ); // phpcs:ignore
 		$err     = '';
@@ -576,7 +587,7 @@ class TW_Index {
 						continue;
 					}
 					$seen[ $id ] = true;
-					self::upsert( $video, $run );
+					self::upsert( $video, $run, array( 'check_thumb' => (bool) $check_thumbs ) );
 				}
 				foreach ( $ids as $id ) {
 					$id = (string) $id;
@@ -761,9 +772,10 @@ class TW_Index {
 	 *
 	 * @param string $video_id
 	 * @param string $remote_url
-	 * @param bool   $force Re-download even when a local file already exists.
+	 * @param bool   $force          Re-download even when a local file already exists.
+	 * @param bool   $check_changed  When local exists: free CDN HEAD, re-download only if size differs.
 	 */
-	public static function cache_thumbnail( $video_id, $remote_url, $force = false ) {
+	public static function cache_thumbnail( $video_id, $remote_url, $force = false, $check_changed = false ) {
 		$remote_url = esc_url_raw( (string) $remote_url );
 		$paths      = self::local_thumb_paths( $video_id );
 		if ( ! $paths ) {
@@ -771,7 +783,10 @@ class TW_Index {
 		}
 
 		if ( ! $force && self::has_local_thumb( $video_id ) ) {
-			return $paths['url'];
+			if ( ! $check_changed || ! self::remote_thumb_looks_changed( $video_id, $remote_url ) ) {
+				return $paths['url'];
+			}
+			// Size (or HEAD) says the CDN image changed — fall through and replace.
 		}
 
 		if ( '' === $remote_url ) {
@@ -796,6 +811,46 @@ class TW_Index {
 			return $remote_url;
 		}
 		return $paths['url'];
+	}
+
+	/**
+	 * Cheap stale check against YouTube's CDN (0 API units).
+	 * Compares Content-Length to the local file size. Public thumbs often keep the
+	 * same URL after a Studio replace, so URL string compare is not enough.
+	 *
+	 * @return bool True when we should re-download (changed, unknown, or HEAD failed).
+	 */
+	private static function remote_thumb_looks_changed( $video_id, $remote_url ) {
+		$remote_url = esc_url_raw( (string) $remote_url );
+		$paths      = self::local_thumb_paths( $video_id );
+		if ( ! $paths || ! self::has_local_thumb( $video_id ) ) {
+			return true;
+		}
+		if ( '' === $remote_url || ! self::thumb_is_remote( $remote_url ) ) {
+			return false;
+		}
+
+		$response = wp_remote_head(
+			$remote_url,
+			array(
+				'timeout'     => 5,
+				'redirection' => 3,
+				'user-agent'  => 'TubeWriter/' . TW_VERSION . '; ' . home_url( '/' ),
+			)
+		);
+		if ( is_wp_error( $response ) ) {
+			return true;
+		}
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code < 200 || $code >= 300 ) {
+			return true;
+		}
+		$len = wp_remote_retrieve_header( $response, 'content-length' );
+		if ( '' === $len || false === $len || null === $len ) {
+			// No size header — re-download; still 0 API units.
+			return true;
+		}
+		return (int) $len !== (int) filesize( $paths['file'] );
 	}
 
 	/**
@@ -945,12 +1000,18 @@ class TW_Index {
 		);
 		$out = array();
 		foreach ( $rows as $r ) {
-			$sched = 'private' === $r['privacy'];
+			// Same rule as the library / TW_YouTube::is_scheduled: past go-live times
+			// are treated as published so calendars do not show stale "Scheduled" chips.
+			$sched_ts = ! empty( $r['publish_at'] ) ? strtotime( $r['publish_at'] . ' UTC' ) : 0;
+			$sched    = 'private' === $r['privacy'] && $sched_ts && $sched_ts > time();
+			$at_src   = ( 'private' === $r['privacy'] && ! empty( $r['publish_at'] ) )
+				? $r['publish_at']
+				: $r['published_at'];
 			$out[] = array(
 				'id'    => $r['id'],
 				'title' => $r['title'],
 				'type'  => $sched ? 'scheduled' : 'published',
-				'at'    => str_replace( ' ', 'T', $sched ? $r['publish_at'] : $r['published_at'] ) . 'Z',
+				'at'    => str_replace( ' ', 'T', $at_src ) . 'Z',
 				'thumb' => (string) ( $r['thumb'] ?? '' ),
 			);
 		}
