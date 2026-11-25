@@ -2734,6 +2734,27 @@ body.tw-app.tw-app--videos .tw-shell {
 	background: var(--tw-panel-muted);
 	padding: 16px;
 }
+.tw-editor-shell .tw-thumb-style {
+	border-color: rgba(15, 122, 108, 0.28);
+	border-radius: 14px;
+	background: rgba(238, 250, 246, 0.4);
+}
+.tw-editor-shell .tw-thumb-style-preview {
+	border-radius: 12px;
+}
+.tw-editor-shell .tw-thumb-style-preview-actions .button {
+	border-color: rgba(15, 122, 108, 0.35);
+}
+.tw-editor-shell .tw-thumb-style-custom summary {
+	color: var(--tw-accent-deep, #0f7a6c);
+}
+.tw-editor-shell .tw-thumb-style-color {
+	color: var(--tw-muted, #50575e);
+}
+.tw-editor-shell .tw-thumb-style-color input[type="color"] {
+	border-color: rgba(15, 122, 108, 0.35);
+	border-radius: 8px;
+}
 .tw-editor-shell .tw-thumb-logos {
 	border-style: dashed;
 	border-color: rgba(15, 122, 108, 0.28);

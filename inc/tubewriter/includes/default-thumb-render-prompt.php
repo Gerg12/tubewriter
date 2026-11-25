@@ -42,8 +42,8 @@ About three dominant elements: (1) hero gameplay moment, (2) huge headline, (3) 
 HEADLINE
 Huge — about 25-40% of canvas width. Usually two lines. Do NOT shrink the headline to fix crowding; shrink PiP/logo, move logos, shorten line 2, or reposition text instead.
 Default upper-left in negative space; move if that covers faces, guns, explosions, vehicles, or focal action.
-Line 1: largest; white fill, thick black outline, colored outer stroke, strong shadow.
-Line 2: smaller but loud; bright accent from the scene (orange, amber, cyan, red, lime, magenta — pick from the screenshot, not always the same), thick black outline, strong shadow.
+Follow the brief's Headline Typography exactly for fill colors, outline, outer stroke/glow, and treatment. Line 1 is largest; Line 2 is smaller but loud.
+Do NOT default to white + yellow + orange when the brief names other colors. Variety across videos matters.
 Exact wording from the brief. No paraphrase, no extra punctuation.
 Soft shadow plate behind text is fine. No giant opaque rectangles unless needed.
 

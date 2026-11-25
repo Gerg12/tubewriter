@@ -829,10 +829,9 @@ class TW_Credits {
 		$daily_r   = $unlimited ? null : max( 0, $daily_c - $daily_u );
 
 		if ( $unlimited ) {
-			$why = user_can( $user_id, 'manage_options' ) ? 'admin' : 'whitelist';
-			$writing_line = 'Unlimited writing credits (' . $why . ')';
-			$thumb_line   = 'Unlimited thumbnail credits (' . $why . ')';
-			$daily_line   = 'Unlimited YouTube units today (' . $why . ')';
+			$writing_line = 'Unlimited writing credits';
+			$thumb_line   = 'Unlimited thumbnail credits';
+			$daily_line   = 'Unlimited YouTube units today';
 		} else {
 			$writing_line = sprintf( '%d of %d writing credits left', $w_left, $w_allow );
 			if ( $renew ) {

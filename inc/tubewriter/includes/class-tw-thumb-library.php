@@ -180,6 +180,38 @@ class TW_Thumb_Library {
 	}
 
 	/**
+	 * WordPress resized / scaled sibling filename (e.g. foo-300x169.png, foo-scaled.jpg).
+	 * These must never become their own Media Library attachments.
+	 *
+	 * @param string $file Absolute path or basename.
+	 * @return bool
+	 */
+	public static function is_wp_resized_filename( $file ) {
+		$name = basename( (string) $file );
+		if ( '' === $name ) {
+			return false;
+		}
+		return (bool) preg_match( '/-(?:\d+x\d+|scaled)\.(jpe?g|png|gif|webp)$/i', $name );
+	}
+
+	/**
+	 * Keep model output as one file: no intermediate sizes, no -scaled rewrite.
+	 *
+	 * @param array $sizes
+	 * @return array
+	 */
+	public static function skip_intermediate_sizes( $sizes ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found
+		return array();
+	}
+
+	/**
+	 * @return false
+	 */
+	public static function disable_big_image_threshold() {
+		return false;
+	}
+
+	/**
 	 * Register a generated file as a Media Library attachment in the user's library.
 	 *
 	 * @param string $file     Absolute path already written.
@@ -192,6 +224,9 @@ class TW_Thumb_Library {
 		$file = wp_normalize_path( (string) $file );
 		if ( '' === $file || ! is_readable( $file ) ) {
 			return new WP_Error( 'tw_thumb_lib', 'Generated thumbnail file is missing.' );
+		}
+		if ( self::is_wp_resized_filename( $file ) ) {
+			return new WP_Error( 'tw_thumb_lib', 'Refusing to register a WordPress resized copy as a thumbnail.' );
 		}
 
 		$user_id = get_current_user_id();
@@ -208,6 +243,7 @@ class TW_Thumb_Library {
 			if ( '' !== $safe_video && '' === (string) get_post_meta( $existing, self::META_VIDEO, true ) ) {
 				update_post_meta( $existing, self::META_VIDEO, $safe_video );
 			}
+			self::strip_attachment_sizes( $existing );
 			$public = (string) wp_get_attachment_url( $existing );
 			return array(
 				'id'   => $existing,
@@ -247,8 +283,15 @@ class TW_Thumb_Library {
 			return $attach_id;
 		}
 
+		// One original only — never spawn -150x150 / -medium / -scaled siblings.
+		add_filter( 'intermediate_image_sizes_advanced', array( __CLASS__, 'skip_intermediate_sizes' ), 999 );
+		add_filter( 'big_image_size_threshold', array( __CLASS__, 'disable_big_image_threshold' ), 999 );
 		$meta = wp_generate_attachment_metadata( $attach_id, $file );
-		if ( is_array( $meta ) && $meta ) {
+		remove_filter( 'intermediate_image_sizes_advanced', array( __CLASS__, 'skip_intermediate_sizes' ), 999 );
+		remove_filter( 'big_image_size_threshold', array( __CLASS__, 'disable_big_image_threshold' ), 999 );
+
+		if ( is_array( $meta ) ) {
+			unset( $meta['sizes'] );
 			wp_update_attachment_metadata( $attach_id, $meta );
 		}
 
@@ -269,6 +312,100 @@ class TW_Thumb_Library {
 	}
 
 	/**
+	 * Drop intermediate size metadata and delete leftover -WxH / -scaled files on disk.
+	 *
+	 * @param int $attach_id
+	 */
+	public static function strip_attachment_sizes( $attach_id ) {
+		$attach_id = (int) $attach_id;
+		if ( ! $attach_id ) {
+			return;
+		}
+		$file = wp_normalize_path( (string) get_attached_file( $attach_id ) );
+		$meta = wp_get_attachment_metadata( $attach_id );
+		if ( ! is_array( $meta ) ) {
+			$meta = array();
+		}
+
+		$sizes = isset( $meta['sizes'] ) && is_array( $meta['sizes'] ) ? $meta['sizes'] : array();
+		$dir   = $file ? trailingslashit( dirname( $file ) ) : '';
+		foreach ( $sizes as $size ) {
+			$name = isset( $size['file'] ) ? (string) $size['file'] : '';
+			if ( '' === $name || ! $dir ) {
+				continue;
+			}
+			$path = $dir . $name;
+			if ( is_file( $path ) && self::is_wp_resized_filename( $path ) ) {
+				wp_delete_file( $path );
+			}
+		}
+
+		if ( $file && is_file( $file ) ) {
+			$base = pathinfo( $file, PATHINFO_FILENAME );
+			$ext  = pathinfo( $file, PATHINFO_EXTENSION );
+			if ( $base && $ext ) {
+				$siblings = glob( $dir . $base . '-*.' . $ext );
+				if ( is_array( $siblings ) ) {
+					foreach ( $siblings as $sibling ) {
+						$sibling = wp_normalize_path( $sibling );
+						if ( self::is_wp_resized_filename( $sibling ) && is_file( $sibling ) ) {
+							wp_delete_file( $sibling );
+						}
+					}
+				}
+			}
+		}
+
+		if ( isset( $meta['sizes'] ) ) {
+			unset( $meta['sizes'] );
+			wp_update_attachment_metadata( $attach_id, $meta );
+		}
+	}
+
+	/**
+	 * Delete library attachments that are actually WordPress resized copies
+	 * (registered by an older backfill that globbed -300x169 siblings).
+	 *
+	 * @param int|null $user_id Limit to one author when set; null = all generated.
+	 * @return int How many impostor attachments were removed.
+	 */
+	public static function purge_resized_impostors( $user_id = null ) {
+		$user_id = null === $user_id ? 0 : (int) $user_id;
+		$args    = array(
+			'post_type'              => 'attachment',
+			'post_status'            => 'inherit',
+			'posts_per_page'         => 500,
+			'fields'                 => 'ids',
+			'no_found_rows'          => true,
+			'update_post_meta_cache' => false,
+			'update_post_term_cache' => false,
+			'meta_query'             => array(
+				array(
+					'key'   => self::META,
+					'value' => 'generated',
+				),
+			),
+		);
+		if ( $user_id > 0 ) {
+			$args['author'] = $user_id;
+		}
+
+		$query   = new WP_Query( $args );
+		$removed = 0;
+		foreach ( $query->posts as $id ) {
+			$id   = (int) $id;
+			$file = (string) get_attached_file( $id );
+			if ( self::is_wp_resized_filename( $file ) ) {
+				wp_delete_attachment( $id, true );
+				++$removed;
+				continue;
+			}
+			self::strip_attachment_sizes( $id );
+		}
+		return $removed;
+	}
+
+	/**
 	 * Pull older loose files from uploads/tubewriter/generated into the Media Library
 	 * so "Choose finished thumbnail" can see generations made before the library existed.
 	 *
@@ -280,6 +417,9 @@ class TW_Thumb_Library {
 		if ( ! $user_id ) {
 			return 0;
 		}
+
+		// Kill -300x169 / -scaled impostors that an older backfill registered as library items.
+		self::purge_resized_impostors( $user_id );
 
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) ) {
@@ -296,7 +436,7 @@ class TW_Thumb_Library {
 		$states = self::user_draft_states( $user_id );
 		foreach ( $states as $video_id => $state ) {
 			$file = wp_normalize_path( (string) ( $state['thumb_file'] ?? '' ) );
-			if ( '' === $file || ! is_readable( $file ) ) {
+			if ( '' === $file || ! is_readable( $file ) || self::is_wp_resized_filename( $file ) ) {
 				continue;
 			}
 			if ( false === strpos( $file, '/tubewriter/generated/' ) && false === strpos( $file, '\\tubewriter\\generated\\' ) ) {
@@ -306,13 +446,14 @@ class TW_Thumb_Library {
 		}
 
 		// Also import loose files still on disk (older gens before Media Library registration).
+		// Skip WordPress -WxH / -scaled siblings — they are not separate thumbnails.
 		$files = glob( $dir . '/tw-thumb-*.*' );
 		if ( is_array( $files ) ) {
 			$my_videos = array_fill_keys( array_keys( $states ), true );
 			$is_admin  = user_can( $user_id, 'manage_options' );
 			foreach ( $files as $file ) {
 				$file = wp_normalize_path( $file );
-				if ( ! is_file( $file ) || isset( $candidates[ $file ] ) ) {
+				if ( ! is_file( $file ) || isset( $candidates[ $file ] ) || self::is_wp_resized_filename( $file ) ) {
 					continue;
 				}
 				$video = '';
@@ -564,13 +705,12 @@ class TW_Thumb_Library {
 		if ( 'generated' !== (string) get_post_meta( $id, self::META, true ) ) {
 			return null;
 		}
-		$full  = (string) wp_get_attachment_image_url( $id, 'full' );
-		$thumb = (string) wp_get_attachment_image_url( $id, 'medium' );
-		$url   = '' !== $full ? $full : (string) wp_get_attachment_url( $id );
+		$full = (string) wp_get_attachment_image_url( $id, 'full' );
+		$url  = '' !== $full ? $full : (string) wp_get_attachment_url( $id );
 		return array(
 			'id'      => $id,
 			'url'     => $url,
-			'thumb'   => '' !== $thumb ? $thumb : $url,
+			'thumb'   => $url,
 			'edit'    => (string) get_edit_post_link( $id, 'raw' ),
 			'title'   => get_the_title( $id ),
 			'video'   => (string) get_post_meta( $id, self::META_VIDEO, true ),

@@ -277,6 +277,15 @@ window.TWAjax = window.TWAjax || {
 		thumbDesc: $('tw-thumb-desc'), thumbResult: $('tw-thumb-result'),
 		thumbPreview: $('tw-thumb-preview'), thumbDownload: $('tw-thumb-download'),
 		thumbFile: $('tw-thumb-file'), thumbClear: $('tw-thumb-clear'),
+		thumbStylePreset: $('tw-thumb-style-preset'), thumbStyleEffect: $('tw-thumb-style-effect'),
+		thumbStyleLine1: $('tw-thumb-style-line1'), thumbStyleLine2: $('tw-thumb-style-line2'),
+		thumbStyleStroke: $('tw-thumb-style-stroke'), thumbStyleClear: $('tw-thumb-style-clear-colors'),
+		thumbStyleResolved: $('tw-thumb-style-resolved'),
+		thumbStylePreviewL1: $('tw-thumb-style-preview-l1'),
+		thumbStylePreviewL2: $('tw-thumb-style-preview-l2'),
+		thumbStylePreviewMeta: $('tw-thumb-style-preview-meta'),
+		thumbStyleCycle: $('tw-thumb-style-cycle'),
+		thumbStyleCustom: $('tw-thumb-style-custom'),
 		plSelect: $('tw-pl-select'), plRough: $('tw-pl-rough'), plTitle: $('tw-pl-title'),
 		plDesc: $('tw-pl-desc'), plPrivacy: $('tw-pl-privacy'),
 		schedDate: $('tw-sched-date'), schedTime: $('tw-sched-time'),
@@ -2316,11 +2325,11 @@ window.TWAjax = window.TWAjax || {
 				say(err.message, 'error');
 			});
 		});
-		ensureLibraryBackfill().then(function () {
-			// Refresh after any late imports so new attachments appear in the open picker.
+		// Purge resized impostors / import loose files before the frame queries the library.
+		ensureLibraryBackfill().finally(function () {
+			frame.open();
 			preferGeneratedLibrary();
 		});
-		frame.open();
 	}
 
 	if ($('tw-thumb-pick')) {
@@ -2349,6 +2358,353 @@ window.TWAjax = window.TWAjax || {
 		return textProvider() === 'openai' ? 'ChatGPT / OpenAI image' : 'Gemini image';
 	}
 
+	function thumbColorValue(input) {
+		if (!input || input.getAttribute('data-empty') === '1') {
+			return '';
+		}
+		return String(input.value || '').toUpperCase();
+	}
+
+	function thumbPresets() {
+		return (typeof TW !== 'undefined' && TW.thumbStylePresets) ? TW.thumbStylePresets : {};
+	}
+
+	function thumbEffects() {
+		return (typeof TW !== 'undefined' && TW.thumbStyleEffects) ? TW.thumbStyleEffects : {};
+	}
+
+	function thumbPresetKeys() {
+		return Object.keys(thumbPresets());
+	}
+
+	function pickAutoThumbPreset(exclude) {
+		var presets = thumbPresets();
+		var keys = thumbPresetKeys();
+		var bag = [];
+		keys.forEach(function (key) {
+			if (exclude && key === exclude && keys.length > 1) {
+				return;
+			}
+			var n = Math.max(1, parseInt(presets[key].weight, 10) || 1);
+			for (var i = 0; i < n; i++) {
+				bag.push(key);
+			}
+		});
+		if (!bag.length) {
+			return keys[0] || 'white_yellow_fire';
+		}
+		return bag[Math.floor(Math.random() * bag.length)];
+	}
+
+	function nextThumbPresetKey(current) {
+		var keys = thumbPresetKeys();
+		if (!keys.length) {
+			return 'white_yellow_fire';
+		}
+		var idx = keys.indexOf(current);
+		if (idx < 0) {
+			return keys[0];
+		}
+		return keys[(idx + 1) % keys.length];
+	}
+
+	function clearThumbColorOverrides() {
+		if (el.thumbStyleLine1) {
+			el.thumbStyleLine1.value = '#ffffff';
+			el.thumbStyleLine1.setAttribute('data-empty', '1');
+		}
+		if (el.thumbStyleLine2) {
+			el.thumbStyleLine2.value = '#ffe600';
+			el.thumbStyleLine2.setAttribute('data-empty', '1');
+		}
+		if (el.thumbStyleStroke) {
+			el.thumbStyleStroke.value = '#ff4500';
+			el.thumbStyleStroke.setAttribute('data-empty', '1');
+		}
+	}
+
+	function syncThumbColorInputsFromPack(pack) {
+		if (!pack) {
+			return;
+		}
+		if (el.thumbStyleLine1) {
+			el.thumbStyleLine1.value = pack.line1 || '#ffffff';
+			el.thumbStyleLine1.setAttribute('data-empty', '1');
+		}
+		if (el.thumbStyleLine2) {
+			el.thumbStyleLine2.value = pack.line2 || '#ffe600';
+			el.thumbStyleLine2.setAttribute('data-empty', '1');
+		}
+		if (el.thumbStyleStroke) {
+			el.thumbStyleStroke.value = pack.stroke || '#ff4500';
+			el.thumbStyleStroke.setAttribute('data-empty', '1');
+		}
+	}
+
+	function resolveThumbPreviewPack() {
+		var presets = thumbPresets();
+		var effects = thumbEffects();
+		var presetVal = el.thumbStylePreset ? el.thumbStylePreset.value : 'random';
+		var effectVal = el.thumbStyleEffect ? el.thumbStyleEffect.value : 'random';
+		var auto = !presetVal || presetVal === 'random' || presetVal === 'auto' || !presets[presetVal];
+		var key;
+		if (auto) {
+			if (!S.thumbAutoPick || !presets[S.thumbAutoPick]) {
+				S.thumbAutoPick = pickAutoThumbPreset(saved.thumb_style_last_preset || '');
+			}
+			key = S.thumbAutoPick;
+		} else {
+			key = presetVal;
+			S.thumbAutoPick = key;
+		}
+		var pack = presets[key] || {
+			label: 'White + yellow fire',
+			why: '',
+			line1: '#FFFFFF',
+			line2: '#FFE600',
+			stroke: '#FF4500',
+			effect: 'distressed_block'
+		};
+		var effectKey = effectVal;
+		if (!effectKey || effectKey === 'random' || effectKey === 'auto' || !effects[effectKey]) {
+			effectKey = pack.effect && effects[pack.effect] ? pack.effect : 'distressed_block';
+		}
+		var fx = effects[effectKey] || { label: 'Distressed block' };
+		return {
+			key: key,
+			auto: auto,
+			label: (pack.label || key) + ' · ' + (fx.label || effectKey),
+			why: pack.why || '',
+			line1: thumbColorValue(el.thumbStyleLine1) || String(pack.line1 || '#FFFFFF').toUpperCase(),
+			line2: thumbColorValue(el.thumbStyleLine2) || String(pack.line2 || '#FFE600').toUpperCase(),
+			stroke: thumbColorValue(el.thumbStyleStroke) || String(pack.stroke || '#FF4500').toUpperCase(),
+			effect: effectKey,
+			baseLine1: String(pack.line1 || '#FFFFFF').toUpperCase(),
+			baseLine2: String(pack.line2 || '#FFE600').toUpperCase(),
+			baseStroke: String(pack.stroke || '#FF4500').toUpperCase()
+		};
+	}
+
+	function thumbPreviewShadow(fill, stroke, effect) {
+		var layers = [];
+		var o = 1;
+		for (o = 1; o <= 2; o++) {
+			layers.push(o + 'px 0 0 #000', '-' + o + 'px 0 0 #000', '0 ' + o + 'px 0 #000', '0 -' + o + 'px 0 #000');
+			layers.push(o + 'px ' + o + 'px 0 #000', '-' + o + 'px -' + o + 'px 0 #000', o + 'px -' + o + 'px 0 #000', '-' + o + 'px ' + o + 'px 0 #000');
+		}
+		if (effect === 'neon_glow') {
+			layers.push('0 0 6px ' + stroke, '0 0 14px ' + stroke);
+		} else if (effect === 'sticker_cut') {
+			layers.push('3px 3px 0 #fff', '5px 5px 0 #000');
+		} else {
+			for (o = 3; o <= 4; o++) {
+				layers.push(o + 'px 0 0 ' + stroke, '-' + o + 'px 0 0 ' + stroke, '0 ' + o + 'px 0 ' + stroke, '0 -' + o + 'px 0 ' + stroke);
+			}
+			layers.push('3px 4px 0 rgba(0,0,0,.55)');
+		}
+		return { color: fill, textShadow: layers.join(', ') };
+	}
+
+	function paintThumbStylePreview(pack) {
+		if (!el.thumbStylePreviewL1 || !pack) {
+			return;
+		}
+		var l1 = thumbPreviewShadow(pack.line1, pack.stroke, pack.effect);
+		var l2 = thumbPreviewShadow(pack.line2, pack.stroke, pack.effect);
+		el.thumbStylePreviewL1.style.color = l1.color;
+		el.thumbStylePreviewL1.style.textShadow = l1.textShadow;
+		el.thumbStylePreviewL2.style.color = l2.color;
+		el.thumbStylePreviewL2.style.textShadow = l2.textShadow;
+		if (el.thumbDesc && el.thumbDesc.value) {
+			var m1 = el.thumbDesc.value.match(/Line 1:\s*([^\n]+)/i);
+			var m2 = el.thumbDesc.value.match(/Line 2:\s*([^\n]+)/i);
+			if (m1 && m1[1].trim()) {
+				el.thumbStylePreviewL1.textContent = m1[1].trim();
+			}
+			if (m2 && m2[1].trim()) {
+				el.thumbStylePreviewL2.textContent = m2[1].trim();
+			}
+		}
+		if (el.thumbStylePreviewMeta) {
+			el.thumbStylePreviewMeta.textContent = pack.auto
+				? 'Next Write uses: ' + pack.label + (pack.why ? ' — ' + pack.why : '')
+				: 'Locked: ' + pack.label + (pack.why ? ' — ' + pack.why : '');
+		}
+	}
+
+	function refreshThumbStylePreview() {
+		paintThumbStylePreview(resolveThumbPreviewPack());
+	}
+
+	/**
+	 * @param {boolean} forDescribe When true and combo is auto, send the staged preview combo
+	 * so the brief matches the preview. Create keeps auto as random so an existing brief is not overwritten.
+	 */
+	function thumbStylePayload(forDescribe) {
+		var pack = resolveThumbPreviewPack();
+		var preset;
+		if (pack.auto) {
+			preset = forDescribe ? pack.key : 'random';
+		} else {
+			preset = el.thumbStylePreset ? el.thumbStylePreset.value : 'random';
+		}
+		return {
+			thumb_style_preset: preset,
+			thumb_style_effect: el.thumbStyleEffect && el.thumbStyleEffect.value !== 'random' ? el.thumbStyleEffect.value : 'random',
+			thumb_style_line1: thumbColorValue(el.thumbStyleLine1),
+			thumb_style_line2: thumbColorValue(el.thumbStyleLine2),
+			thumb_style_stroke: thumbColorValue(el.thumbStyleStroke),
+			thumb_style_exclude: saved.thumb_style_last_preset || '',
+			thumb_style_auto: pack.auto ? '1' : '0'
+		};
+	}
+
+	function showThumbStyleResolved(label, why) {
+		if (!el.thumbStyleResolved) {
+			return;
+		}
+		if (label) {
+			el.thumbStyleResolved.hidden = false;
+			el.thumbStyleResolved.textContent = why
+				? 'This brief uses: ' + label + ' — ' + why
+				: 'This brief uses: ' + label;
+		} else {
+			el.thumbStyleResolved.hidden = true;
+			el.thumbStyleResolved.textContent = '';
+		}
+	}
+
+	function advanceAutoThumbPick(usedKey) {
+		if (el.thumbStylePreset && el.thumbStylePreset.value === 'random') {
+			S.thumbAutoPick = pickAutoThumbPreset(usedKey || '');
+			clearThumbColorOverrides();
+			if (el.thumbStyleEffect) {
+				el.thumbStyleEffect.value = 'random';
+			}
+			refreshThumbStylePreview();
+		}
+	}
+
+	function cycleThumbStyleLook() {
+		var presets = thumbPresets();
+		var current = '';
+		if (el.thumbStylePreset && el.thumbStylePreset.value !== 'random' && presets[el.thumbStylePreset.value]) {
+			current = el.thumbStylePreset.value;
+		} else {
+			current = S.thumbAutoPick || saved.thumb_style_last_preset || '';
+		}
+		var next = nextThumbPresetKey(current);
+		clearThumbColorOverrides();
+		if (el.thumbStyleEffect) {
+			el.thumbStyleEffect.value = 'random';
+		}
+		// Stay on Proven (auto) and only stage the next combo — unless they already locked one.
+		if (el.thumbStylePreset && el.thumbStylePreset.value !== 'random') {
+			el.thumbStylePreset.value = next;
+		}
+		S.thumbAutoPick = next;
+		syncThumbColorInputsFromPack({
+			line1: (presets[next] && presets[next].line1) || '#FFFFFF',
+			line2: (presets[next] && presets[next].line2) || '#FFE600',
+			stroke: (presets[next] && presets[next].stroke) || '#FF4500'
+		});
+		refreshThumbStylePreview();
+	}
+
+	function applyThumbPresetSelection() {
+		var presets = thumbPresets();
+		var val = el.thumbStylePreset ? el.thumbStylePreset.value : 'random';
+		clearThumbColorOverrides();
+		if (el.thumbStyleEffect) {
+			el.thumbStyleEffect.value = 'random';
+		}
+		if (!val || val === 'random' || val === 'auto' || !presets[val]) {
+			S.thumbAutoPick = pickAutoThumbPreset(saved.thumb_style_last_preset || '');
+		} else {
+			S.thumbAutoPick = val;
+			syncThumbColorInputsFromPack({
+				line1: presets[val].line1,
+				line2: presets[val].line2,
+				stroke: presets[val].stroke
+			});
+		}
+		refreshThumbStylePreview();
+	}
+
+	function wireThumbStyleColors() {
+		['thumbStyleLine1', 'thumbStyleLine2', 'thumbStyleStroke'].forEach(function (key) {
+			var input = el[key];
+			if (!input) {
+				return;
+			}
+			input.addEventListener('input', function () {
+				input.setAttribute('data-empty', '0');
+				if (el.thumbStyleCustom) {
+					el.thumbStyleCustom.open = true;
+				}
+				refreshThumbStylePreview();
+			});
+			input.addEventListener('change', function () {
+				input.setAttribute('data-empty', '0');
+				refreshThumbStylePreview();
+			});
+		});
+		if (el.thumbStyleClear) {
+			el.thumbStyleClear.addEventListener('click', function () {
+				clearThumbColorOverrides();
+				refreshThumbStylePreview();
+			});
+		}
+		if (el.thumbStylePreset) {
+			el.thumbStylePreset.addEventListener('change', applyThumbPresetSelection);
+		}
+		if (el.thumbStyleEffect) {
+			el.thumbStyleEffect.addEventListener('change', refreshThumbStylePreview);
+		}
+		if (el.thumbStyleCycle) {
+			el.thumbStyleCycle.addEventListener('click', function (e) {
+				e.preventDefault();
+				cycleThumbStyleLook();
+			});
+		}
+	}
+
+	function bootThumbStyle() {
+		S.thumbAutoPick = '';
+		var presets = thumbPresets();
+		// Keep Proven (auto) as the default UX; only restore a locked combo / effect / colors.
+		var lockedPreset = saved.thumb_style_preset || '';
+		if (el.thumbStylePreset && lockedPreset && lockedPreset !== 'random' && lockedPreset !== 'auto' && presets[lockedPreset]) {
+			el.thumbStylePreset.value = lockedPreset;
+			S.thumbAutoPick = lockedPreset;
+		} else if (el.thumbStylePreset) {
+			el.thumbStylePreset.value = 'random';
+			S.thumbAutoPick = pickAutoThumbPreset(saved.thumb_style_last_preset || '');
+		}
+		if (el.thumbStyleEffect && saved.thumb_style_effect && saved.thumb_style_effect !== 'random' && saved.thumb_style_effect !== 'auto') {
+			el.thumbStyleEffect.value = saved.thumb_style_effect;
+		} else if (el.thumbStyleEffect) {
+			el.thumbStyleEffect.value = 'random';
+		}
+		clearThumbColorOverrides();
+		function restoreColor(input, hex) {
+			if (!input || !hex || !/^#[0-9A-Fa-f]{6}$/.test(hex)) {
+				return;
+			}
+			input.value = hex;
+			input.setAttribute('data-empty', '0');
+			if (el.thumbStyleCustom) {
+				el.thumbStyleCustom.open = true;
+			}
+		}
+		restoreColor(el.thumbStyleLine1, saved.thumb_style_line1);
+		restoreColor(el.thumbStyleLine2, saved.thumb_style_line2);
+		restoreColor(el.thumbStyleStroke, saved.thumb_style_stroke);
+		showThumbStyleResolved(saved.thumb_style_resolved || '', saved.thumb_style_why || '');
+		wireThumbStyleColors();
+		refreshThumbStylePreview();
+	}
+
 	if ($('tw-thumb-describe')) {
 		wire($('tw-thumb-describe'), 'Writing brief...', function () {
 			if (!canThumbnails()) {
@@ -2365,15 +2721,48 @@ window.TWAjax = window.TWAjax || {
 			say(S.shots.length
 				? who + ' is reading the screenshots plus title, description and transcript…'
 				: who + ' is drafting a thumbnail brief from the title, description and transcript (no screenshots pasted)…', 'info');
-			return call('thumb_describe', {
+			var wasAuto = !el.thumbStylePreset || el.thumbStylePreset.value === 'random';
+			var stylePayload = thumbStylePayload(true);
+			return call('thumb_describe', Object.assign({
 				images: JSON.stringify(shotPayload()),
 				pkg: JSON.stringify(pkgFromForm()),
 				provider: textProvider()
-			}).then(function (d) {
+			}, stylePayload)).then(function (d) {
 				spent.thumbDescribe = true;
 				saved.thumb_described = 1;
 				el.thumbDesc.value = d.description || '';
-				say('Brief ready. Edit it if you want, then create the thumbnail.', 'success');
+				var label = (d.thumb_style && d.thumb_style.label) || '';
+				var why = (d.thumb_style && d.thumb_style.why) || '';
+				var usedKey = (d.thumb_style && d.thumb_style.preset) || stylePayload.thumb_style_preset || '';
+				saved.thumb_style_resolved = label;
+				saved.thumb_style_why = why;
+				saved.thumb_style_last_preset = usedKey;
+				// Stay on Proven (auto) so the next Write gets a different combo.
+				saved.thumb_style_preset = wasAuto ? 'random' : stylePayload.thumb_style_preset;
+				saved.thumb_style_effect = stylePayload.thumb_style_effect;
+				saved.thumb_style_line1 = stylePayload.thumb_style_line1;
+				saved.thumb_style_line2 = stylePayload.thumb_style_line2;
+				saved.thumb_style_stroke = stylePayload.thumb_style_stroke;
+				if (wasAuto && el.thumbStylePreset) {
+					el.thumbStylePreset.value = 'random';
+				}
+				showThumbStyleResolved(label, why);
+				if (d.thumb_style) {
+					paintThumbStylePreview({
+						key: usedKey,
+						auto: wasAuto,
+						label: label,
+						why: why,
+						line1: d.thumb_style.line1,
+						line2: d.thumb_style.line2,
+						stroke: d.thumb_style.stroke,
+						effect: d.thumb_style.effect
+					});
+				}
+				advanceAutoThumbPick(usedKey);
+				say(label
+					? 'Brief ready (' + label + '). Edit it if you want, then create the thumbnail.'
+					: 'Brief ready. Edit it if you want, then create the thumbnail.', 'success');
 			});
 		});
 	}
@@ -2405,7 +2794,8 @@ window.TWAjax = window.TWAjax || {
 			say('Creating the thumbnail with ' + imageFamilyLabel() + '. This can take a minute.', 'info');
 			var qualityEl = $('tw-thumb-quality');
 			var imageQuality = qualityEl && qualityEl.value === 'high' ? 'high' : 'standard';
-			return call('thumb_generate', {
+			var stylePayload = thumbStylePayload(false);
+			return call('thumb_generate', Object.assign({
 				images: JSON.stringify(shotPayload()),
 				thumb_description: el.thumbDesc.value,
 				pkg: JSON.stringify(pkgFromForm()),
@@ -2415,10 +2805,14 @@ window.TWAjax = window.TWAjax || {
 				game_logo_pos: S.logos.game.pos,
 				channel_logo_id: S.logos.channel.id || 0,
 				channel_logo_pos: S.logos.channel.pos
-			}).then(function (d) {
+			}, stylePayload)).then(function (d) {
 				spent.thumbGenerate = true;
 				saved.thumb_generated = 1;
 				saved.thumb_uploaded = 0;
+				if (d.description && el.thumbDesc) {
+					el.thumbDesc.value = d.description;
+					saved.thumb_description = d.description;
+				}
 				showThumbResult(d.url);
 				libraryBackfilled = true;
 				if (d.library && d.library.usage && typeof TW !== 'undefined') {
@@ -3144,6 +3538,7 @@ window.TWAjax = window.TWAjax || {
 	if (el.thumbDesc) {
 		el.thumbDesc.value = saved.thumb_description || '';
 	}
+	bootThumbStyle();
 	if (saved.thumb_url) {
 		showThumbResult(saved.thumb_url);
 	}

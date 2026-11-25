@@ -1682,8 +1682,7 @@ body.tw-app .tw-badge {
 .uw-header-logout { margin: 0; }
 .uw-header-logout button { display: flex; gap: 18px; }
 .uw-header-user { font-size: 1rem; color: #d8cfc5; border-left: 1px solid #ffffff30; padding-left: 22px; max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.uw-header-credits { display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; line-height: 1.25; color: #d8cfc5; border-left: 1px solid #ffffff30; padding-left: 16px; max-width: 240px; }
-.uw-header-credits span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uw-header-credits { display: block; font-size: 0.75rem; line-height: 1.3; color: #d8cfc5; border-left: 1px solid #ffffff30; padding-left: 16px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tw-ai-mode { margin: 0 0 1rem; padding: 0.85rem 1rem; background: rgba(0,0,0,0.04); border-radius: 4px; }
 .tw-ai-mode-label { margin: 0 0 0.35rem; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; color: #81776b; }
 .uw-site .uw-button { background: #d93620; box-shadow: 0 5px 0 #882315; border-radius: 6px; }

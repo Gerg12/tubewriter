@@ -9,13 +9,20 @@
         <?php if ( ! is_user_logged_in() ) : ?><a class="uw-login" href="<?php echo esc_url( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'login' ) : wp_login_url() ); ?>">Log in</a><?php endif; ?>
         <?php if ( is_user_logged_in() && class_exists( 'TW_Frontend' ) ) : $uw_user = wp_get_current_user(); ?>
             <?php if ( class_exists( 'TW_Credits' ) && function_exists( 'tw_user_can_app' ) && tw_user_can_app() ) :
-				$uw_credits = TW_Credits::snapshot( (int) $uw_user->ID );
+				$uw_credits      = TW_Credits::snapshot( (int) $uw_user->ID );
+				$uw_credit_title = implode( ' · ', array( $uw_credits['writing_line'], $uw_credits['thumbnail_line'], $uw_credits['daily_units_line'] ) );
+				if ( ! empty( $uw_credits['unlimited'] ) ) {
+					$uw_credit_label = ( 'Admin' === ( $uw_credits['plan_name'] ?? '' ) ) ? 'Admin · unlimited' : 'Unlimited';
+				} else {
+					$uw_credit_label = sprintf(
+						'%d writing · %d thumbs · %d YT today',
+						(int) $uw_credits['writing_left'],
+						(int) $uw_credits['thumbnail_left'],
+						(int) $uw_credits['daily_units_remaining']
+					);
+				}
 				?>
-				<span class="uw-header-credits" title="<?php echo esc_attr( $uw_credits['daily_units_line'] ); ?>">
-					<span><?php echo esc_html( $uw_credits['writing_line'] ); ?></span>
-					<span><?php echo esc_html( $uw_credits['thumbnail_line'] ); ?></span>
-					<span><?php echo esc_html( $uw_credits['daily_units_line'] ); ?></span>
-				</span>
+				<span class="uw-header-credits" title="<?php echo esc_attr( $uw_credit_title ); ?>"><?php echo esc_html( $uw_credit_label ); ?></span>
 			<?php endif; ?>
             <span class="uw-header-user"><?php echo esc_html( $uw_user->display_name ?: $uw_user->user_login ); ?></span>
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="uw-header-logout">

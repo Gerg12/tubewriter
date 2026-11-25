@@ -138,19 +138,509 @@ TXT;
 	}
 
 	/**
+	 * Proven headline color combos for busy gameplay thumbs.
+	 * Built from WCAG contrast pairs + gaming/CTR studies: luminance first,
+	 * black outline so letters measure against dark, accent for Line 2 only.
+	 * weight = relative odds when the editor leaves Color look on Proven (auto).
+	 *
+	 * @return array<string, array{label: string, why: string, line1: string, line2: string, stroke: string, effect: string, weight: int}>
+	 */
+	public static function thumb_color_presets() {
+		return array(
+			'white_yellow_fire'    => array(
+				'label'  => 'White + yellow fire',
+				'why'    => 'Highest measured contrast (white/yellow on dark). Gaming urgency staple.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FFE600',
+				'stroke' => '#FF4500',
+				'effect' => 'distressed_block',
+				'weight' => 4,
+			),
+			'white_gold_navy'      => array(
+				'label'  => 'White + gold navy',
+				'why'    => 'White on navy ~16:1, gold accent ~11:1. Authority without pure black.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FFD400',
+				'stroke' => '#0B1F4B',
+				'effect' => 'clean_impact',
+				'weight' => 3,
+			),
+			'white_deep_red'       => array(
+				'label'  => 'White + deep red',
+				'why'    => 'White on deep red (~6.5:1), not pure red (fails). Drama / high stakes.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF3B3B',
+				'stroke' => '#C00000',
+				'effect' => 'distressed_block',
+				'weight' => 3,
+			),
+			'white_neon_green'     => array(
+				'label'  => 'White + neon green',
+				'why'    => 'Neon green on dark ~15:1. Dominant gaming accent in feed studies.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#39FF14',
+				'stroke' => '#0A3D00',
+				'effect' => 'neon_glow',
+				'weight' => 3,
+			),
+			'white_electric_cyan'  => array(
+				'label'  => 'White + electric cyan',
+				'why'    => 'Cyan/teal accent for tech-feel; differentiates from lime-heavy gaming feeds.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#00E5FF',
+				'stroke' => '#0050A0',
+				'effect' => 'neon_glow',
+				'weight' => 3,
+			),
+			'black_on_yellow'      => array(
+				'label'  => 'Black on yellow',
+				'why'    => 'Black/yellow ~19.5:1 reverse. Reads as a sticker / warning badge.',
+				'line1'  => '#111111',
+				'line2'  => '#111111',
+				'stroke' => '#FFE600',
+				'effect' => 'sticker_cut',
+				'weight' => 2,
+			),
+			'yellow_cyan_split'    => array(
+				'label'  => 'Yellow + cyan split',
+				'why'    => 'Warm Line 1 + cool Line 2. Both light fills keep luminance high on dark scenes.',
+				'line1'  => '#FFE600',
+				'line2'  => '#00E5FF',
+				'stroke' => '#111111',
+				'effect' => 'clean_impact',
+				'weight' => 2,
+			),
+			'cream_crimson'        => array(
+				'label'  => 'Cream + crimson',
+				'why'    => 'Cream title + crimson stake on deep stroke. Tension without pure-red contrast fail.',
+				'line1'  => '#FFF4E8',
+				'line2'  => '#FF2A2A',
+				'stroke' => '#6B0000',
+				'effect' => 'comic_pop',
+				'weight' => 2,
+			),
+			'white_hot_magenta'    => array(
+				'label'  => 'White + hot magenta',
+				'why'    => 'White primary + magenta accent. Feed pop when warm reds already dominate.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF2BD6',
+				'stroke' => '#6B00A8',
+				'effect' => 'neon_glow',
+				'weight' => 2,
+			),
+			'white_alert_orange'   => array(
+				'label'  => 'White + alert orange',
+				'why'    => 'Orange/yellow urgency accents; white Line 1 keeps the 7:1+ readability target.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF7A00',
+				'stroke' => '#FFE600',
+				'effect' => 'distressed_block',
+				'weight' => 2,
+			),
+			'yellow_black_impact'  => array(
+				'label'  => 'Yellow + black impact',
+				'why'    => 'Yellow title on dark with black outer stack. Near-max WCAG contrast.',
+				'line1'  => '#FFE600',
+				'line2'  => '#FFFFFF',
+				'stroke' => '#111111',
+				'effect' => 'clean_impact',
+				'weight' => 3,
+			),
+			'white_lime_toxic'     => array(
+				'label'  => 'White + toxic lime',
+				'why'    => 'Acid lime stake for loot / hazard beats. Stays light-on-dark.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#B8FF00',
+				'stroke' => '#3D5A00',
+				'effect' => 'neon_glow',
+				'weight' => 2,
+			),
+			'white_sky_blue'       => array(
+				'label'  => 'White + sky blue',
+				'why'    => 'Cool readable accent for vehicles / daytime maps.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#7AD7FF',
+				'stroke' => '#1240A0',
+				'effect' => 'clean_impact',
+				'weight' => 2,
+			),
+			'white_amber_warn'     => array(
+				'label'  => 'White + amber warn',
+				'why'    => 'Amber stake for caution / fail moments without going full red.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FFC107',
+				'stroke' => '#A05A00',
+				'effect' => 'distressed_block',
+				'weight' => 2,
+			),
+			'ice_white_navy'       => array(
+				'label'  => 'Ice + navy',
+				'why'    => 'Ice fill + navy outer. Strong on snow / night city screenshots.',
+				'line1'  => '#F2FBFF',
+				'line2'  => '#9AD4FF',
+				'stroke' => '#0B1F4B',
+				'effect' => 'chrome_bevel',
+				'weight' => 2,
+			),
+			'white_violet_surge'   => array(
+				'label'  => 'White + violet surge',
+				'why'    => 'Violet accent for bosses / supernatural beats.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#C77DFF',
+				'stroke' => '#5A189A',
+				'effect' => 'neon_glow',
+				'weight' => 2,
+			),
+			'black_on_cyan'        => array(
+				'label'  => 'Black on cyan',
+				'why'    => 'Sticker reverse with cyan border. High luminance flip for busy greens.',
+				'line1'  => '#111111',
+				'line2'  => '#111111',
+				'stroke' => '#00E5FF',
+				'effect' => 'sticker_cut',
+				'weight' => 2,
+			),
+			'black_on_lime'        => array(
+				'label'  => 'Black on lime',
+				'why'    => 'Sticker reverse with lime border. Cuts through dark foliage scenes.',
+				'line1'  => '#111111',
+				'line2'  => '#111111',
+				'stroke' => '#B8FF00',
+				'effect' => 'sticker_cut',
+				'weight' => 2,
+			),
+			'white_coral_pop'      => array(
+				'label'  => 'White + coral pop',
+				'why'    => 'Coral stake warmer than pure red; still pops on teal water scenes.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF6F61',
+				'stroke' => '#8B1E00',
+				'effect' => 'comic_pop',
+				'weight' => 2,
+			),
+			'gold_white_chrome'    => array(
+				'label'  => 'Gold + white chrome',
+				'why'    => 'Gold title with white stake. Loot / rank / prestige signal.',
+				'line1'  => '#FFD700',
+				'line2'  => '#FFFFFF',
+				'stroke' => '#5C3B00',
+				'effect' => 'chrome_bevel',
+				'weight' => 2,
+			),
+			'white_mint_clean'     => array(
+				'label'  => 'White + mint clean',
+				'why'    => 'Mint stake for heal / success beats without neon green overload.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#5CFFB0',
+				'stroke' => '#007A55',
+				'effect' => 'clean_impact',
+				'weight' => 2,
+			),
+			'yellow_red_siren'     => array(
+				'label'  => 'Yellow + red siren',
+				'why'    => 'Yellow title + deep-red stake. Alarm without white-on-pure-red fail.',
+				'line1'  => '#FFE600',
+				'line2'  => '#FF2A2A',
+				'stroke' => '#7A0000',
+				'effect' => 'distressed_block',
+				'weight' => 2,
+			),
+			'white_steel_blue'     => array(
+				'label'  => 'White + steel blue',
+				'why'    => 'Muted steel accent for milsim / tactics without neon noise.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#8FB8FF',
+				'stroke' => '#1E3A5F',
+				'effect' => 'clean_impact',
+				'weight' => 2,
+			),
+			'cream_emerald'        => array(
+				'label'  => 'Cream + emerald',
+				'why'    => 'Warm cream title + emerald stake. Soft contrast for lush maps.',
+				'line1'  => '#FFF4E8',
+				'line2'  => '#00C853',
+				'stroke' => '#004D28',
+				'effect' => 'comic_pop',
+				'weight' => 1,
+			),
+			'white_hot_pink'       => array(
+				'label'  => 'White + hot pink',
+				'why'    => 'Hot pink stake for chaos / meme energy while title stays max-readable.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF4DA6',
+				'stroke' => '#8B004D',
+				'effect' => 'neon_glow',
+				'weight' => 2,
+			),
+			'cyan_yellow_arcade'   => array(
+				'label'  => 'Cyan + yellow arcade',
+				'why'    => 'Cool title + warm stake. Arcade / retro energy, both light fills.',
+				'line1'  => '#00E5FF',
+				'line2'  => '#FFE600',
+				'stroke' => '#111111',
+				'effect' => 'neon_glow',
+				'weight' => 2,
+			),
+			'white_blood_orange'   => array(
+				'label'  => 'White + blood orange',
+				'why'    => 'Blood-orange stake between red and amber. Strong on dusk screenshots.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#FF4D00',
+				'stroke' => '#7A1A00',
+				'effect' => 'distressed_block',
+				'weight' => 2,
+			),
+			'black_on_white'       => array(
+				'label'  => 'Black on white',
+				'why'    => 'Maximum reverse sticker. Use when the scene is already very dark.',
+				'line1'  => '#111111',
+				'line2'  => '#111111',
+				'stroke' => '#FFFFFF',
+				'effect' => 'sticker_cut',
+				'weight' => 1,
+			),
+			'white_teal_depth'     => array(
+				'label'  => 'White + teal depth',
+				'why'    => 'Teal stake for water / sci-fi hubs. Differentiates from cyan-heavy neighbors.',
+				'line1'  => '#FFFFFF',
+				'line2'  => '#2EC4B6',
+				'stroke' => '#0A4F4A',
+				'effect' => 'clean_impact',
+				'weight' => 2,
+			),
+			'lemon_violet_clash'   => array(
+				'label'  => 'Lemon + violet clash',
+				'why'    => 'Complementary warm/cool split for maximum hue contrast at phone size.',
+				'line1'  => '#FFF44F',
+				'line2'  => '#B388FF',
+				'stroke' => '#2D0060',
+				'effect' => 'comic_pop',
+				'weight' => 1,
+			),
+		);
+	}
+
+	/**
+	 * Headline treatment recipes. Auto uses the combo's paired effect when Effect is Proven (auto).
+	 *
+	 * @return array<string, array{label: string, line1: string, line2: string}>
+	 */
+	public static function thumb_effect_presets() {
+		return array(
+			'distressed_block' => array(
+				'label' => 'Distressed block',
+				'line1' => 'heavy condensed distressed lettering, thick black inner outline, colored outer stroke, hard drop shadow',
+				'line2' => 'matching distressed condensed lettering, thick black outline, strong drop shadow',
+			),
+			'clean_impact'     => array(
+				'label' => 'Clean impact',
+				'line1' => 'clean ultra-bold condensed sans, thick black outline, soft colored outer glow, hard drop shadow',
+				'line2' => 'clean bold condensed sans, thick black outline, matching soft glow',
+			),
+			'neon_glow'        => array(
+				'label' => 'Neon glow',
+				'line1' => 'bold condensed fill with a bright neon outer glow and a thin dark core outline',
+				'line2' => 'bold condensed fill with a matching neon glow and thin dark outline',
+			),
+			'sticker_cut'      => array(
+				'label' => 'Sticker cut',
+				'line1' => 'thick sticker border (white then black), soft drop shadow, slight dynamic tilt',
+				'line2' => 'matching sticker border and soft drop shadow',
+			),
+			'chrome_bevel'     => array(
+				'label' => 'Chrome bevel',
+				'line1' => 'metallic bevel fill feel, dark outline, bright rim light, strong shadow',
+				'line2' => 'matching metallic accent fill with dark outline and rim light',
+			),
+			'comic_pop'        => array(
+				'label' => 'Comic pop',
+				'line1' => 'extra-heavy comic outline, soft shadow plate behind the words, bold solid fill',
+				'line2' => 'extra-heavy comic outline with matching shadow plate',
+			),
+		);
+	}
+
+	/**
+	 * Weighted pick from proven combos (higher weight = more often when auto).
+	 * Skips $exclude when possible so consecutive auto picks vary.
+	 *
+	 * @param string $exclude Preset key to avoid (last used).
+	 * @return string Preset key.
+	 */
+	public static function pick_proven_color_preset( $exclude = '' ) {
+		$colors  = self::thumb_color_presets();
+		$exclude = sanitize_key( (string) $exclude );
+		$bag     = array();
+		foreach ( $colors as $key => $pack ) {
+			if ( $exclude && $key === $exclude && count( $colors ) > 1 ) {
+				continue;
+			}
+			$n = max( 1, (int) ( $pack['weight'] ?? 1 ) );
+			for ( $i = 0; $i < $n; $i++ ) {
+				$bag[] = $key;
+			}
+		}
+		if ( ! $bag ) {
+			$keys = array_keys( $colors );
+			return $keys ? $keys[0] : 'white_yellow_fire';
+		}
+		return $bag[ wp_rand( 0, count( $bag ) - 1 ) ];
+	}
+
+	/**
+	 * True when a brief still has the old locked white/orange typography sentence.
+	 *
+	 * @param string $description
+	 * @return bool
+	 */
+	public static function brief_has_stale_typography( $description ) {
+		return (bool) preg_match(
+			'/Line 1 is white distressed heavy condensed lettering/i',
+			(string) $description
+		);
+	}
+
+	/**
+	 * Resolve Proven (auto) / preset / color overrides into concrete headline styling.
+	 *
+	 * @param array $request Keys: preset, effect, line1, line2, stroke, exclude (hex or empty).
+	 * @return array{preset: string, effect: string, line1: string, line2: string, stroke: string, label: string, sentence: string}
+	 */
+	public static function resolve_thumb_style( array $request = array() ) {
+		$colors  = self::thumb_color_presets();
+		$effects = self::thumb_effect_presets();
+		$preset  = sanitize_key( (string) ( $request['preset'] ?? 'random' ) );
+		$effect  = sanitize_key( (string) ( $request['effect'] ?? 'random' ) );
+		$exclude = sanitize_key( (string) ( $request['exclude'] ?? '' ) );
+		$auto_preset = ( '' === $preset || 'random' === $preset || 'auto' === $preset || 'custom' === $preset || ! isset( $colors[ $preset ] ) );
+		$auto_effect = ( '' === $effect || 'random' === $effect || 'auto' === $effect || ! isset( $effects[ $effect ] ) );
+
+		if ( $auto_preset ) {
+			$preset = self::pick_proven_color_preset( $exclude );
+		}
+
+		$pack = $colors[ $preset ];
+		// Auto effect follows the combo's paired treatment (not a separate dice roll).
+		if ( $auto_effect ) {
+			$paired = sanitize_key( (string) ( $pack['effect'] ?? 'distressed_block' ) );
+			$effect = isset( $effects[ $paired ] ) ? $paired : 'distressed_block';
+		}
+
+		$fx  = $effects[ $effect ];
+		$l1  = self::sanitize_hex_color( (string) ( $request['line1'] ?? '' ), $pack['line1'] );
+		$l2  = self::sanitize_hex_color( (string) ( $request['line2'] ?? '' ), $pack['line2'] );
+		$out = self::sanitize_hex_color( (string) ( $request['stroke'] ?? '' ), $pack['stroke'] );
+
+		$sentence = 'Line 1 fill is ' . $l1 . ' with ' . $fx['line1']
+			. ' using outer accent ' . $out . '. Line 2 fill is ' . $l2
+			. ' with ' . $fx['line2'] . '. Keep a thick black inner outline on both lines'
+			. ' so the letters stay readable on busy gameplay (measure contrast against the outline, not the photo).'
+			. ' Do not default to a different palette than the colors named here.'
+			. ' Exact wording only — no paraphrase.';
+
+		return array(
+			'preset'   => $preset,
+			'effect'   => $effect,
+			'line1'    => $l1,
+			'line2'    => $l2,
+			'stroke'   => $out,
+			'label'    => $pack['label'] . ' · ' . $fx['label'],
+			'why'      => (string) ( $pack['why'] ?? '' ),
+			'sentence' => $sentence,
+		);
+	}
+
+	/**
+	 * True when the editor picked a preset, effect, or color (not all Random/empty).
+	 *
+	 * @param array $request
+	 * @return bool
+	 */
+	public static function thumb_style_request_is_explicit( array $request ) {
+		if ( ! $request ) {
+			return false;
+		}
+		$preset = sanitize_key( (string) ( $request['preset'] ?? 'random' ) );
+		$effect = sanitize_key( (string) ( $request['effect'] ?? 'random' ) );
+		$colors = self::thumb_color_presets();
+		$fx     = self::thumb_effect_presets();
+		if ( '' !== $preset && 'random' !== $preset && 'auto' !== $preset && isset( $colors[ $preset ] ) ) {
+			return true;
+		}
+		if ( '' !== $effect && 'random' !== $effect && 'auto' !== $effect && isset( $fx[ $effect ] ) ) {
+			return true;
+		}
+		foreach ( array( 'line1', 'line2', 'stroke' ) as $key ) {
+			$hex = strtoupper( trim( (string) ( $request[ $key ] ?? '' ) ) );
+			if ( preg_match( '/^#?[0-9A-F]{6}$/', $hex ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * @param string $hex
+	 * @param string $fallback
+	 * @return string
+	 */
+	private static function sanitize_hex_color( $hex, $fallback ) {
+		$hex = strtoupper( trim( (string) $hex ) );
+		if ( preg_match( '/^#[0-9A-F]{6}$/', $hex ) ) {
+			return $hex;
+		}
+		if ( preg_match( '/^[0-9A-F]{6}$/', $hex ) ) {
+			return '#' . $hex;
+		}
+		$fallback = strtoupper( trim( (string) $fallback ) );
+		return preg_match( '/^#[0-9A-F]{6}$/', $fallback ) ? $fallback : '#FFFFFF';
+	}
+
+	/**
+	 * Bake (or replace) the Headline Typography color/effect sentence in a brief.
+	 *
+	 * @param string $description
+	 * @param array  $style       From resolve_thumb_style().
+	 * @return string
+	 */
+	public static function apply_thumb_style_to_brief( $description, array $style ) {
+		$description = (string) $description;
+		$sentence    = trim( (string) ( $style['sentence'] ?? '' ) );
+		if ( '' === $sentence ) {
+			return $description;
+		}
+		if ( preg_match( '/Line 1 is .+?Exact wording only — no paraphrase\./s', $description )
+			|| preg_match( '/Line 1 fill is .+?Exact wording only — no paraphrase\./s', $description ) ) {
+			$description = preg_replace(
+				'/Line 1 (?:is|fill is) .+?Exact wording only — no paraphrase\./s',
+				$sentence,
+				$description,
+				1
+			);
+			return is_string( $description ) ? $description : (string) $description;
+		}
+		if ( preg_match( '/(Line 2:\s*[^\n]+)\s*$/s', $description ) ) {
+			return rtrim( $description ) . "\n\n" . $sentence;
+		}
+		return rtrim( $description ) . "\n\nHeadline Typography:\n\n" . $sentence;
+	}
+
+	/**
 	 * Write a thumbnail brief from title, description, transcript and optional screenshots.
 	 *
 	 * @param array  $input    Same shape as generate().
 	 * @param array  $images   List of {mime: string, data: string} (base64, no data: prefix). May be empty.
 	 * @param array  $pkg      Optional current draft package for title/body context.
 	 * @param string $provider gemini or openai (same picker as Generate).
-	 * @return array{description: string}|WP_Error
+	 * @param array  $style    Optional headline style request (preset/effect/colors).
+	 * @return array{description: string, thumb_style?: array}|WP_Error
 	 */
-	public static function describe_thumbnail( array $input, array $images, array $pkg = array(), $provider = 'gemini' ) {
+	public static function describe_thumbnail( array $input, array $images, array $pkg = array(), $provider = 'gemini', array $style = array() ) {
 		$images = self::normalize_images( $images );
 		if ( is_wp_error( $images ) ) {
 			return $images;
 		}
+		$resolved = self::resolve_thumb_style( $style );
 
 		// Cap text context — full caption tracks are huge and not needed for a thumb brief.
 		$input['transcript']          = mb_substr( trim( (string) ( $input['transcript'] ?? '' ) ), 0, 32000 );
@@ -196,11 +686,14 @@ TXT;
 		if ( is_wp_error( $json ) ) {
 			return $json;
 		}
-		$desc = self::format_thumb_concept( $json, $shot_count );
+		$desc = self::format_thumb_concept( $json, $shot_count, $resolved );
 		if ( is_wp_error( $desc ) ) {
 			return $desc;
 		}
-		return array( 'description' => $desc );
+		return array(
+			'description' => $desc,
+			'thumb_style' => $resolved,
+		);
 	}
 
 	/**
@@ -209,9 +702,10 @@ TXT;
 	 *
 	 * @param array $json       Decoded model object.
 	 * @param int   $shot_count Attached screenshot count.
+	 * @param array $style      Resolved headline style from resolve_thumb_style().
 	 * @return string|WP_Error
 	 */
-	private static function format_thumb_concept( array $json, $shot_count = 1 ) {
+	private static function format_thumb_concept( array $json, $shot_count = 1, array $style = array() ) {
 		$composition = self::thumb_prose( $json, 'composition', '/^composition style:\s*/i' );
 		$base        = self::thumb_prose( $json, 'base_imagery', '/^base imagery\s*\(image 1\):\s*/i' );
 		$inset       = self::thumb_prose( $json, 'inset', '/^tactical inset\s*\(image 2\):\s*/i' );
@@ -297,7 +791,9 @@ TXT;
 			. "\n"
 			. 'Line 2: ' . $line2 . "\n"
 			. "\n"
-			. 'Line 1 is white distressed heavy condensed lettering with a thick black outline and a colored outer stroke pulled from the scene (often orange). Line 2 is a bright scene-matched accent with a thick black outline. Exact wording only — no paraphrase.';
+			. ( ! empty( $style['sentence'] )
+				? $style['sentence']
+				: self::resolve_thumb_style()['sentence'] );
 	}
 
 	/** One prose field, labels and extra whitespace removed. */
@@ -329,9 +825,10 @@ TXT;
 	 * @param array  $images      List of {mime, data}. May be empty.
 	 * @param array  $logos      Corner logo files for post-compose.
 	 * @param string $provider   Optional editor text provider (openai|gemini).
+	 * @param array  $style      Optional headline style request; rewrites brief typography when set.
 	 * @return array{mime: string, data: string}|WP_Error
 	 */
-	public static function generate_thumbnail( $description, array $images, array $logos = array(), $provider = '' ) {
+	public static function generate_thumbnail( $description, array $images, array $logos = array(), $provider = '', array $style = array() ) {
 		$description = trim( (string) $description );
 		if ( '' === $description ) {
 			return new WP_Error( 'tw_ai', 'Approve or write a thumbnail description first.' );
@@ -339,6 +836,11 @@ TXT;
 		$images = self::normalize_images( $images );
 		if ( is_wp_error( $images ) ) {
 			return $images;
+		}
+		// Only rewrite typography on Create when the editor locked a look.
+		// Random + empty colors leaves the brief's already-baked sentence alone.
+		if ( self::thumb_style_request_is_explicit( $style ) ) {
+			$description = self::apply_thumb_style_to_brief( $description, self::resolve_thumb_style( $style ) );
 		}
 
 		// Screenshots only go to the image model. Corner logos are pasted in code

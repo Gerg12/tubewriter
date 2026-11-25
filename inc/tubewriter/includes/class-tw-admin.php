@@ -762,7 +762,7 @@ class TW_Admin {
 					$can_thumbs
 						? array(
 							'Paste inspiration screenshots: <strong>Ctrl+V</strong> or Add image into the paste box (not only Saved references). First image is the background photo. Second is the picture-in-picture photo. Drag shots to swap roles. Max two.',
-							'Click <strong>Write thumbnail description</strong>. Uses the Gemini or ChatGPT model selected next to Generate, with title, description, transcript/timestamps, and your pasted shots.',
+							'Pick a <strong>Headline style</strong> (or leave Proven auto). Then click <strong>Write thumbnail description</strong>. Uses the Gemini or ChatGPT model selected next to Generate, with title, description, transcript/timestamps, and your pasted shots.',
 							'Edit the brief if you want, then click <strong>Create thumbnail</strong>. ChatGPT selected → OpenAI image model. Gemini selected → Gemini image model. Safe margins stay ~150px in from every edge.',
 							'Corner logos are optional PNG badges. The finished 16:9 card is created or chosen in its own section below.',
 							'Generated cards are saved to the <strong>Media Library</strong>. Reuse them with <strong>Choose finished thumbnail</strong>. Free accounts keep a few videos worth; admins are unlimited. Oldest drop off when you go over.',
@@ -806,6 +806,58 @@ class TW_Admin {
 							<button type="button" class="button" id="tw-thumb-lightbox-close">Close</button>
 						</p>
 					</div>
+				</div>
+
+				<div class="tw-thumb-style" id="tw-thumb-style">
+					<p class="tw-thumb-zone-title">Headline style</p>
+					<p class="description">Leave Proven (auto) alone — each Write picks a different high-contrast combo. Lock a combo only if you want that look.</p>
+					<div class="tw-thumb-style-preview" id="tw-thumb-style-preview" aria-live="polite">
+						<p class="tw-thumb-style-preview-line1" id="tw-thumb-style-preview-l1">TITLE LINE</p>
+						<p class="tw-thumb-style-preview-line2" id="tw-thumb-style-preview-l2">SUBTITLE LINE</p>
+						<p class="tw-thumb-style-preview-meta" id="tw-thumb-style-preview-meta"></p>
+						<p class="tw-inline tw-thumb-style-preview-actions">
+							<button type="button" class="button" id="tw-thumb-style-cycle">Next look</button>
+						</p>
+					</div>
+					<div class="tw-two tw-thumb-style-row">
+						<div>
+							<label for="tw-thumb-style-preset">Color combo</label>
+							<select id="tw-thumb-style-preset" aria-label="Headline color combo">
+								<option value="random" selected>Proven (auto)</option>
+								<?php foreach ( TW_AI::thumb_color_presets() as $key => $pack ) : ?>
+									<option value="<?php echo esc_attr( $key ); ?>" title="<?php echo esc_attr( $pack['why'] ?? '' ); ?>"><?php echo esc_html( $pack['label'] ); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+						<div>
+							<label for="tw-thumb-style-effect">Text effect</label>
+							<select id="tw-thumb-style-effect" aria-label="Headline text effect">
+								<option value="random" selected>Match combo (auto)</option>
+								<?php foreach ( TW_AI::thumb_effect_presets() as $key => $pack ) : ?>
+									<option value="<?php echo esc_attr( $key ); ?>"><?php echo esc_html( $pack['label'] ); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+					</div>
+					<details class="tw-thumb-style-custom" id="tw-thumb-style-custom">
+						<summary>Customize colors</summary>
+						<div class="tw-thumb-style-colors">
+							<label class="tw-thumb-style-color">
+								<span>Title (Line 1)</span>
+								<input type="color" id="tw-thumb-style-line1" value="#ffffff" data-empty="1" aria-label="Title Line 1 fill color">
+							</label>
+							<label class="tw-thumb-style-color">
+								<span>Subtitle (Line 2)</span>
+								<input type="color" id="tw-thumb-style-line2" value="#ffe600" data-empty="1" aria-label="Subtitle Line 2 fill color">
+							</label>
+							<label class="tw-thumb-style-color">
+								<span>Outer stroke</span>
+								<input type="color" id="tw-thumb-style-stroke" value="#ff4500" data-empty="1" aria-label="Outer stroke color">
+							</label>
+							<button type="button" class="button-link" id="tw-thumb-style-clear-colors">Clear color overrides</button>
+						</div>
+					</details>
+					<p id="tw-thumb-style-resolved" class="description tw-thumb-style-resolved" hidden></p>
 				</div>
 
 				<p class="tw-actions-left">
@@ -1616,21 +1668,33 @@ class TW_Admin {
 		if ( is_wp_error( $images ) ) {
 			wp_send_json_error( $images->get_error_message() );
 		}
-		$out = TW_AI::describe_thumbnail( $input, $images, $this->pkg_from_post(), $this->text_provider() );
+		$style = $this->thumb_style_from_post();
+		$out   = TW_AI::describe_thumbnail( $input, $images, $this->pkg_from_post(), $this->text_provider(), $style );
 		if ( is_wp_error( $out ) ) {
 			wp_send_json_error( $out->get_error_message() );
 		}
 		TW_Credits::spend_writing();
+		$resolved = is_array( $out['thumb_style'] ?? null ) ? $out['thumb_style'] : array();
+		$auto_ui  = ( '1' === $this->post( 'thumb_style_auto' ) );
 		$this->save_state(
 			$input['video'],
 			array(
-				'transcript'        => $input['transcript'],
-				'notes'             => $input['notes'],
-				'seed_title'        => $input['current_title'],
-				'seed_desc'         => $input['current_description'],
-				'pkg'               => $this->pkg_from_post(),
-				'thumb_description' => $out['description'],
-				'thumb_described'   => 1,
+				'transcript'              => $input['transcript'],
+				'notes'                   => $input['notes'],
+				'seed_title'              => $input['current_title'],
+				'seed_desc'               => $input['current_description'],
+				'pkg'                     => $this->pkg_from_post(),
+				'thumb_description'       => $out['description'],
+				'thumb_described'         => 1,
+				// Keep Proven (auto) in the UI when the editor did not lock a combo.
+				'thumb_style_preset'      => $auto_ui ? 'random' : (string) ( $style['preset'] ?? 'random' ),
+				'thumb_style_effect'      => $auto_ui ? 'random' : (string) ( $style['effect'] ?? 'random' ),
+				'thumb_style_line1'       => (string) ( $style['line1'] ?? '' ),
+				'thumb_style_line2'       => (string) ( $style['line2'] ?? '' ),
+				'thumb_style_stroke'      => (string) ( $style['stroke'] ?? '' ),
+				'thumb_style_resolved'    => (string) ( $resolved['label'] ?? '' ),
+				'thumb_style_why'         => (string) ( $resolved['why'] ?? '' ),
+				'thumb_style_last_preset' => (string) ( $resolved['preset'] ?? '' ),
 			)
 		);
 		$out['thumb_described'] = 1;
@@ -1663,7 +1727,13 @@ class TW_Admin {
 		if ( is_wp_error( $logos ) ) {
 			wp_send_json_error( $logos->get_error_message() );
 		}
-		$image = TW_AI::generate_thumbnail( $description, $images, $logos, $this->text_provider() );
+		$style = $this->thumb_style_from_post();
+		// Bake an explicit look, or refresh briefs still stuck on the old white/orange sentence.
+		if ( TW_AI::thumb_style_request_is_explicit( $style ) || TW_AI::brief_has_stale_typography( $description ) ) {
+			$description = TW_AI::apply_thumb_style_to_brief( $description, TW_AI::resolve_thumb_style( $style ) );
+			$style       = array();
+		}
+		$image = TW_AI::generate_thumbnail( $description, $images, $logos, $this->text_provider(), $style );
 		if ( is_wp_error( $image ) ) {
 			wp_send_json_error( $image->get_error_message() );
 		}
@@ -2380,6 +2450,32 @@ class TW_Admin {
 	private function post( $key, $multiline = false ) {
 		$value = wp_unslash( $_POST[ $key ] ?? '' ); // phpcs:ignore
 		return $multiline ? wp_check_invalid_utf8( (string) $value ) : sanitize_text_field( $value );
+	}
+
+	/**
+	 * Headline style request from the editor (Random / preset / color overrides).
+	 *
+	 * @return array{preset: string, effect: string, line1: string, line2: string, stroke: string}
+	 */
+	private function thumb_style_from_post() {
+		$preset = sanitize_key( $this->post( 'thumb_style_preset' ) );
+		$effect = sanitize_key( $this->post( 'thumb_style_effect' ) );
+		$colors = TW_AI::thumb_color_presets();
+		$fx     = TW_AI::thumb_effect_presets();
+		if ( '' === $preset || 'auto' === $preset || ( 'random' !== $preset && ! isset( $colors[ $preset ] ) ) ) {
+			$preset = 'random';
+		}
+		if ( '' === $effect || 'auto' === $effect || ( 'random' !== $effect && ! isset( $fx[ $effect ] ) ) ) {
+			$effect = 'random';
+		}
+		return array(
+			'preset'  => $preset,
+			'effect'  => $effect,
+			'line1'   => $this->post( 'thumb_style_line1' ),
+			'line2'   => $this->post( 'thumb_style_line2' ),
+			'stroke'  => $this->post( 'thumb_style_stroke' ),
+			'exclude' => sanitize_key( $this->post( 'thumb_style_exclude' ) ),
+		);
 	}
 
 	/**

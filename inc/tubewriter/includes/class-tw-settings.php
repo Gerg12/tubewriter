@@ -431,6 +431,10 @@ class TW_Settings {
 				false !== strpos( $render, 'PRIMARY RULE' )
 				&& false === strpos( $render, 'Photoshop' )
 			)
+			|| (
+				false !== strpos( $render, 'Line 1: largest; white fill, thick black outline, colored outer stroke, strong shadow.' )
+				&& false === strpos( $render, 'Follow the brief\'s Headline Typography exactly' )
+			)
 		) ) {
 			update_option( 'tw_thumb_render_prompt', self::default_thumb_render_prompt(), false );
 		}

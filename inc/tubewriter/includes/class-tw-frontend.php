@@ -158,6 +158,8 @@ class TW_Frontend {
 				'hasOpenAI'          => ( is_user_logged_in() && TW_Settings::get( 'openai_key' ) ) ? 1 : 0,
 				'preferredProvider'  => is_user_logged_in() ? TW_Settings::get( 'text_provider' ) : 'openai',
 				'canThumbnails'      => ( is_user_logged_in() && tw_user_can_thumbnails() ) ? 1 : 0,
+				'thumbStylePresets'  => ( is_user_logged_in() && class_exists( 'TW_AI' ) ) ? TW_AI::thumb_color_presets() : array(),
+				'thumbStyleEffects'  => ( is_user_logged_in() && class_exists( 'TW_AI' ) ) ? TW_AI::thumb_effect_presets() : array(),
 				'thumbLibrary'       => ( is_user_logged_in() ) ? TW_Thumb_Library::usage() : array( 'used' => 0, 'limit' => TW_Thumb_Library::FREE_LIMIT, 'unlimited' => 0, 'remaining' => TW_Thumb_Library::FREE_LIMIT ),
 				'settingsUrl'        => self::url( 'account' ) . ( TW_Settings::identity_complete() ? '#tw-keys' : '#tw-voice' ),
 				'accountUrl'         => self::url( 'account' ),
