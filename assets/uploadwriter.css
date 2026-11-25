@@ -1682,6 +1682,10 @@ body.tw-app .tw-badge {
 .uw-header-logout { margin: 0; }
 .uw-header-logout button { display: flex; gap: 18px; }
 .uw-header-user { font-size: 1rem; color: #d8cfc5; border-left: 1px solid #ffffff30; padding-left: 22px; max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uw-header-credits { display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; line-height: 1.25; color: #d8cfc5; border-left: 1px solid #ffffff30; padding-left: 16px; max-width: 240px; }
+.uw-header-credits span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tw-ai-mode { margin: 0 0 1rem; padding: 0.85rem 1rem; background: rgba(0,0,0,0.04); border-radius: 4px; }
+.tw-ai-mode-label { margin: 0 0 0.35rem; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; color: #81776b; }
 .uw-site .uw-button { background: #d93620; box-shadow: 0 5px 0 #882315; border-radius: 6px; }
 .uw-site .uw-button:hover { background: #b12c19; box-shadow: 0 3px 0 #882315; }
 .uw-site .uw-navigation .uw-button { box-shadow: none; }
@@ -2119,6 +2123,8 @@ body.uw-site { --uw-muted: #625b52; }
 .uw-site .uw-capabilities,.uw-site .uw-capabilities > span:first-child,
 .uw-site .uw-feature p,.uw-site .uw-steps p,.uw-site .uw-footer p,.uw-site .uw-footer-links,
 .uw-site .uw-header-user,.uw-site .uw-workspace-tabs > a { font-size: 1rem; }
+.uw-site .uw-header-credits { color: #81776b; border-left-color: #dfd8cc; }
+.uw-site .tw-ai-mode { background: #f3efe7; }
 .uw-site .uw-intro { font-size: 1.125rem; line-height: 1.7; }
 .uw-site .uw-cta-note { font-size: 1rem !important; }
 .uw-site p,.uw-site li { overflow-wrap: anywhere; }

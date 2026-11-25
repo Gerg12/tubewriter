@@ -163,6 +163,7 @@ class TW_Frontend {
 				'accountUrl'         => self::url( 'account' ),
 				'scheduleUrl'        => self::url( 'schedule' ),
 				'showQuota'          => current_user_can( 'manage_options' ) ? 1 : 0,
+				'credits'            => ( is_user_logged_in() && class_exists( 'TW_Credits' ) ) ? TW_Credits::snapshot() : null,
 			)
 		);
 		wp_enqueue_script( 'tubewriter', TW_URL . 'assets/admin.js', $deps, filemtime( TW_DIR . 'assets/admin.js' ), true );
@@ -386,7 +387,20 @@ class TW_Frontend {
 					<?php wp_nonce_field( 'tw_front_save_keys' ); ?>
 					<input type="hidden" name="action" value="tw_front_save_keys">
 					<h2>AI keys</h2>
-					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value. Your keys override any keys an admin assigned for this account.</p>
+					<?php
+					$credits_snap = class_exists( 'TW_Credits' ) ? TW_Credits::snapshot() : null;
+					?>
+					<div class="tw-ai-mode">
+						<p class="tw-ai-mode-label">Mode</p>
+						<p><strong>BYOK</strong> <span class="tw-chip tw-chip--ok">Active</span></p>
+						<p class="tw-muted">Bring your own Gemini or OpenAI key. UploadWriter calls that provider with your key. Provider bills you directly. Plan writing and thumbnail credits still apply as your monthly allowance.</p>
+						<p class="tw-muted"><strong>Hosted</strong> <span class="tw-chip tw-chip--idle">Planned, not available yet</span></p>
+						<p class="tw-muted">Hosted mode is planned for Phase 2. There is no button to select it yet.</p>
+						<?php if ( $credits_snap ) : ?>
+							<p class="tw-muted"><?php echo esc_html( $credits_snap['plan_name'] ); ?> plan · <?php echo esc_html( $credits_snap['writing_line'] ); ?> · <?php echo esc_html( $credits_snap['thumbnail_line'] ); ?></p>
+						<?php endif; ?>
+					</div>
+					<p class="tw-muted">Keys are encrypted at rest. Leave a field blank to keep the saved value. Your keys override any keys an admin assigned for this account. Removing a key blocks generation until you add a new one.</p>
 					<label for="tw_gemini_key">Gemini API key <?php
 					if ( $own_gemini ) {
 						echo '<span class="tw-chip tw-chip--ok">Your key</span>';
@@ -1109,10 +1123,21 @@ class TW_Frontend {
 		$this->auth_clear( 'register', $login . '|' . $email );
 		$user = new WP_User( $user_id );
 		$user->set_role( 'tubewriter' );
+		if ( class_exists( 'TW_Credits' ) ) {
+			TW_Credits::set_plan( $user_id, 'free', true );
+			TW_Credits::set_mode( $user_id, 'byok' );
+		}
 
 		if ( TW_Settings::beta_access() ) {
+			// Soft-cap: when 25 approved seats are filled, new signups stay pending and are pointed at the waitlist.
+			$slots_open = ! class_exists( 'TW_Credits' ) || TW_Credits::beta_slots_open();
 			tw_user_set_beta_pending( $user_id, true );
 			$this->notify_beta_signup( $user_id, $login, $email );
+			if ( ! $slots_open ) {
+				$this->flash( 'Beta is full (25 of 25). Join the waitlist on the pricing page for your position.', 'error' );
+				wp_safe_redirect( home_url( '/pricing/#waitlist' ) );
+				exit;
+			}
 			$this->flash( 'Thanks. Your request is in. We will email you when your beta access is approved.', 'success' );
 			wp_safe_redirect( self::url( 'login' ) );
 			exit;

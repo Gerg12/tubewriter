@@ -237,9 +237,44 @@ class TW_Admin {
 		$beta_on      = TW_Settings::beta_access();
 		$pending      = tw_user_is_beta_pending( $user->ID );
 		$muse_allowed = function_exists( 'uw_muse_user_allowed' ) && uw_muse_user_allowed( $user->ID );
+		$plan_id      = class_exists( 'TW_Credits' ) ? TW_Credits::plan_id( $user->ID ) : 'free';
+		$is_test      = '1' === (string) get_user_meta( $user->ID, 'tw_test_account', true );
+		$is_unlimited = class_exists( 'TW_Credits' ) && TW_Credits::user_has_unlimited( $user->ID );
 		?>
 		<h2>UploadWriter</h2>
 		<table class="form-table" role="presentation">
+			<tr>
+				<th><label for="tw_plan">Plan</label></th>
+				<td>
+					<?php if ( $is_admin ) : ?>
+						<p class="description">Site admins are not on a plan quota.</p>
+					<?php else : ?>
+						<select id="tw_plan" name="tw_plan">
+							<?php foreach ( TW_Credits::PLANS as $pid => $pinfo ) : ?>
+								<option value="<?php echo esc_attr( $pid ); ?>" <?php selected( $plan_id, $pid ); ?>><?php echo esc_html( $pinfo['name'] ); ?></option>
+							<?php endforeach; ?>
+						</select>
+						<label for="tw_plan_reset" style="display:inline-block;margin-left:12px;">
+							<input type="checkbox" id="tw_plan_reset" name="tw_plan_reset" value="1">
+							Reset credit balances to this plan’s allowance
+						</label>
+						<label for="tw_unlimited" style="display:block;margin-top:8px;">
+							<input type="checkbox" id="tw_unlimited" name="tw_unlimited" value="1" <?php checked( $is_unlimited ); ?>>
+							Unlimited usage (whitelist)
+						</label>
+						<p class="description">Skips writing credits, thumbnail credits, and the per-user daily YouTube unit cap. Does not make them an admin. Shared project 10,000 units/day still applies.</p>
+						<label for="tw_test_account" style="display:block;margin-top:8px;">
+							<input type="checkbox" id="tw_test_account" name="tw_test_account" value="1" <?php checked( $is_test ); ?>>
+							Test account (excluded from “20 real beta users” gate)
+						</label>
+						<?php if ( class_exists( 'TW_Credits' ) ) :
+							$snap = TW_Credits::snapshot( $user->ID );
+							?>
+							<p class="description"><?php echo esc_html( $snap['writing_line'] ); ?>. <?php echo esc_html( $snap['thumbnail_line'] ); ?>. <?php echo esc_html( $snap['daily_units_line'] ); ?>. Mode: BYOK (Hosted planned).</p>
+						<?php endif; ?>
+					<?php endif; ?>
+				</td>
+			</tr>
 			<?php if ( $beta_on || $pending ) : ?>
 			<tr>
 				<th><label for="tw_beta_approved">Beta access</label></th>
@@ -419,6 +454,9 @@ class TW_Admin {
 			if ( function_exists( 'uw_muse_set_user_allowed' ) ) {
 				uw_muse_set_user_allowed( $user_id, false );
 			}
+			if ( class_exists( 'TW_Credits' ) ) {
+				TW_Credits::set_user_unlimited( $user_id, false );
+			}
 			return;
 		}
 		tw_user_set_thumb_ai( $user_id, ! empty( $_POST['tw_thumb_ai'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -433,6 +471,22 @@ class TW_Admin {
 			// Checked = approved (not pending). Unchecked = pending / revoked.
 			$approved = ! empty( $_POST['tw_beta_approved'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
 			tw_user_set_beta_pending( $user_id, ! $approved );
+		}
+
+		if ( class_exists( 'TW_Credits' ) ) {
+			$plan = sanitize_key( (string) ( $_POST['tw_plan'] ?? 'free' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			if ( ! isset( TW_Credits::PLANS[ $plan ] ) ) {
+				$plan = 'free';
+			}
+			$reset = ! empty( $_POST['tw_plan_reset'] ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			TW_Credits::set_plan( $user_id, $plan, $reset );
+			TW_Credits::set_mode( $user_id, 'byok' );
+			TW_Credits::set_user_unlimited( $user_id, ! empty( $_POST['tw_unlimited'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			if ( ! empty( $_POST['tw_test_account'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+				update_user_meta( $user_id, TW_Credits::META_TEST_ACCOUNT, '1' );
+			} else {
+				delete_user_meta( $user_id, TW_Credits::META_TEST_ACCOUNT );
+			}
 		}
 
 		TW_Settings::save_assigned_ai_from_post( $user_id, $_POST ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
@@ -601,7 +655,7 @@ class TW_Admin {
 				</div>
 
 				<p class="tw-actions-left">
-					<button type="button" class="button button-primary button-hero" id="tw-generate">Generate with AI</button>
+					<button type="button" class="button button-primary button-hero" id="tw-generate">Generate, 1 writing credit</button>
 					<label for="tw-text-provider" class="tw-provider-label">with</label>
 					<select id="tw-text-provider" aria-label="AI model">
 						<option value="openai">ChatGPT (<?php echo esc_html( TW_Settings::get( 'openai_model' ) ); ?>)</option>
@@ -822,9 +876,16 @@ class TW_Admin {
 				<div class="tw-thumb-block tw-thumb-build">
 					<p class="tw-thumb-zone-title"><?php echo esc_html( $can_thumbs ? '2. Finished thumbnail' : 'Finished thumbnail' ); ?></p>
 					<p class="description"><?php echo esc_html( $can_thumbs ? 'Create the full 16:9 YouTube card from the brief above, or pick one with Choose finished thumbnail. That opens the Media Library — previously generated thumbnails live there.' : 'Pick a finished 16:9 PNG or JPEG from the Media Library.' ); ?></p>
+					<?php if ( $can_thumbs ) : ?>
+					<label for="tw-thumb-quality">Image detail</label>
+					<select id="tw-thumb-quality" aria-label="Thumbnail image detail">
+						<option value="standard">Standard, 1 thumbnail credit</option>
+						<option value="high">High-detail, 3 thumbnail credits</option>
+					</select>
+					<?php endif; ?>
 					<p class="tw-actions-left tw-inline">
 						<?php if ( $can_thumbs ) : ?>
-						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Create thumbnail</button>
+						<button type="button" class="button button-primary button-hero" id="tw-thumb-create">Generate thumbnail, standard 1 credit, high-detail 3 credits</button>
 						<?php endif; ?>
 						<button type="button" class="button button-hero" id="tw-thumb-pick">Choose finished thumbnail</button>
 					</p>
@@ -1039,6 +1100,10 @@ class TW_Admin {
 	public function ajax_captions() {
 		$this->ajax_guard();
 		$video_id = $this->post( 'video' );
+		$units_ok = TW_Credits::assert_units( TW_Credits::UNIT_COSTS['captions'], null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			wp_send_json_error( $units_ok->get_error_message() );
+		}
 		$srt      = TW_YouTube::captions_srt( $video_id );
 		if ( is_wp_error( $srt ) ) {
 			// No track / empty track still spent list (and maybe download) units. Remember so old videos are not re-pulled by accident.
@@ -1082,6 +1147,10 @@ class TW_Admin {
 	public function ajax_generate() {
 		$this->ajax_guard();
 		$this->require_identity();
+		$credit = TW_Credits::assert_writing_credit();
+		if ( is_wp_error( $credit ) ) {
+			wp_send_json_error( $credit->get_error_message() );
+		}
 		$input = $this->input();
 		if ( '' === trim( $input['transcript'] ) && '' === trim( $input['notes'] ) && '' === trim( $input['current_description'] ) ) {
 			wp_send_json_error( 'Nothing to work from yet. Add a transcript, a starting description or some notes.' );
@@ -1093,6 +1162,10 @@ class TW_Admin {
 	public function ajax_revise() {
 		$this->ajax_guard();
 		$this->require_identity();
+		$credit = TW_Credits::assert_writing_credit();
+		if ( is_wp_error( $credit ) ) {
+			wp_send_json_error( $credit->get_error_message() );
+		}
 		$input       = $this->input();
 		$instruction = $this->post( 'instruction', true );
 		if ( '' === trim( $instruction ) ) {
@@ -1533,6 +1606,11 @@ class TW_Admin {
 		$this->ajax_guard();
 		$this->require_thumbnails();
 		$this->require_identity();
+		// Standalone concept brief costs 1 writing credit (Studio allowance).
+		$credit = TW_Credits::assert_writing_credit();
+		if ( is_wp_error( $credit ) ) {
+			wp_send_json_error( $credit->get_error_message() );
+		}
 		$input  = $this->input();
 		$images = $this->images_from_post();
 		if ( is_wp_error( $images ) ) {
@@ -1542,6 +1620,7 @@ class TW_Admin {
 		if ( is_wp_error( $out ) ) {
 			wp_send_json_error( $out->get_error_message() );
 		}
+		TW_Credits::spend_writing();
 		$this->save_state(
 			$input['video'],
 			array(
@@ -1559,7 +1638,8 @@ class TW_Admin {
 		if ( $usage ) {
 			$out['ai_usage'] = $usage;
 		}
-		$out['quota'] = TW_YouTube::quota_used();
+		$out['quota']   = TW_YouTube::quota_used();
+		$out['credits'] = TW_Credits::snapshot();
 		wp_send_json_success( $out );
 	}
 
@@ -1567,6 +1647,12 @@ class TW_Admin {
 		$this->ajax_guard();
 		$this->require_thumbnails();
 		$this->require_identity();
+		$quality = (string) $this->post( 'image_quality' );
+		$detail  = TW_Credits::quality_detail( $quality );
+		$credit  = TW_Credits::assert_thumb_credit( $detail );
+		if ( is_wp_error( $credit ) ) {
+			wp_send_json_error( $credit->get_error_message() );
+		}
 		$input       = $this->input();
 		$description = $this->post( 'thumb_description', true );
 		$images      = $this->images_from_post();
@@ -1624,11 +1710,10 @@ class TW_Admin {
 		if ( $usage ) {
 			$payload['ai_usage'] = $usage;
 		}
-		if ( class_exists( 'TW_Launch' ) ) {
-			$quality = strtolower( (string) $this->post( 'image_quality' ) );
-			$detail  = ( false !== strpos( $quality, 'high' ) || 'hd' === $quality ) ? 'high' : 'standard';
-			TW_Launch::record_thumbnail_credit( $detail );
-		}
+		TW_Credits::spend_thumb( $detail );
+		$payload['credits']       = TW_Credits::snapshot();
+		$payload['thumb_detail']  = $detail;
+		$payload['credits_spent'] = TW_Credits::thumb_cost( $detail );
 		wp_send_json_success( $payload );
 	}
 
@@ -1638,6 +1723,10 @@ class TW_Admin {
 		$owned    = $this->assert_writable_video( $video_id );
 		if ( is_wp_error( $owned ) ) {
 			wp_send_json_error( $owned->get_error_message() );
+		}
+		$units_ok = TW_Credits::assert_units( TW_Credits::UNIT_COSTS['thumb_upload'], null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			wp_send_json_error( $units_ok->get_error_message() );
 		}
 
 		$rl_opts = array( 'pace_ack' => $this->pace_acked() );
@@ -1931,6 +2020,11 @@ class TW_Admin {
 		$this->ajax_guard();
 		$raw  = $this->post( 'mode' );
 		$mode = 'full' === $raw ? 'full' : ( 'drafts' === $raw ? 'drafts' : 'quick' );
+		$est  = 'full' === $mode ? TW_Credits::UNIT_COSTS['full_sync_page'] : ( 'quick' === $mode ? TW_Credits::UNIT_COSTS['quick_sync'] : 1 );
+		$units_ok = TW_Credits::assert_units( $est, null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			wp_send_json_error( $units_ok->get_error_message() );
+		}
 		$result = TW_Index::sync_batch( $mode, $this->post( 'token' ), $this->post( 'run' ) );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
@@ -1951,6 +2045,10 @@ class TW_Admin {
 		$owned    = $this->assert_writable_video( $video_id );
 		if ( is_wp_error( $owned ) ) {
 			wp_send_json_error( $owned->get_error_message() );
+		}
+		$units_ok = TW_Credits::assert_units( TW_Credits::UNIT_COSTS['privacy'], null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			wp_send_json_error( $units_ok->get_error_message() );
 		}
 		if ( ! function_exists( 'uw_muse_apply_privacy' ) ) {
 			wp_send_json_error( 'Privacy helper is not loaded.' );
@@ -2041,6 +2139,39 @@ class TW_Admin {
 		}
 
 		$opts    = $this->opts_from_post();
+		$units   = TW_Credits::UNIT_COSTS['push'];
+		$units_ok = TW_Credits::assert_units( $units, null, true );
+		if ( is_wp_error( $units_ok ) ) {
+			if ( 'tw_quota_queue' === $units_ok->get_error_code() ) {
+				$queued = TW_Credits::enqueue_push(
+					$input['video'],
+					array(
+						'pkg'         => $this->pkg_from_post(),
+						'opts'        => $opts,
+						'duration'    => $input['duration'],
+						'fingerprint' => $this->post( 'fingerprint' ),
+						'source'      => 'workspace',
+					),
+					null,
+					$units
+				);
+				if ( is_wp_error( $queued ) ) {
+					wp_send_json_error( $queued->get_error_message() );
+				}
+				wp_send_json_success(
+					array(
+						'queued'       => true,
+						'ok'           => false,
+						'message'      => $queued['message'],
+						'queue'        => $queued,
+						'credit_spent' => false,
+						'credits'      => TW_Credits::snapshot(),
+					)
+				);
+			}
+			wp_send_json_error( $units_ok->get_error_message() );
+		}
+
 		$rl_opts = array(
 			'pace_ack'  => $this->pace_acked(),
 			'high_risk' => ( 'now' === ( $opts['schedule']['mode'] ?? '' ) ),
@@ -2057,6 +2188,9 @@ class TW_Admin {
 
 		$result = TW_Plan::publish( $input['video'], $this->pkg_from_post(), $opts, $input['duration'], $this->post( 'fingerprint' ) );
 		if ( is_wp_error( $result ) ) {
+			if ( class_exists( 'TW_Launch' ) ) {
+				TW_Launch::record_push( 'error', $result->get_error_message() );
+			}
 			wp_send_json_error( $result->get_error_message() );
 		}
 		TW_Rate_Limit::hit( 'publish', $input['video'], $rl_opts );
@@ -2088,6 +2222,10 @@ class TW_Admin {
 		}
 		TW_Index::set_tw_status( $input['video'], 'pushed' );
 		$result['history'] = TW_History::summary( $input['video'] );
+		$result['credits'] = TW_Credits::snapshot();
+		if ( class_exists( 'TW_Launch' ) ) {
+			TW_Launch::record_push( ! empty( $result['ok'] ) ? 'ok' : 'error' );
+		}
 		wp_send_json_success( $result );
 	}
 
@@ -2097,6 +2235,10 @@ class TW_Admin {
 		$owned = $this->assert_writable_video( $video );
 		if ( is_wp_error( $owned ) ) {
 			wp_send_json_error( $owned->get_error_message() );
+		}
+		$units_ok = TW_Credits::assert_units( TW_Credits::UNIT_COSTS['restore'], null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			wp_send_json_error( $units_ok->get_error_message() );
 		}
 
 		$rl_opts = array( 'pace_ack' => $this->pace_acked() );
@@ -2150,9 +2292,9 @@ class TW_Admin {
 			$check['ai_usage'] = $usage;
 		}
 		$check['quota'] = TW_YouTube::quota_used();
-		if ( class_exists( 'TW_Launch' ) ) {
-			TW_Launch::record_writing_credit();
-		}
+		TW_Credits::spend_writing();
+		$check['credits']       = TW_Credits::snapshot();
+		$check['credits_spent'] = 1;
 		wp_send_json_success( $check );
 	}
 

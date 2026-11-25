@@ -513,6 +513,26 @@ function uw_muse_is_site_scope() {
 	return null !== $user_id && (int) $user_id === 0;
 }
 
+/**
+ * Hide the /uw/v1 namespace index from anyone without manage_options.
+ * Muse routes under /uw/v1/muse/* stay reachable (auth still required).
+ */
+add_filter(
+	'rest_pre_dispatch',
+	function ( $result, $server, $request ) {
+		if ( ! ( $request instanceof WP_REST_Request ) ) {
+			return $result;
+		}
+		$route = untrailingslashit( strtolower( (string) $request->get_route() ) );
+		if ( '/uw/v1' === $route && ! current_user_can( 'manage_options' ) ) {
+			return new WP_Error( 'rest_no_route', 'Not found.', array( 'status' => 404 ) );
+		}
+		return $result;
+	},
+	0,
+	3
+);
+
 add_action(
 	'rest_api_init',
 	function () {
@@ -1271,15 +1291,23 @@ function uw_muse_privacy_status( array $row ) {
 
 function uw_muse_quota_snapshot( $units_used = 0 ) {
 	$cap = uw_muse_daily_unit_cap();
-	return array(
+	$project_used = class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0;
+	$out = array(
 		'units_used'           => (int) $units_used,
 		'muse_youtube_cap'     => $cap,
 		'muse_youtube_used'    => uw_muse_quota_used(),
 		'muse_youtube_remaining' => $cap > 0 ? max( 0, $cap - uw_muse_quota_used() ) : null,
 		'youtube_project_cap'  => 10000,
-		'youtube_project_used' => class_exists( 'TW_YouTube' ) ? TW_YouTube::quota_used() : 0,
-		'youtube_project_remaining' => class_exists( 'TW_YouTube' ) ? max( 0, 10000 - TW_YouTube::quota_used() ) : null,
+		'youtube_project_used' => $project_used,
+		'youtube_project_remaining' => max( 0, 10000 - $project_used ),
 	);
+	if ( class_exists( 'TW_Credits' ) ) {
+		$out['user_daily_units_cap']       = TW_Credits::daily_cap();
+		$out['user_daily_units_used']      = TW_Credits::daily_used();
+		$out['user_daily_units_remaining'] = TW_Credits::daily_remaining();
+		$out['credits']                    = TW_Credits::snapshot();
+	}
+	return $out;
 }
 
 function uw_muse_video_payload( array $row, array $state = array() ) {
@@ -1449,6 +1477,12 @@ function uw_muse_apply_privacy( $video_id, $privacy, $dry_run = false, $confirm 
 		$quota = uw_muse_quota_check( 50 );
 		if ( is_wp_error( $quota ) ) {
 			return $quota;
+		}
+	}
+	if ( class_exists( 'TW_Credits' ) ) {
+		$units_ok = TW_Credits::assert_units( 50, null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			return $units_ok;
 		}
 	}
 
@@ -1723,6 +1757,22 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 		if ( ! $can_push ) {
 			$note = 'Muse push is off for this key. Dry run only. Turn on "Let Muse push changes to YouTube" on the account (or the site Muse setting for the site key).';
 		}
+		$units_estimate = 50;
+		$full_estimate  = 100;
+		$quota_block    = null;
+		$would_queue    = false;
+		if ( class_exists( 'TW_Credits' ) ) {
+			// Push-only estimate for the standard dry-run path. Full video (100) is informational.
+			$check_push = TW_Credits::assert_units( $units_estimate, null, true );
+			if ( is_wp_error( $check_push ) ) {
+				$quota_block = $check_push->get_error_message();
+				$would_queue = ( 'tw_quota_queue' === $check_push->get_error_code() );
+			}
+			$check_full = TW_Credits::assert_units( $full_estimate, null, true );
+			$full_block = is_wp_error( $check_full ) ? $check_full->get_error_message() : null;
+		} else {
+			$full_block = null;
+		}
 		return rest_ensure_response(
 			array(
 				'dry_run'      => true,
@@ -1742,7 +1792,13 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 				'schedule'     => uw_muse_schedule_for_response( $plan['schedule'] ),
 				'privacy'      => $plan['privacy'] ?? '',
 				'push_allowed' => $can_push,
-				'units_estimate' => 50,
+				'units_estimate' => $units_estimate,
+				'full_video_units_estimate' => $full_estimate,
+				'quota_block'  => $quota_block,
+				'full_video_quota_block' => $full_block ?? null,
+				'would_queue'  => $would_queue,
+				'credit_spent' => false,
+				'credits'      => class_exists( 'TW_Credits' ) ? TW_Credits::snapshot() : null,
 				'note'         => $note,
 			)
 		);
@@ -1751,6 +1807,41 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	$quota = uw_muse_quota_check( 50 );
 	if ( is_wp_error( $quota ) ) {
 		return $quota;
+	}
+	if ( class_exists( 'TW_Credits' ) ) {
+		$units_ok = TW_Credits::assert_units( 50, null, true );
+		if ( is_wp_error( $units_ok ) ) {
+			if ( 'tw_quota_queue' === $units_ok->get_error_code() ) {
+				$queued = TW_Credits::enqueue_push(
+					$video_id,
+					array(
+						'pkg'         => $pkg,
+						'opts'        => $opts,
+						'duration'    => $duration,
+						'fingerprint' => $plan['fingerprint'],
+						'source'      => 'muse',
+					),
+					null,
+					50
+				);
+				if ( is_wp_error( $queued ) ) {
+					return $queued;
+				}
+				return rest_ensure_response(
+					array(
+						'dry_run'      => false,
+						'pushed'       => false,
+						'queued'       => true,
+						'id'           => $video_id,
+						'queue'        => $queued,
+						'message'      => $queued['message'],
+						'credit_spent' => false,
+						'quota'        => uw_muse_quota_snapshot( 0 ),
+					)
+				);
+			}
+			return $units_ok;
+		}
 	}
 
 	$fingerprint = (string) ( $body['fingerprint'] ?? '' );
@@ -1768,10 +1859,16 @@ function uw_muse_rest_videos_push( WP_REST_Request $request ) {
 	// TW_Plan::publish re-checks the live YouTube fingerprint after a fresh fetch.
 	$result = TW_Plan::publish( $video_id, $pkg, $opts, $duration, $plan['fingerprint'] );
 	if ( is_wp_error( $result ) ) {
+		if ( class_exists( 'TW_Launch' ) ) {
+			TW_Launch::record_push( 'error', $result->get_error_message() );
+		}
 		return $result;
 	}
 
 	uw_muse_quota_add( 50 );
+	if ( class_exists( 'TW_Launch' ) ) {
+		TW_Launch::record_push( ! empty( $result['wrote'] ) ? 'ok' : 'error' );
+	}
 	uw_muse_log( 'push', $video_id, array( 'status' => ! empty( $result['wrote'] ) ? 'ok' : 'partial' ) );
 
 	uw_muse_save_state(
@@ -1864,6 +1961,12 @@ function uw_muse_rest_videos_restore( WP_REST_Request $request ) {
 	$quota = uw_muse_quota_check( 50 );
 	if ( is_wp_error( $quota ) ) {
 		return $quota;
+	}
+	if ( class_exists( 'TW_Credits' ) ) {
+		$units_ok = TW_Credits::assert_units( 50, null, false );
+		if ( is_wp_error( $units_ok ) ) {
+			return $units_ok;
+		}
 	}
 	$result = TW_Plan::restore( $video_id, $entry );
 	if ( is_wp_error( $result ) ) {

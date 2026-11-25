@@ -593,8 +593,14 @@ class TW_YouTube {
 		return is_array( $data ) ? $data : array( 'ok' => true );
 	}
 
-	/** Rough count of API units used today (Pacific day, like Google's reset). */
+	/**
+	 * Rough count of API units used today (Pacific day, like Google's reset).
+	 * When TW_Credits is available, returns the shared project counter.
+	 */
 	public static function quota_used() {
+		if ( class_exists( 'TW_Credits' ) ) {
+			return TW_Credits::project_used();
+		}
 		$q = TW_Store::get( 'quota', array() );
 		return ( is_array( $q ) && ( $q['day'] ?? '' ) === self::quota_day() ) ? (int) $q['used'] : 0;
 	}
@@ -617,6 +623,18 @@ class TW_YouTube {
 		$q    = TW_Store::get( 'quota', array() );
 		$used = ( is_array( $q ) && ( $q['day'] ?? '' ) === $day ) ? (int) $q['used'] : 0;
 		TW_Store::set( 'quota', array( 'day' => $day, 'used' => $used + $cost ) );
+		// Shared project counter + per-user daily units (plan caps).
+		if ( class_exists( 'TW_Credits' ) ) {
+			TW_Credits::record_units( $cost );
+		}
+	}
+
+	/** Prefer the shared project counter when credits are loaded. */
+	public static function project_quota_used() {
+		if ( class_exists( 'TW_Credits' ) ) {
+			return TW_Credits::project_used();
+		}
+		return self::quota_used();
 	}
 
 	/**

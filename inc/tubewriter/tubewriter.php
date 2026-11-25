@@ -44,9 +44,11 @@ add_action( 'template_redirect', array( 'TW_Calendar', 'serve_feed' ), -100 );
 require_once TW_DIR . 'includes/class-tw-rate-limit.php';
 require_once TW_DIR . 'includes/class-tw-thumb-library.php';
 require_once TW_DIR . 'includes/class-tw-privacy.php';
+require_once TW_DIR . 'includes/class-tw-credits.php';
 require_once TW_DIR . 'includes/class-tw-admin.php';
 require_once TW_DIR . 'includes/class-tw-frontend.php';
 require_once TW_DIR . 'includes/class-tw-launch.php';
+TW_Credits::boot();
 TW_Launch::boot();
 
 add_action( TW_Settings::CRON_CLEANUP_THUMBS, function () {

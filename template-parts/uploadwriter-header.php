@@ -8,6 +8,15 @@
         <a href="<?php echo esc_url( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'account' ) : wp_login_url() ); ?>">Your videos</a>
         <?php if ( ! is_user_logged_in() ) : ?><a class="uw-login" href="<?php echo esc_url( class_exists( 'TW_Frontend' ) ? TW_Frontend::url( 'login' ) : wp_login_url() ); ?>">Log in</a><?php endif; ?>
         <?php if ( is_user_logged_in() && class_exists( 'TW_Frontend' ) ) : $uw_user = wp_get_current_user(); ?>
+            <?php if ( class_exists( 'TW_Credits' ) && function_exists( 'tw_user_can_app' ) && tw_user_can_app() ) :
+				$uw_credits = TW_Credits::snapshot( (int) $uw_user->ID );
+				?>
+				<span class="uw-header-credits" title="<?php echo esc_attr( $uw_credits['daily_units_line'] ); ?>">
+					<span><?php echo esc_html( $uw_credits['writing_line'] ); ?></span>
+					<span><?php echo esc_html( $uw_credits['thumbnail_line'] ); ?></span>
+					<span><?php echo esc_html( $uw_credits['daily_units_line'] ); ?></span>
+				</span>
+			<?php endif; ?>
             <span class="uw-header-user"><?php echo esc_html( $uw_user->display_name ?: $uw_user->user_login ); ?></span>
             <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="uw-header-logout">
                 <?php wp_nonce_field( 'tw_front_logout' ); ?>

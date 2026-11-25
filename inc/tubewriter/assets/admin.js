@@ -2403,11 +2403,14 @@ window.TWAjax = window.TWAjax || {
 				}
 			}
 			say('Creating the thumbnail with ' + imageFamilyLabel() + '. This can take a minute.', 'info');
+			var qualityEl = $('tw-thumb-quality');
+			var imageQuality = qualityEl && qualityEl.value === 'high' ? 'high' : 'standard';
 			return call('thumb_generate', {
 				images: JSON.stringify(shotPayload()),
 				thumb_description: el.thumbDesc.value,
 				pkg: JSON.stringify(pkgFromForm()),
 				provider: textProvider(),
+				image_quality: imageQuality,
 				game_logo_id: S.logos.game.id || 0,
 				game_logo_pos: S.logos.game.pos,
 				channel_logo_id: S.logos.channel.id || 0,
@@ -2420,6 +2423,9 @@ window.TWAjax = window.TWAjax || {
 				libraryBackfilled = true;
 				if (d.library && d.library.usage && typeof TW !== 'undefined') {
 					TW.thumbLibrary = d.library.usage;
+				}
+				if (d.credits && typeof TW !== 'undefined') {
+					TW.credits = d.credits;
 				}
 				say('Thumbnail ready and saved to the Media Library. Upload to YouTube when you like it, or pick an earlier one with Choose finished thumbnail.', 'success');
 			});

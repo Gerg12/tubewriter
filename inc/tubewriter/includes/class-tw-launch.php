@@ -302,6 +302,40 @@ class TW_Launch {
 	}
 
 	/**
+	 * Median hours between queued_at and ran_at for completed queue rows.
+	 *
+	 * @return float|null
+	 */
+	public static function median_queue_wait_hours() {
+		if ( ! class_exists( 'TW_Credits' ) ) {
+			return null;
+		}
+		$rows = TW_Credits::queue_entries( 200 );
+		$waits = array();
+		foreach ( $rows as $row ) {
+			if ( 'done' !== ( $row['status'] ?? '' ) || empty( $row['queued_at'] ) || empty( $row['ran_at'] ) ) {
+				continue;
+			}
+			$q = strtotime( $row['queued_at'] . ' UTC' );
+			$r = strtotime( $row['ran_at'] . ' UTC' );
+			if ( ! $q || ! $r || $r < $q ) {
+				continue;
+			}
+			$waits[] = ( $r - $q ) / HOUR_IN_SECONDS;
+		}
+		if ( ! $waits ) {
+			return null;
+		}
+		sort( $waits, SORT_NUMERIC );
+		$n = count( $waits );
+		$mid = (int) floor( $n / 2 );
+		if ( 0 === $n % 2 ) {
+			return round( ( $waits[ $mid - 1 ] + $waits[ $mid ] ) / 2, 1 );
+		}
+		return round( $waits[ $mid ], 1 );
+	}
+
+	/**
 	 * Push success rate across the stored 14-day window.
 	 *
 	 * @return float|null
@@ -389,7 +423,7 @@ class TW_Launch {
 	 * @return array<int, array{label:string,met:bool,detail:string}>
 	 */
 	public static function exit_gate() {
-		$beta_count = count( self::beta_users() );
+		$beta_count = class_exists( 'TW_Credits' ) ? TW_Credits::beta_active_count() : count( self::beta_users() );
 		$pushes_week = self::pushes_last_7_days();
 		$rate = self::push_success_rate();
 		$flags = self::gate_flags();
@@ -505,9 +539,12 @@ class TW_Launch {
 						<tr><th>project_used_percent</th><td><?php echo esc_html( (string) $today['project_used_percent'] ); ?>%</td></tr>
 						<tr><th>pushes_succeeded</th><td><?php echo esc_html( number_format_i18n( (int) $today['pushes_succeeded'] ) ); ?></td></tr>
 						<tr><th>pushes_failed_quota</th><td><?php echo esc_html( number_format_i18n( (int) $today['pushes_failed_quota'] ) ); ?></td></tr>
-						<tr><th>pushes_queued_next_day</th><td><?php echo esc_html( number_format_i18n( (int) $today['pushes_queued_next_day'] ) ); ?> <span class="description">(queue enforcement not live yet, counter ready)</span></td></tr>
+						<tr><th>pushes_queued_next_day</th><td><?php echo esc_html( number_format_i18n( (int) $today['pushes_queued_next_day'] ) ); ?> <span class="description">(live queue: <?php echo esc_html( (string) ( class_exists( 'TW_Credits' ) ? TW_Credits::queue_count() : 0 ) ); ?> waiting)</span></td></tr>
 						<tr><th>push_success_rate (14d)</th><td><?php echo null === $rate ? 'n/a' : esc_html( $rate . '%' ); ?> <span class="description">(target ≥ 95%)</span></td></tr>
-						<tr><th>median_queue_wait</th><td>n/a <span class="description">(target under 24 hours once queue ships)</span></td></tr>
+						<tr><th>median_queue_wait</th><td><?php
+						$median = self::median_queue_wait_hours();
+						echo null === $median ? 'n/a' : esc_html( $median . ' hours' );
+						?> <span class="description">(target under 24 hours)</span></td></tr>
 						<tr><th>days_over_70_percent (14d)</th><td><?php echo esc_html( (string) $triggers['days_over_70'] ); ?> <span class="description">(trigger: 7+ days at 7,000+)</span></td></tr>
 						<tr><th>days_over_85_percent (14d)</th><td><?php echo esc_html( (string) $triggers['days_over_85'] ); ?> <span class="description">(trigger: 3+ days at 8,500+, pause new signups that week)</span></td></tr>
 					</tbody>
@@ -552,7 +589,7 @@ class TW_Launch {
 				<h2>Beta users (Phase 1)</h2>
 				<table class="widefat striped">
 					<tbody>
-						<tr><th>signups_total (approved beta)</th><td><?php echo esc_html( (string) count( $beta ) ); ?> / <?php echo esc_html( (string) self::BETA_CAP ); ?></td></tr>
+						<tr><th>signups_total (approved beta)</th><td><?php echo esc_html( (string) ( class_exists( 'TW_Credits' ) ? TW_Credits::beta_active_count() : count( $beta ) ) ); ?> / <?php echo esc_html( (string) self::BETA_CAP ); ?> <span class="description">Beta users: X of 25</span></td></tr>
 						<tr><th>waitlist_total</th><td><?php echo esc_html( number_format_i18n( $wait_total ) ); ?></td></tr>
 						<tr><th>beta_active_7d</th><td><?php echo esc_html( (string) $active_7 ); ?></td></tr>
 						<tr><th>beta_active_30d</th><td><?php echo esc_html( (string) $active_30 ); ?></td></tr>
@@ -566,9 +603,58 @@ class TW_Launch {
 				</table>
 			</div>
 
+			<?php if ( ! empty( $_GET['invited'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-success is-dismissible"><p>Invite sent and beta seat granted.</p></div>
+			<?php endif; ?>
+			<?php if ( ! empty( $_GET['invite_error'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+				<div class="notice notice-error is-dismissible"><p><?php echo esc_html( rawurldecode( (string) wp_unslash( $_GET['invite_error'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?></p></div>
+			<?php endif; ?>
+
+			<div class="tw-card" style="margin-top:16px;" id="queue">
+				<h2>Push queue</h2>
+				<p>Queued when the shared project hits 10,000 units. Oldest first after midnight Pacific. Credits and units are not spent until a row runs.</p>
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th>ID</th>
+							<th>Video</th>
+							<th>User</th>
+							<th>Status</th>
+							<th>Queued (UTC)</th>
+							<th>Ran (UTC)</th>
+							<th>Units</th>
+							<th>Credit spent</th>
+							<th>Fail reason</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php
+						$queue_rows = class_exists( 'TW_Credits' ) ? TW_Credits::queue_entries( 50 ) : array();
+						if ( empty( $queue_rows ) ) :
+							?>
+							<tr><td colspan="9">No queued pushes.</td></tr>
+						<?php else : ?>
+							<?php foreach ( $queue_rows as $qrow ) : ?>
+								<tr>
+									<td><?php echo esc_html( (string) $qrow['id'] ); ?></td>
+									<td><code><?php echo esc_html( (string) $qrow['video_id'] ); ?></code></td>
+									<td><?php echo esc_html( (string) $qrow['user_id'] ); ?></td>
+									<td><?php echo esc_html( (string) $qrow['status'] ); ?></td>
+									<td><?php echo esc_html( (string) $qrow['queued_at'] ); ?></td>
+									<td><?php echo esc_html( (string) ( $qrow['ran_at'] ?? '' ) ); ?></td>
+									<td><?php echo esc_html( (string) ( (int) $qrow['units_used'] ?: (int) $qrow['units_estimate'] ) ); ?></td>
+									<td><?php echo ! empty( $qrow['credit_spent'] ) ? 'Yes' : 'No'; ?></td>
+									<td><?php echo esc_html( (string) ( $qrow['fail_reason'] ?? '' ) ); ?></td>
+								</tr>
+							<?php endforeach; ?>
+						<?php endif; ?>
+					</tbody>
+				</table>
+			</div>
+
 			<div class="tw-card" style="margin-top:16px;" id="waitlist">
-				<h2>Waitlist (invite first 25, Studio-heavy last)</h2>
-				<p>First <?php echo esc_html( (string) self::BETA_CAP ); ?> invites are the beta cohort. Mark invited after you approve them.</p>
+				<h2>Waitlist (invite Free and Creator first, Studio last)</h2>
+				<p>Beta users: <?php echo esc_html( (string) ( class_exists( 'TW_Credits' ) ? TW_Credits::beta_active_count() : count( $beta ) ) ); ?> of <?php echo esc_html( (string) self::BETA_CAP ); ?>. Waitlist: <?php echo esc_html( number_format_i18n( $wait_total ) ); ?>. Invite creates or unlocks a workspace account and emails them.</p>
 				<table class="widefat striped">
 					<thead>
 						<tr>
@@ -577,17 +663,41 @@ class TW_Launch {
 							<th>Channel</th>
 							<th>Videos / month</th>
 							<th>Has key</th>
+							<th>Suggested plan</th>
 							<th>Invited</th>
 							<th></th>
 						</tr>
 					</thead>
 					<tbody>
 						<?php if ( empty( $waitlist ) ) : ?>
-							<tr><td colspan="7">No waitlist entries yet.</td></tr>
+							<tr><td colspan="8">No waitlist entries yet.</td></tr>
 						<?php else : ?>
-							<?php foreach ( $waitlist as $entry ) :
+							<?php
+							// Sort: Free/Creator interest first, Studio-heavy (13+) last.
+							usort(
+								$waitlist,
+								static function ( $a, $b ) {
+									$rank = static function ( $row ) {
+										$v = (string) ( $row['videos_per_month'] ?? '' );
+										if ( in_array( $v, array( '13-30', '31-plus' ), true ) ) {
+											return 2;
+										}
+										if ( '5-12' === $v ) {
+											return 1;
+										}
+										return 0;
+									};
+									$d = $rank( $a ) - $rank( $b );
+									if ( 0 !== $d ) {
+										return $d;
+									}
+									return (int) $a['position'] - (int) $b['position'];
+								}
+							);
+							foreach ( $waitlist as $entry ) :
 								$pos = (int) $entry['position'];
 								$cohort = $pos <= self::BETA_CAP;
+								$suggest = class_exists( 'TW_Credits' ) ? TW_Credits::invite_plan_for_entry( $entry ) : 'free';
 								?>
 								<tr>
 									<td><?php echo esc_html( (string) $pos ); ?><?php echo $cohort ? ' <span class="description">(beta)</span>' : ''; ?></td>
@@ -595,8 +705,17 @@ class TW_Launch {
 									<td><a href="<?php echo esc_url( (string) $entry['channel_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( (string) $entry['channel_url'] ); ?></a></td>
 									<td><?php echo esc_html( (string) $entry['videos_per_month'] ); ?></td>
 									<td><?php echo esc_html( (string) $entry['has_key'] ); ?></td>
+									<td><?php echo esc_html( $suggest ); ?></td>
 									<td><?php echo ! empty( $entry['invited'] ) ? 'Yes' : 'No'; ?></td>
 									<td>
+										<?php if ( empty( $entry['invited'] ) ) : ?>
+										<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
+											<?php wp_nonce_field( 'tw_waitlist_invite' ); ?>
+											<input type="hidden" name="action" value="tw_waitlist_invite">
+											<input type="hidden" name="entry_id" value="<?php echo esc_attr( (string) $entry['id'] ); ?>">
+											<button type="submit" class="button button-primary button-small">Invite</button>
+										</form>
+										<?php endif; ?>
 										<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;">
 											<?php wp_nonce_field( 'tw_launch_toggle_invite' ); ?>
 											<input type="hidden" name="action" value="tw_launch_toggle_invite">

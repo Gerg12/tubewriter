@@ -230,7 +230,9 @@ class TW_Calendar {
 		global $wpdb;
 		$hash = hash_hmac( 'sha256', $m[1], wp_salt( 'auth' ) );
 		$uid = (int) $wpdb->get_var( $wpdb->prepare( "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1", 'tw_feed_hash', $hash ) );
-		if ( ! $uid || ! user_can( $uid, 'read' ) ) { self::feed_404(); }
+		if ( ! $uid ) { self::feed_404(); }
+		$can_app = user_can( $uid, 'use_uploadwriter' ) || user_can( $uid, 'manage_options' );
+		if ( ! $can_app || ( function_exists( 'tw_user_is_beta_pending' ) && tw_user_is_beta_pending( $uid ) ) ) { self::feed_404(); }
 		TW_Context::set_user( $uid );
 		if ( ! hash_equals( (string) TW_Store::get( 'feed_hash' ), $hash ) ) { self::feed_404(); }
 		// Serialize the counter so concurrent pollers cannot bypass the hourly limit.
